@@ -38,6 +38,6 @@ Default:
   stupify is equivalent to stupify --commits 5.
 
 Not included:
-  Repo scanning, categories, baselines, sharing, server calls, Ollama, or BYO model setup.
+  Baselines, sharing, server calls, Ollama, BYO model setup, or a search/judge pipeline.
 `;
 }

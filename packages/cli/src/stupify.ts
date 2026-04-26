@@ -1,17 +1,18 @@
 #!/usr/bin/env node
 
 import { fileURLToPath } from "node:url";
-import { analyzeBatch } from "./analysis.js";
-import { createModelBatches } from "./batch.js";
+import { analyzeInput } from "./analysis.js";
+import { projectChange } from "./change-projector.js";
 import { enabledChecks } from "./checks.js";
 import { parseCommand } from "./command.js";
 import { MODEL_REGISTRY } from "./constants.js";
-import { readDiffFromStdin } from "./diff.js";
-import { readUnitForCommit, readUnitsForRecentCommits, unitFromStdinDiff } from "./git.js";
+import { artifactFromStdinDiff } from "./diff.js";
+import { projectionForCommit, projectionForRecentCommits } from "./git.js";
 import { firstRunModelBootstrap, loadLocalModel } from "./model.js";
+import { artifactFromProjectedChange } from "./repomix-adapter.js";
 import { helpText, renderFindings } from "./render.js";
 import { trace } from "./trace.js";
-import type { AnalyzeCommand, DiffUnit, FindingsResult, ModelBatch, StupifyCheck } from "./types.js";
+import type { AnalyzeCommand, ChangeArtifact, ModelInput } from "./types.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
@@ -23,14 +24,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     const checks = enabledChecks(command.checkIds);
-    const diffStartedAt = Date.now();
-    const units = await trace.trace("diff.readUnits", () => readUnits(command));
-    const batches = trace.traceSync("diff.batch", () => createModelBatches(units), {
-      units: units.length,
+    const artifactStartedAt = Date.now();
+    const input = await trace.trace("change.artifact", () => modelInput(command), {
       checks: checks.length,
     });
-    const diffMs = Date.now() - diffStartedAt;
-    printRunPlan(command, units, batches);
+    const artifactMs = Date.now() - artifactStartedAt;
+    printRunPlan(command, input);
 
     const modelStartedAt = Date.now();
     const { modelPath, model } = await trace.trace("model.load", async () => {
@@ -41,16 +40,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const modelMs = Date.now() - modelStartedAt;
 
     const promptStartedAt = Date.now();
-    const result = await trace.trace(
-      "analyze.batches",
-      async () => mergeResults(await analyzeBatches(model, batches, checks)),
-      { batches: batches.length, units: units.length, checks: checks.length, modelPath },
-    );
+    const result = await trace.trace("analyze.change", () => analyzeInput(model, input, checks), {
+      artifacts: input.artifacts.length,
+      checks: checks.length,
+      modelPath,
+    });
     const promptMs = Date.now() - promptStartedAt;
 
     console.log(renderFindings(result, command));
     console.error(
-      `Timing: total_ms=${Date.now() - startedAt} diff_ms=${diffMs} model_ms=${modelMs} prompt_ms=${promptMs} sources=${units.length} model_calls=${batches.length} checks=${checks.length} model=${command.model}`,
+      `Timing: total_ms=${Date.now() - startedAt} artifact_ms=${artifactMs} model_ms=${modelMs} prompt_ms=${promptMs} sources=${input.artifacts.length} model_calls=1 checks=${checks.length} model=${command.model}`,
     );
     return 0;
   } catch (error) {
@@ -59,40 +58,37 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
-function printRunPlan(command: AnalyzeCommand, units: readonly DiffUnit[], batches: readonly ModelBatch[]): void {
+function printRunPlan(command: AnalyzeCommand, input: ModelInput): void {
   console.error("🧙 stupify 🪄");
   console.error(`Loading local model: ${MODEL_REGISTRY[command.model].name}`);
   if (command.kind === "commits") {
-    console.error(`Analyzing ${units.length} commits in one local process.`);
+    console.error(`Analyzing last ${command.count} commits as one projected change.`);
   } else if (command.kind === "commit") {
-    console.error(`Analyzing commit ${command.commit} in one local process.`);
+    console.error(`Analyzing commit ${command.commit} as one projected change.`);
   } else {
     console.error("Analyzing stdin diff in one local process.");
   }
-  console.error(`Model calls: ${batches.length}.`);
-  if (batches.length > 1 || units.length > 1) console.error("This may take a minute...");
+  console.error(`Source: ${input.artifacts.map((artifact) => artifact.id).join(", ")}`);
+  console.error("Model calls: 1.");
 }
 
-async function readUnits(command: AnalyzeCommand): Promise<readonly DiffUnit[]> {
-  if (command.kind === "commit") return [await readUnitForCommit(command.commit)];
-  if (command.kind === "commits") return readUnitsForRecentCommits(command.count);
-
-  const diff = await readDiffFromStdin();
-  return [unitFromStdinDiff(diff.text)];
+async function modelInput(command: AnalyzeCommand): Promise<ModelInput> {
+  const artifact = await changeArtifact(command);
+  return { id: "change-001", artifacts: [artifact] };
 }
 
-function mergeResults(results: readonly FindingsResult[]): FindingsResult {
-  return { findings: results.flatMap((result) => result.findings) };
-}
+async function changeArtifact(command: AnalyzeCommand): Promise<ChangeArtifact> {
+  if (command.kind === "stdin") return artifactFromStdinDiff();
 
-async function analyzeBatches(
-  model: Parameters<typeof analyzeBatch>[0],
-  batches: readonly ModelBatch[],
-  checks: readonly StupifyCheck[],
-): Promise<readonly FindingsResult[]> {
-  const results: FindingsResult[] = [];
-  for (const batch of batches) results.push(await analyzeBatch(model, batch, checks));
-  return results;
+  const projection = command.kind === "commit"
+    ? await projectionForCommit(command.commit)
+    : await projectionForRecentCommits(command.count);
+  const projected = await projectChange(projection);
+  try {
+    return await artifactFromProjectedChange(projected);
+  } finally {
+    await projected.cleanup();
+  }
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

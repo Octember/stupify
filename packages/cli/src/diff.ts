@@ -1,18 +1,14 @@
 import { stdin as input } from "node:process";
-import type { DiffInput } from "./types.js";
+import type { ChangeArtifact } from "./types.js";
 
-export async function readDiffFromStdin(): Promise<DiffInput> {
+export async function artifactFromStdinDiff(): Promise<ChangeArtifact> {
   const raw = await readStdin();
   if (!raw.trim()) throw new Error("No diff received on stdin.");
-  return prepareDiff(raw);
-}
-
-export function prepareDiff(raw: string, commitMessage?: string): DiffInput {
-  const labeled = labelHunks(raw);
   return {
-    commitMessage,
-    text: labeled.text,
-    hunkCount: labeled.hunkCount,
+    id: "stdin",
+    label: "stdin",
+    text: `DIFF:
+${labelHunks(raw)}`,
   };
 }
 
@@ -22,9 +18,9 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-function labelHunks(diff: string): { text: string; hunkCount: number } {
+function labelHunks(diff: string): string {
   let hunkCount = 0;
-  const text = diff
+  return diff
     .split(/\r?\n/)
     .map((line) => {
       if (!line.startsWith("@@ ")) return line;
@@ -32,6 +28,4 @@ function labelHunks(diff: string): { text: string; hunkCount: number } {
       return `[hunk-${hunkCount}]\n${line}`;
     })
     .join("\n");
-
-  return { text, hunkCount };
 }

@@ -3,8 +3,9 @@
 Local-only diagnostic tooling for checking whether AI is making developers
 dumber.
 
-Current goal: load diffs, inject the enabled check registry, send small groups
-of diffs to the local model, and print findings.
+Current goal: project a target change into a temporary worktree, serialize it
+with Repomix, inject the enabled check registry, send the artifact to the local
+model, and print findings.
 
 ## CLI
 
@@ -20,8 +21,9 @@ Try a diff:
 npx @stupify/cli --commit HEAD
 ```
 
-Commit mode includes the commit message, uses a zero-context git diff, and
-prints timing metadata to stderr.
+Commit mode projects `<commit>^..commit` into a throwaway worktree, adds the
+target commit metadata, asks Repomix to include the pending diff and code
+context, and prints timing metadata to stderr.
 The default registry currently checks duplicated schemas and unnecessary
 complexity.
 
@@ -31,8 +33,8 @@ Analyze recent commits:
 npx @stupify/cli --commits 20
 ```
 
-Small commits can share a model call. Oversized commit handling is intentionally
-simple until the runtime earns more complexity.
+Recent-commits mode projects the selected range as one change. Findings are
+range-level for now, not per-commit blame.
 
 Lower-level pipe mode still exists:
 
@@ -40,8 +42,8 @@ Lower-level pipe mode still exists:
 git diff HEAD~1..HEAD | npx @stupify/cli --stdin
 ```
 
-This iteration intentionally does not scan files directly, choose commit ranges,
-compare baselines, upload data, or call hosted LLM APIs.
+This iteration intentionally does not compare baselines, upload data, call
+hosted LLM APIs, or run a separate search/judge pipeline.
 
 ## Product framing
 

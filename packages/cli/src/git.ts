@@ -1,144 +1,60 @@
 import { execFile } from "node:child_process";
-import path from "node:path";
 import { promisify } from "node:util";
-import { prepareDiff } from "./diff.js";
-import type { DiffUnit } from "./types.js";
 
 const execFileAsync = promisify(execFile);
-const MAX_RELATED_FILES_PER_SOURCE = 5;
-const MAX_RELATED_CHARS_PER_FILE = 4_000;
-const MAX_RELATED_CONTEXT_CHARS_PER_SOURCE = 16_000;
 
-export async function readUnitForCommit(commit: string): Promise<DiffUnit> {
-  const [raw, message] = await Promise.all([commitDiff(commit), commitMessage(commit)]);
-  if (!raw.trim()) throw new Error(`No diff found for commit ${commit}.`);
-  const relatedContext = await readRelatedImportContext(commit, raw);
-  const diff = prepareDiff(raw);
-  const shortSha = await shortCommit(commit);
-  const contextBlock = relatedContext ? `\n\nRELATED LOCAL CONTEXT:\n${relatedContext}` : "";
+export type CommitProjection = Readonly<{
+  id: string;
+  label: string;
+  base: string;
+  target: string;
+  logs: string;
+}>;
+
+export async function projectionForCommit(commit: string): Promise<CommitProjection> {
+  const [base, target, shortTarget, message] = await Promise.all([
+    revParse(`${commit}^1`),
+    revParse(commit),
+    shortCommit(commit),
+    commitMessage(commit),
+  ]);
+
   return {
-    id: shortSha,
-    label: firstLine(message) || shortSha,
-    text: `COMMIT MESSAGE:\n${message.trim() || shortSha}${contextBlock}\n\nDIFF:\n${diff.text}`,
+    id: shortTarget,
+    label: firstLine(message) || shortTarget,
+    base,
+    target,
+    logs: await commitLogs(base, target),
   };
 }
 
-export async function readUnitsForRecentCommits(count: number): Promise<readonly DiffUnit[]> {
+export async function projectionForRecentCommits(count: number): Promise<CommitProjection> {
   const commits = await recentCommits(count);
-  return Promise.all(commits.map(readUnitForCommit));
-}
+  if (commits.length === 0) throw new Error("No non-merge commits found.");
 
-export function unitFromStdinDiff(text: string): DiffUnit {
-  const diff = prepareDiff(text);
-  return { id: "stdin", label: "stdin", text: diff.text };
-}
+  const oldest = commits[0];
+  const newest = commits[commits.length - 1];
+  const [base, target, shortBase, shortTarget] = await Promise.all([
+    revParse(`${oldest}^1`),
+    revParse(newest),
+    shortCommit(`${oldest}^1`),
+    shortCommit(newest),
+  ]);
 
-async function commitDiff(commit: string): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync("git", [
-      "diff",
-      "--no-ext-diff",
-      "--no-color",
-      "--unified=8",
-      `${commit}^1`,
-      commit,
-      "--",
-    ], { maxBuffer: 64 * 1024 * 1024 });
-    return stdout;
-  } catch (error) {
-    throw new Error(`Could not diff commit ${commit}.`);
-  }
-}
-
-async function readRelatedImportContext(commit: string, rawDiff: string): Promise<string> {
-  const refs = relatedLocalImports(rawDiff);
-  const blocks: string[] = [];
-  let usedChars = 0;
-
-  for (const filePath of refs.slice(0, MAX_RELATED_FILES_PER_SOURCE)) {
-    const content = await showFileAtCommit(`${commit}^1`, filePath) ?? await showFileAtCommit(commit, filePath);
-    if (!content) continue;
-    if (looksBinary(content)) continue;
-
-    const remaining = MAX_RELATED_CONTEXT_CHARS_PER_SOURCE - usedChars;
-    if (remaining <= 0) break;
-    const budget = Math.min(MAX_RELATED_CHARS_PER_FILE, remaining);
-    const trimmed = content.trim();
-    const truncated = trimmed.length > budget;
-    const body = truncated ? trimmed.slice(0, budget) : trimmed;
-    blocks.push(`FILE ${filePath}${truncated ? " (truncated)" : ""}\n${body}`);
-    usedChars += body.length;
-  }
-
-  return blocks.join("\n\n");
-}
-
-function relatedLocalImports(rawDiff: string): readonly string[] {
-  const refs = new Set<string>();
-  let currentFile = "";
-
-  for (const line of rawDiff.split(/\r?\n/)) {
-    const fileMatch = /^diff --git a\/.+ b\/(.+)$/.exec(line);
-    if (fileMatch) {
-      currentFile = fileMatch[1];
-      continue;
-    }
-
-    if (!currentFile || !line.startsWith("+import ")) continue;
-    const importMatch = /\bfrom\s+["']([^"']+)["']/.exec(line);
-    if (!importMatch || !importMatch[1].startsWith(".")) continue;
-
-    for (const candidate of resolveImportCandidates(currentFile, importMatch[1])) {
-      if (!isSafeRelatedPath(candidate)) continue;
-      refs.add(candidate);
-    }
-  }
-
-  return [...refs];
-}
-
-function resolveImportCandidates(importer: string, specifier: string): readonly string[] {
-  const base = path.posix.normalize(path.posix.join(path.posix.dirname(importer), specifier));
-  if (path.posix.extname(base) === ".js") {
-    const withoutExt = base.slice(0, -3);
-    return [`${withoutExt}.ts`, `${withoutExt}.tsx`];
-  }
-  if (path.posix.extname(base)) return [base];
-  return [`${base}.ts`, `${base}.tsx`, path.posix.join(base, "index.ts"), path.posix.join(base, "index.tsx")];
-}
-
-function isSafeRelatedPath(filePath: string): boolean {
-  if (filePath.startsWith("../") || path.posix.isAbsolute(filePath)) return false;
-  const parts = filePath.split("/");
-  if (parts.some((part) => part === "..")) return false;
-  if (parts.some((part) => ["node_modules", "dist", "build", ".git", "vendor", "coverage"].includes(part))) {
-    return false;
-  }
-  const base = path.posix.basename(filePath).toLowerCase();
-  if (base.startsWith(".env") || /secret|credential|private|token|key/.test(base)) return false;
-  if (/\.(lock|map|min\.js|png|jpg|jpeg|gif|webp|ico|pdf|zip|gz|wasm)$/i.test(base)) return false;
-  return /\.(ts|tsx|js|jsx|mjs|cjs|json)$/i.test(base);
-}
-
-function looksBinary(content: string): boolean {
-  return content.includes("\0");
-}
-
-async function showFileAtCommit(commit: string, filePath: string): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync("git", ["show", `${commit}:${filePath}`], {
-      maxBuffer: 1024 * 1024,
-    });
-    return stdout;
-  } catch {
-    return null;
-  }
+  return {
+    id: `range:${shortBase}..${shortTarget}`,
+    label: `${commits.length} recent commits`,
+    base,
+    target,
+    logs: await commitLogLines(commits),
+  };
 }
 
 async function recentCommits(count: number): Promise<readonly string[]> {
   try {
     const { stdout } = await execFileAsync("git", [
       "log",
+      "--first-parent",
       "--no-merges",
       "--format=%H",
       `-${count}`,
@@ -146,6 +62,15 @@ async function recentCommits(count: number): Promise<readonly string[]> {
     return stdout.split(/\r?\n/).filter(Boolean).reverse();
   } catch {
     throw new Error(`Could not read last ${count} commits.`);
+  }
+}
+
+async function revParse(rev: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", rev]);
+    return stdout.trim();
+  } catch {
+    throw new Error(`Could not resolve ${rev}.`);
   }
 }
 
@@ -158,10 +83,6 @@ async function shortCommit(commit: string): Promise<string> {
   }
 }
 
-function firstLine(value: string): string {
-  return value.trim().split(/\r?\n/, 1)[0]?.trim() ?? "";
-}
-
 async function commitMessage(commit: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync("git", ["show", "--no-patch", "--format=%B", commit], {
@@ -171,4 +92,31 @@ async function commitMessage(commit: string): Promise<string> {
   } catch {
     throw new Error(`Could not read commit message for ${commit}.`);
   }
+}
+
+async function commitLogs(base: string, target: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", [
+      "log",
+      "--no-merges",
+      "--reverse",
+      "--format=%h %s",
+      `${base}..${target}`,
+    ], { maxBuffer: 1024 * 1024 });
+    return stdout.trim();
+  } catch {
+    throw new Error(`Could not read commit logs for ${base}..${target}.`);
+  }
+}
+
+async function commitLogLines(commits: readonly string[]): Promise<string> {
+  const lines = await Promise.all(commits.map(async (commit) => {
+    const [short, message] = await Promise.all([shortCommit(commit), commitMessage(commit)]);
+    return `${short} ${firstLine(message) || "(no commit message)"}`;
+  }));
+  return lines.join("\n");
+}
+
+function firstLine(value: string): string {
+  return value.trim().split(/\r?\n/, 1)[0]?.trim() ?? "";
 }

@@ -1,4 +1,4 @@
-import type { Finding, FindingsResult, ModelBatch, StupifyCheck } from "./types.js";
+import type { Finding, FindingsResult, ModelInput, StupifyCheck } from "./types.js";
 
 export function isFindingsResult(value: unknown): value is FindingsResult {
   if (!value || typeof value !== "object") return false;
@@ -9,11 +9,11 @@ export function isFindingsResult(value: unknown): value is FindingsResult {
 export function validateFindingsResult(
   result: FindingsResult,
   checks: readonly StupifyCheck[],
-  batch: ModelBatch,
+  input: ModelInput,
 ): FindingsResult {
   const checkIds = new Set(checks.map((check) => check.id));
-  const sourceIds = new Set(batch.units.map((unit) => unit.id));
-  const fallbackSourceId = batch.units.length === 1 ? batch.units[0].id : null;
+  const sourceIds = new Set(input.artifacts.map((artifact) => artifact.id));
+  const fallbackSourceId = input.artifacts.length === 1 ? input.artifacts[0].id : null;
 
   return {
     findings: result.findings

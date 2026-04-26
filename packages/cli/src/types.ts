@@ -6,21 +6,15 @@ export type Command =
 
 export type AnalyzeCommand = Exclude<Command, Readonly<{ kind: "help" }>>;
 
-export type DiffInput = Readonly<{
-  commitMessage?: string;
-  text: string;
-  hunkCount: number;
-}>;
-
-export type DiffUnit = Readonly<{
+export type ChangeArtifact = Readonly<{
   id: string;
   label: string;
   text: string;
 }>;
 
-export type ModelBatch = Readonly<{
+export type ModelInput = Readonly<{
   id: string;
-  units: readonly DiffUnit[];
+  artifacts: readonly ChangeArtifact[];
 }>;
 
 export type StupifyCheck = Readonly<{
