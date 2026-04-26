@@ -45,6 +45,12 @@ git diff HEAD~1..HEAD | npx @stupify/cli --stdin
 This iteration intentionally does not compare baselines, upload data, call
 hosted LLM APIs, or run a separate search/judge pipeline.
 
+## Experimental Runtimes
+
+Gemma 4 currently needs a newer external `llama.cpp` binary because the embedded
+`node-llama-cpp` runtime does not recognize the `gemma4` GGUF architecture yet.
+Setup notes live in [docs/gemma4-llama-cpp.md](docs/gemma4-llama-cpp.md).
+
 ## Product framing
 
 Stupify asks whether a diff shows signs that AI may be replacing engineering
