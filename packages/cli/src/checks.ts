@@ -55,6 +55,17 @@ export const defaultChecks: readonly StupifyCheck[] = [
     ],
   },
   {
+    id: checkId("class_pile"),
+    name: "Class pile",
+    question: "Are unrelated classes crammed into one file?",
+    matchWhen: [
+      "multiple unrelated classes in one touched file",
+    ],
+    doNotMatchWhen: [
+      "small private helper class or generated file",
+    ],
+  },
+  {
     id: checkId("over_commenting"),
     name: "Over commenting",
     question: "Did the change add noisy comments?",
@@ -66,6 +77,17 @@ export const defaultChecks: readonly StupifyCheck[] = [
     ],
   },
   {
+    id: checkId("fake_history"),
+    name: "Fake history",
+    question: "Does code or comments cite history that is not real?",
+    matchWhen: [
+      "claims 'we do this because X' but X is not in the artifact",
+    ],
+    doNotMatchWhen: [
+      "references visible code, issue IDs, docs, or real historical context",
+    ],
+  },
+  {
     id: checkId("lint_bypass"),
     name: "Lint bypass",
     question: "Did the change bypass lint or type rules?",
@@ -74,6 +96,17 @@ export const defaultChecks: readonly StupifyCheck[] = [
     ],
     doNotMatchWhen: [
       "narrow suppression with a reason, type-level test, or generated file convention",
+    ],
+  },
+  {
+    id: checkId("bad_names"),
+    name: "Bad names",
+    question: "Did the change add short non-descriptive names?",
+    matchWhen: [
+      "new names like tmp/res/obj/data/val/x hide intent",
+    ],
+    doNotMatchWhen: [
+      "tiny loop index or established local abbreviation",
     ],
   },
   {
@@ -92,10 +125,32 @@ export const defaultChecks: readonly StupifyCheck[] = [
     name: "Reinvented utils",
     question: "Did the change recreate an existing utility?",
     matchWhen: [
-      "new helper duplicates local utility or standard library behavior",
+      "new helper duplicates local, standard, or well-known library behavior",
     ],
     doNotMatchWhen: [
       "existing utility has wrong contract or new helper is clearer as a tiny private expression",
+    ],
+  },
+  {
+    id: checkId("clever_loop"),
+    name: "Clever loop",
+    question: "Did the change over-optimize loop code?",
+    matchWhen: [
+      "manual/clever loop where simple iteration would be clearer",
+    ],
+    doNotMatchWhen: [
+      "measured hot path or simpler than available abstractions",
+    ],
+  },
+  {
+    id: checkId("imaginary_edges"),
+    name: "Imaginary edges",
+    question: "Did the change handle exception cases nobody cares about?",
+    matchWhen: [
+      "branches, fallbacks, or states for unrealistic edge cases",
+    ],
+    doNotMatchWhen: [
+      "real user, API, security, data-loss, or compatibility case",
     ],
   },
   {
