@@ -2,8 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runCli, type CliOptions } from "repomix";
-import type { ProjectedChange } from "./change-projector.js";
-import type { ChangeArtifact } from "./types.js";
+import type { ProjectedChange } from "./change-projector.ts";
+import type { ChangeArtifact } from "./types.ts";
 
 export async function artifactFromProjectedChange(change: ProjectedChange): Promise<ChangeArtifact> {
   const serialized = await repomix(change.tempDir);

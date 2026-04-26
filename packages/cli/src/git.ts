@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { sourceId, type SourceId } from "./types.js";
+import { sourceId, type SourceId } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 const SUSPICIOUS_AUTHOR_PHRASES = [

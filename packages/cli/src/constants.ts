@@ -1,6 +1,5 @@
-import type { ModelConfig, ModelId } from "./types.js";
-
 export const VERSION = "0.0.0";
+import type { ModelConfig, ModelId } from "./types.ts";
 
 export const DEFAULT_MODEL_ID: ModelId = "qwen2.5-coder-1.5b";
 
