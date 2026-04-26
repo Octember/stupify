@@ -2,11 +2,20 @@
   "name": "stupif.ai",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.3.12",
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "build": "react-router build",
     "dev": "react-router dev",
     "start": "react-router-serve ./build/server/index.js",
-    "typecheck": "react-router typegen && tsc"
+    "build:cli": "tsc -p packages/cli/tsconfig.build.json",
+    "typecheck": "react-router typegen && tsc -p tsconfig.json && tsc -p packages/core/tsconfig.json && tsc -p packages/cli/tsconfig.json",
+    "typecheck:web": "react-router typegen && tsc -p tsconfig.json",
+    "typecheck:core": "tsc -p packages/core/tsconfig.json",
+    "typecheck:cli": "tsc -p packages/cli/tsconfig.json",
+    "smoke:cli": "bun run build:cli && node packages/cli/dist/stupify.js --help"
   },
   "dependencies": {
     "@react-router/node": "7.14.0",

@@ -5,6 +5,7 @@
 # React Router
 /.react-router/
 /build/
+/packages/*/dist/
 
 # Claude Code harness
 /.claude/

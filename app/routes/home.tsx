@@ -1,431 +1,217 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { Route } from "./+types/home";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "stupif.ai — AI makes you stupid. lets see how much" },
+    { title: "Stupify - Is AI making you dumber?" },
     {
       name: "description",
       content:
-        "Decorative roast generator. No real repo analysis. The diagnosis is fake. The feeling may be real.",
+        "A local-only CLI that checks recent code changes for signs of judgment offload, autocomplete dependence, and AI-flavored slop acceptance.",
     },
   ];
 }
 
-// ----- mock data ---------------------------------------------------------
+const COMMAND = "npx @stupify/cli";
 
-const DIAGNOSES = [
-  "Autocomplete Brain",
-  "Boilerplate Creep",
-  "README Inflation Disorder",
-  "Enterprise Slop Syndrome",
-  "Abstraction Goblin Infestation",
-  "Copilot Stockholm Syndrome",
-  "Fake Seniority Poisoning",
-  "Robust-and-Scalable Syndrome",
-  "Architectural Fan Fiction",
-];
+const PLANNED_OPTIONS = [
+  ["stupify", "Run the local diagnostic check."],
+  ["stupify --llm", "Use a local LLM for deeper judgment checks."],
+  ['stupify --since "1 week ago"', "Check recent changes only."],
+  ["stupify --share", "Upload sanitized report metadata."],
+  ["stupify --json", "Print machine-readable output."],
+  ["stupify --privacy", "Show what can and cannot leave your machine."],
+] as const;
 
-const SEVERITY_LABELS = [
-  "Clean-ish",
-  "Mildly Stupified",
-  "Autocomplete Curious",
-  "Boilerplate Positive",
-  "Copilot-Pilled",
-  "Slop-Adjacent",
-  "Enterprise-Grade Concern",
-  "Fully Stupified",
-];
-
-const SCORE_NAMES = [
-  "Autocomplete Brain Index",
-  "Boilerplate Creep",
-  "README Inflation",
-  "Fake Seniority Index",
-  "Corporate Commit Energy",
-  "Manual Thought Residue",
-  "Abstraction Goblin Score",
-];
-
-const FINDINGS = [
-  "The repo gives off strong 'generated, then manually apologized for' energy.",
-  "Several abstractions appear to exist primarily because the code got lonely.",
-  "The naming has started dressing for the job it wants.",
-  "This project is one helper function away from becoming a lifestyle.",
-  "The architecture appears to be preparing for traffic from an alternate universe.",
-  "The repo has the calm, glassy stare of something that passed tests once.",
-  "The commit history appears to be applying for promotion.",
-  "No laws were broken, but several taste preferences were injured.",
-];
-
-const TREATMENTS = [
-  "Delete one abstraction.",
-  "Rename one thing like a normal person.",
-  "Replace “robust” with a test.",
-  "Replace “scalable” with a benchmark.",
-  "Turn off autocomplete for 30 minutes and see who you are.",
-  "Remove one file whose only job is to import another file.",
-  "Touch grass, then delete the factory.",
-];
-
-const LOADING_MESSAGES = [
-  "Inspecting commit messages for signs of spiritual decline…",
-  "Measuring boilerplate density…",
-  "Checking if your README was written by a LinkedIn ghost…",
-  "Looking for “robust,” “scalable,” and other warning signs…",
-  "Scanning for functions that smell like autocomplete…",
-  "Generating fake chart energy…",
-  "Consulting the Council of Senior Engineers Who Still Use Vim…",
-  "Performing statistically irresponsible analysis…",
-  "Scanning imaginary commit history…",
-];
-
-// ----- deterministic generation -----------------------------------------
-
-function hashString(s: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function mulberry32(seed: number) {
-  let s = seed >>> 0;
-  return function () {
-    s = (s + 0x6d2b79f5) >>> 0;
-    let t = s;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function pick<T>(rng: () => number, arr: T[]): T {
-  return arr[Math.floor(rng() * arr.length)];
-}
-
-function pickN<T>(rng: () => number, arr: T[], n: number): T[] {
-  const copy = [...arr];
-  const out: T[] = [];
-  while (out.length < n && copy.length > 0) {
-    const idx = Math.floor(rng() * copy.length);
-    out.push(copy.splice(idx, 1)[0]);
-  }
-  return out;
-}
-
-type Score = { name: string; value: number };
-type Report = {
-  username: string;
-  diagnosis: string;
-  severity: string;
-  scores: Score[];
-  findings: string[];
-  treatments: string[];
-};
-
-function generateReport(username: string): Report {
-  const seed = hashString(username.toLowerCase());
-  const rng = mulberry32(seed);
-
-  const diagnosis = pick(rng, DIAGNOSES);
-  const severity = pick(rng, SEVERITY_LABELS);
-
-  const otherScoreNames = SCORE_NAMES.filter(
-    (n) => n !== "Manual Thought Residue",
-  );
-  const otherScores: Score[] = otherScoreNames.map((name) => ({
-    name,
-    value: 20 + Math.floor(rng() * 76),
-  }));
-  const avgOther =
-    otherScores.reduce((a, b) => a + b.value, 0) / otherScores.length;
-  const residue = Math.max(
-    20,
-    Math.min(95, Math.round(115 - avgOther + (rng() * 10 - 5))),
-  );
-
-  const scores: Score[] = [
-    ...otherScores,
-    { name: "Manual Thought Residue", value: residue },
-  ];
-
-  return {
-    username,
-    diagnosis,
-    severity,
-    scores,
-    findings: pickN(rng, FINDINGS, 3),
-    treatments: pickN(rng, TREATMENTS, 3),
-  };
-}
-
-// ----- input parsing -----------------------------------------------------
-
-function parseUsername(input: string): string | null {
-  const cleaned = input
-    .trim()
-    .replace(/^https?:\/\//i, "")
-    .replace(/^www\./i, "")
-    .replace(/^github\.com\//i, "")
-    .replace(/^@/, "")
-    .replace(/\/+$/, "")
-    .split("/")[0];
-  if (!/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(cleaned)) {
-    return null;
-  }
-  return cleaned;
-}
-
-// ----- formatting -------------------------------------------------------
-
-function reportToText(r: Report): string {
-  const lines = [
-    `stupif.ai roast — @${r.username}`,
-    ``,
-    `Diagnosis: ${r.diagnosis}`,
-    `Severity: ${r.severity}`,
-    ``,
-    `Scores:`,
-    ...r.scores.map((s) => `  - ${s.name}: ${s.value}%`),
-    ``,
-    `Findings:`,
-    ...r.findings.map((f) => `  - ${f}`),
-    ``,
-    `Treatments:`,
-    ...r.treatments.map((t) => `  - ${t}`),
-    ``,
-    `Generated from vibes, not GitHub data.`,
-  ];
-  return lines.join("\n");
-}
-
-// ----- component --------------------------------------------------------
-
-type Phase = "idle" | "loading" | "done";
+const NEVER_UPLOAD = [
+  "Source code",
+  "Diffs",
+  "Commit messages",
+  "File contents",
+  "Raw filenames",
+  "Repo URLs",
+  "Author names",
+  "Private package names",
+] as const;
 
 export default function Home() {
-  const [input, setInput] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [report, setReport] = useState<Report | null>(null);
-  const [loadingMsg, setLoadingMsg] = useState(LOADING_MESSAGES[0]);
   const [copied, setCopied] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (phase !== "loading") return;
-    let i = 0;
-    const id = setInterval(() => {
-      i = (i + 1) % LOADING_MESSAGES.length;
-      setLoadingMsg(LOADING_MESSAGES[i]);
-    }, 700);
-    return () => clearInterval(id);
-  }, [phase]);
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const parsed = parseUsername(input);
-    if (!parsed) {
-      setError("That doesn't look like a GitHub username.");
-      return;
-    }
-    setError(null);
-    setReport(null);
-    setLoadingMsg(LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)]);
-    setPhase("loading");
-
-    const delay = 1500 + Math.random() * 1500;
-    setTimeout(() => {
-      setReport(generateReport(parsed));
-      setPhase("done");
-    }, delay);
-  }
-
-  function handleReset() {
-    setReport(null);
-    setInput("");
-    setError(null);
-    setPhase("idle");
-    setCopied(false);
-    setTimeout(() => inputRef.current?.focus(), 0);
-  }
 
   async function handleCopy() {
-    if (!report) return;
     try {
-      await navigator.clipboard.writeText(reportToText(report));
+      await navigator.clipboard.writeText(COMMAND);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      setTimeout(() => setCopied(false), 1600);
     } catch {
       setCopied(false);
     }
   }
 
   return (
-    <main className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col items-center px-4">
-      <header className="w-full max-w-3xl pt-16 pb-10 text-center">
-        <p className="text-xs font-semibold tracking-widest text-zinc-400 uppercase mb-3">
-          stupif.ai
-        </p>
-        <h1 className="text-4xl sm:text-6xl font-bold tracking-tight text-white mb-4">
-          AI makes you stupid.
-          <br />
-          <span className="text-zinc-400">lets see how much</span>
-        </h1>
-      </header>
+    <main className="min-h-screen bg-zinc-950 text-zinc-100">
+      <section className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-5 py-8 sm:px-8">
+        <nav className="flex items-center justify-between text-sm">
+          <a href="/" className="font-semibold tracking-tight text-white">
+            stupify
+          </a>
+          <span className="text-zinc-500">local-only diagnostic CLI</span>
+        </nav>
 
-      {phase !== "done" && (
-        <form className="w-full max-w-xl" onSubmit={handleSubmit}>
-          <div className="relative">
-            <span className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-500 text-2xl font-light select-none">
-              @
-            </span>
-            <input
-              ref={inputRef}
-              type="text"
-              value={input}
-              onChange={(e) => {
-                setInput(e.target.value);
-                if (error) setError(null);
-              }}
-              placeholder="github-username"
-              autoFocus
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              disabled={phase === "loading"}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl pl-12 pr-5 py-5 text-2xl font-medium text-white placeholder-zinc-600 outline-none focus:border-zinc-500 focus:ring-2 focus:ring-zinc-500/30 transition-all disabled:opacity-60"
-            />
-          </div>
+        <div className="grid flex-1 items-center gap-12 py-16 lg:grid-cols-[1.05fr_0.95fr]">
+          <header>
+            <p className="mb-4 text-sm font-medium uppercase tracking-[0.24em] text-zinc-500">
+              Developer self-check
+            </p>
+            <h1 className="max-w-3xl text-5xl font-semibold leading-none tracking-tight text-white sm:text-7xl">
+              Is AI making you dumber?
+            </h1>
+            <p className="mt-6 max-w-2xl text-lg leading-8 text-zinc-300">
+              Stupify checks recent code changes for signs of judgment offload,
+              autocomplete dependence, and AI-flavored slop acceptance.
+            </p>
+            <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-500">
+              Your machine reads the code. Your local LLM does the judging. Our
+              server only receives sanitized metadata if you choose to share.
+            </p>
 
-          <button
-            type="submit"
-            disabled={!input.trim() || phase === "loading"}
-            className="mt-4 w-full bg-zinc-100 hover:bg-white disabled:opacity-30 disabled:cursor-not-allowed text-black font-semibold text-lg py-4 rounded-2xl transition-colors"
-          >
-            {phase === "loading" ? "Diagnosing vibes…" : "Roast me"}
-          </button>
+            <div className="mt-8 flex max-w-xl flex-col gap-3 sm:flex-row">
+              <code className="flex-1 rounded-lg border border-zinc-800 bg-zinc-900 px-4 py-3 font-mono text-sm text-zinc-100">
+                {COMMAND}
+              </code>
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="rounded-lg bg-zinc-100 px-5 py-3 text-sm font-semibold text-black transition-colors hover:bg-white"
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
 
-          {error && (
-            <p className="mt-3 text-center text-sm text-red-400">{error}</p>
-          )}
+            <p className="mt-4 text-sm text-zinc-600">
+              Structure-only foundation: the diagnostic engine is not
+              implemented yet.
+            </p>
+          </header>
 
-          <p className="mt-4 text-center text-xs text-zinc-500">
-            Decorative roast generator. No real repo analysis.
-          </p>
-        </form>
-      )}
-
-      {phase === "loading" && (
-        <div className="w-full max-w-xl mt-8 text-center text-zinc-400 text-sm animate-pulse">
-          {loadingMsg}
+          <ReportPreview />
         </div>
-      )}
 
-      {phase === "done" && report && (
-        <div className="w-full max-w-2xl mt-2">
-          <ReportCard report={report} />
+        <section className="grid gap-4 pb-12 md:grid-cols-3">
+          <InfoPanel title="Local first">
+            The CLI is designed so source code, diffs, and file contents stay on
+            your machine.
+          </InfoPanel>
+          <InfoPanel title="Judgment check">
+            The product asks whether AI is replacing developer judgment instead
+            of augmenting it.
+          </InfoPanel>
+          <InfoPanel title="Share carefully">
+            Shared reports will be sanitized cards, not repo analysis dumps.
+          </InfoPanel>
+        </section>
 
-          <p className="mt-4 text-center text-xs text-zinc-500">
-            Generated from vibes, not GitHub data.
-          </p>
-
-          <div className="mt-5 flex flex-col sm:flex-row gap-3">
-            <button
-              onClick={handleCopy}
-              className="flex-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white font-semibold py-3 rounded-2xl transition-colors"
-            >
-              {copied ? "Copied ✓" : "Copy roast"}
-            </button>
-            <button
-              onClick={handleReset}
-              className="flex-1 bg-zinc-100 hover:bg-white text-black font-semibold py-3 rounded-2xl transition-colors"
-            >
-              Roast someone else
-            </button>
+        <section className="grid gap-8 border-t border-zinc-900 py-12 lg:grid-cols-[0.8fr_1.2fr]">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight text-white">
+              CLI shape
+            </h2>
+            <p className="mt-3 max-w-md text-sm leading-6 text-zinc-500">
+              The command surface is intentionally small. No fake scanner is
+              wired into this foundation pass.
+            </p>
           </div>
-        </div>
-      )}
+          <div className="divide-y divide-zinc-900 rounded-lg border border-zinc-900 bg-zinc-950">
+            {PLANNED_OPTIONS.map(([command, description]) => (
+              <div
+                key={command}
+                className="grid gap-2 px-4 py-4 sm:grid-cols-[220px_1fr]"
+              >
+                <code className="font-mono text-sm text-zinc-100">
+                  {command}
+                </code>
+                <span className="text-sm text-zinc-500">{description}</span>
+              </div>
+            ))}
+          </div>
+        </section>
 
-      <footer className="mt-auto py-10 text-center text-zinc-600 text-xs max-w-md">
-        This is not a real benchmark. No GitHub data was harmed. The diagnosis
-        is fake. The feeling may be real.
-      </footer>
+        <section className="grid gap-8 border-t border-zinc-900 py-12 lg:grid-cols-[0.8fr_1.2fr]">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight text-white">
+              Privacy boundary
+            </h2>
+            <p className="mt-3 max-w-md text-sm leading-6 text-zinc-500">
+              The server should only ever receive an allowlisted, sanitized
+              report card after explicit sharing.
+            </p>
+          </div>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {NEVER_UPLOAD.map((item) => (
+              <li
+                key={item}
+                className="rounded-lg border border-zinc-900 bg-zinc-950 px-4 py-3 text-sm text-zinc-400"
+              >
+                Not uploaded: {item}
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <footer className="border-t border-zinc-900 py-8 text-sm text-zinc-600">
+          Stupify is being rebuilt as a local-only cognitive offloading check.
+        </footer>
+      </section>
     </main>
   );
 }
 
-function ReportCard({ report }: { report: Report }) {
+function ReportPreview() {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8">
-      <div className="flex items-baseline gap-2 mb-6">
-        <span className="text-zinc-500">user:</span>
-        <a
-          href={`https://github.com/${report.username}`}
-          target="_blank"
-          rel="noreferrer"
-          className="text-white font-mono hover:text-white"
-        >
-          @{report.username}
-        </a>
+    <aside className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl shadow-black/30">
+      <div className="mb-5 flex items-center justify-between border-b border-zinc-800 pb-4">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
+            Report surface
+          </p>
+          <h2 className="mt-1 text-xl font-semibold text-white">
+            Stupify Report
+          </h2>
+        </div>
+        <span className="rounded-full border border-zinc-800 px-3 py-1 text-xs text-zinc-500">
+          Preview
+        </span>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
-        <div className="bg-zinc-950/50 border border-zinc-800 rounded-xl px-4 py-3">
-          <div className="text-xs uppercase tracking-widest text-zinc-500 mb-1">
-            Diagnosis
-          </div>
-          <div className="text-lg font-semibold text-white">
-            {report.diagnosis}
-          </div>
-        </div>
-        <div className="bg-zinc-950/50 border border-zinc-800 rounded-xl px-4 py-3">
-          <div className="text-xs uppercase tracking-widest text-zinc-500 mb-1">
-            Severity
-          </div>
-          <div className="text-lg font-semibold text-white">
-            {report.severity}
-          </div>
-        </div>
+      <dl className="space-y-4">
+        <PreviewRow label="Question" value="Is AI making you dumber?" />
+        <PreviewRow label="Status" value="Diagnostic engine not implemented yet." />
+        <PreviewRow label="Files scanned" value="None" />
+        <PreviewRow label="Local model contacted" value="No" />
+        <PreviewRow label="Uploaded" value="Nothing" />
+      </dl>
+
+      <div className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
+        <p className="text-sm font-medium text-zinc-200">
+          Future shared report copy
+        </p>
+        <p className="mt-2 text-sm leading-6 text-zinc-500">
+          Stupify checked whether AI is making me dumber. No code was uploaded.
+        </p>
       </div>
+    </aside>
+  );
+}
 
-      <Section title="Scores">
-        <div className="space-y-3">
-          {report.scores.map((s) => (
-            <ScoreBar key={s.name} name={s.name} value={s.value} />
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Findings">
-        <ul className="space-y-2 text-zinc-300 text-sm">
-          {report.findings.map((f, i) => (
-            <li key={i} className="flex gap-2">
-              <span className="text-zinc-400 select-none">▸</span>
-              <span>{f}</span>
-            </li>
-          ))}
-        </ul>
-      </Section>
-
-      <Section title="Treatments">
-        <ul className="space-y-2 text-zinc-300 text-sm">
-          {report.treatments.map((t, i) => (
-            <li key={i} className="flex gap-2">
-              <span className="text-zinc-400 select-none">℞</span>
-              <span>{t}</span>
-            </li>
-          ))}
-        </ul>
-      </Section>
+function PreviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid gap-1 sm:grid-cols-[160px_1fr]">
+      <dt className="text-sm text-zinc-500">{label}</dt>
+      <dd className="text-sm font-medium text-zinc-200">{value}</dd>
     </div>
   );
 }
 
-function Section({
+function InfoPanel({
   title,
   children,
 }: {
@@ -433,28 +219,9 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mt-6 first:mt-0">
-      <div className="text-xs uppercase tracking-widest text-zinc-500 mb-3">
-        {title}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function ScoreBar({ name, value }: { name: string; value: number }) {
-  return (
-    <div>
-      <div className="flex justify-between text-sm mb-1">
-        <span className="text-zinc-300">{name}</span>
-        <span className="text-zinc-400 font-mono">{value}%</span>
-      </div>
-      <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-zinc-200 rounded-full"
-          style={{ width: `${value}%` }}
-        />
-      </div>
-    </div>
+    <article className="rounded-lg border border-zinc-900 bg-zinc-950 p-5">
+      <h2 className="text-base font-semibold text-white">{title}</h2>
+      <p className="mt-3 text-sm leading-6 text-zinc-500">{children}</p>
+    </article>
   );
 }
