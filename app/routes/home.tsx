@@ -34,7 +34,6 @@ export default function Home() {
           <a href="/" className="font-semibold tracking-tight text-white">
             stupify
           </a>
-          <span className="text-zinc-500">local diff judgment</span>
         </nav>
 
         <div className="flex flex-1 flex-col justify-center py-16">
