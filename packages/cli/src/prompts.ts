@@ -1,16 +1,16 @@
-import type { ModelBatch, StupifyCheck } from "./types.js";
+import type { ModelInput, StupifyCheck } from "./types.js";
 
 export function findingsPrompt(
-  batch: ModelBatch,
+  input: ModelInput,
   checks: readonly StupifyCheck[],
   options?: Readonly<{ secondPass?: boolean }>,
 ): string {
   return `You are Stupify.
 Keep an eye out for the following antipatterns in code, and report them if you see them.
 Use only the checks listed below.
-Evaluate each check against the diff.
-When the diff matches a listed signal or example, set matched to true for that check.
-The diff itself is enough evidence; do not require project-wide context.
+Evaluate each check against the analysis artifact.
+When the artifact matches a listed signal or example, set matched to true for that check.
+The artifact itself is enough evidence; do not require project-wide context.
 This is a recall-oriented audit: prefer flagging subtle local patterns over silence.
 ${options?.secondPass ? "Second pass: look again for subtle one-for-one type, payload, schema, and mapper duplication.\n" : ""}sourceId must be the SOURCE value.
 checkId must be the check ID.
@@ -32,8 +32,8 @@ Return JSON only:
 
 ${checks.map(formatCheck).join("\n\n")}
 
-BATCH ${batch.id}:
-${batch.units.map(formatUnit).join("\n\n")}`;
+ANALYSIS INPUT ${input.id}:
+${input.artifacts.map(formatArtifact).join("\n\n")}`;
 }
 
 function formatCheck(check: StupifyCheck): string {
@@ -59,8 +59,8 @@ No-match examples:
 ${noMatchExamples}`;
 }
 
-function formatUnit(unit: ModelBatch["units"][number]): string {
-  return `SOURCE ${unit.id}
-TITLE ${unit.label}
-${unit.text}`;
+function formatArtifact(artifact: ModelInput["artifacts"][number]): string {
+  return `SOURCE ${artifact.id}
+TITLE ${artifact.label}
+${artifact.text}`;
 }

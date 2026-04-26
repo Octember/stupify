@@ -1,19 +1,19 @@
 import { findingsPrompt } from "./prompts.js";
 import { validateFindingsResult } from "./validate.js";
 import type { LocalModel } from "./model.js";
-import type { FindingsResult, ModelBatch, StupifyCheck } from "./types.js";
+import type { FindingsResult, ModelInput, StupifyCheck } from "./types.js";
 
-export async function analyzeBatch(
+export async function analyzeInput(
   model: LocalModel,
-  batch: ModelBatch,
+  input: ModelInput,
   checks: readonly StupifyCheck[],
 ): Promise<FindingsResult> {
-  const first = await runPrompt(model, findingsPrompt(batch, checks));
-  const firstResult = parseFindings(first.raw, first.grammar, checks, batch);
+  const first = await runPrompt(model, findingsPrompt(input, checks));
+  const firstResult = parseFindings(first.raw, first.grammar, checks, input);
   if (firstResult.findings.length > 0) return firstResult;
 
-  const second = await runPrompt(model, findingsPrompt(batch, checks, { secondPass: true }));
-  return parseFindings(second.raw, second.grammar, checks, batch);
+  const second = await runPrompt(model, findingsPrompt(input, checks, { secondPass: true }));
+  return parseFindings(second.raw, second.grammar, checks, input);
 }
 
 async function runPrompt(
@@ -62,7 +62,7 @@ function parseFindings(
   raw: string,
   grammar: { parse(input: string): unknown },
   checks: readonly StupifyCheck[],
-  batch: ModelBatch,
+  input: ModelInput,
 ): FindingsResult {
   const parsed = parseModelJson(raw, grammar);
   if (!isCheckResult(parsed)) {
@@ -74,7 +74,7 @@ function parseFindings(
     console.error("Parsed model findings:");
     console.error(JSON.stringify(parsed, null, 2));
   }
-  return validateFindingsResult(decisionsToFindings(parsed), checks, batch);
+  return validateFindingsResult(decisionsToFindings(parsed), checks, input);
 }
 
 type CheckDecision = Readonly<{
