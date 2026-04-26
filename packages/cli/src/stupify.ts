@@ -1,18 +1,20 @@
 #!/usr/bin/env node
 
 import { fileURLToPath } from "node:url";
-import { analyzeInput } from "./analysis.ts";
-import { projectChange } from "./change-projector.ts";
+import { auditCandidates, scoutBatch } from "./analysis.ts";
+import { batchDiff } from "./batcher.ts";
+import { candidateContexts } from "./candidate-context.ts";
 import { enabledChecks } from "./checks.ts";
 import { parseCommand } from "./command.ts";
 import { MODEL_REGISTRY } from "./constants.ts";
-import { artifactFromStdinDiff } from "./diff.ts";
-import { projectionForCommit, projectionForRecentCommits } from "./git.ts";
+import { readDiffFromStdin } from "./diff.ts";
+import { netDiffForCommit, netDiffForRecentCommits, netDiffFromStdin, netDiffSince } from "./git.ts";
 import { firstRunModelBootstrap, loadLocalModel } from "./model.ts";
-import { artifactFromProjectedChange } from "./repomix-adapter.ts";
-import { helpText, renderFindings } from "./render.ts";
+import { helpText, renderReport } from "./render.ts";
 import { trace } from "./trace.ts";
-import type { AnalyzeCommand, ChangeArtifact, ModelInput } from "./types.ts";
+import type { AnalysisReport, AnalyzeCommand, NetDiff } from "./types.ts";
+
+const MAX_AUDIT_CANDIDATES = 4;
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
@@ -24,33 +26,64 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
 
     const checks = enabledChecks(command.checkIds);
-    const artifactStartedAt = Date.now();
-    const input = await trace.trace("change.artifact", () => modelInput(command), {
-      checks: checks.length,
-    });
-    const artifactMs = Date.now() - artifactStartedAt;
-    printRunPlan(command, input);
+    const diffStartedAt = Date.now();
+    const diff = await trace.trace("net.diff", () => netDiffForCommand(command));
+    const diffMs = Date.now() - diffStartedAt;
+
+    printRunPlan(command, diff, checks.map((check) => check.id));
 
     const modelStartedAt = Date.now();
-    const { modelPath, model } = await trace.trace("model.load", async () => {
-      const modelPath = await firstRunModelBootstrap(command.model);
-      const model = await loadLocalModel(modelPath, MODEL_REGISTRY[command.model].name);
-      return { modelPath, model };
-    });
+    const modelPath = await firstRunModelBootstrap(command.model);
+    const model = await loadLocalModel(modelPath, command.model);
     const modelMs = Date.now() - modelStartedAt;
 
-    const promptStartedAt = Date.now();
-    const result = await trace.trace("analyze.change", () => analyzeInput(model, input, checks), {
-      artifacts: input.artifacts.length,
-      checks: checks.length,
-      modelPath,
-    });
-    const promptMs = Date.now() - promptStartedAt;
+    const batches = batchDiff(diff.text);
+    const searchStartedAt = Date.now();
+    const candidatePointers: string[] = [];
+    for (const batch of batches) {
+      candidatePointers.push(...(await trace.trace("search.batch", () => scoutBatch(model, batch, checks, diff.label), {
+        batch: batch.id,
+      })));
+    }
+    const searchMs = Date.now() - searchStartedAt;
 
-    console.log(renderFindings(result, command));
-    console.error(
-      `Timing: total_ms=${Date.now() - startedAt} artifact_ms=${artifactMs} model_ms=${modelMs} prompt_ms=${promptMs} sources=${input.artifacts.length} model_calls=1 checks=${checks.length} model=${command.model}`,
-    );
+    const contexts = candidateContexts(batches, candidatePointers);
+    const auditedContexts = contexts.slice(0, MAX_AUDIT_CANDIDATES);
+    const warnings = contexts.length > auditedContexts.length
+      ? [`Audited first ${auditedContexts.length} of ${contexts.length} candidate regions.`]
+      : [];
+    const auditStartedAt = Date.now();
+    const result = await trace.trace("audit.candidates", () => auditCandidates(model, diff, auditedContexts, checks), {
+      candidates: auditedContexts.length,
+    });
+    const auditMs = Date.now() - auditStartedAt;
+
+    const report: AnalysisReport = {
+      run: {
+        mode: command.kind,
+        modelId: command.model,
+        checkIds: checks.map((check) => check.id),
+        sourceId: diff.id,
+        label: diff.label,
+        stats: diff.stats,
+        batchesScanned: batches.length,
+        candidateCount: new Set(candidatePointers).size,
+        auditedCandidateCount: auditedContexts.length,
+        scoutModelCalls: batches.length,
+        auditModelCalls: auditedContexts.length > 0 ? 1 : 0,
+        timingsMs: {
+          diff: diffMs,
+          modelLoad: modelMs,
+          search: searchMs,
+          audit: auditMs,
+          total: Date.now() - startedAt,
+        },
+        warnings,
+      },
+      result,
+    };
+
+    console.log(renderReport(report, command));
     return 0;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
@@ -58,37 +91,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
-function printRunPlan(command: AnalyzeCommand, input: ModelInput): void {
+function printRunPlan(command: AnalyzeCommand, diff: NetDiff, checkIds: readonly string[]): void {
+  if (command.json) return;
   console.error("🧙 stupify 🪄");
-  console.error(`Loading local model: ${MODEL_REGISTRY[command.model].name}`);
-  if (command.kind === "commits") {
-    console.error(`Analyzing last ${command.count} commits as one projected change.`);
-  } else if (command.kind === "commit") {
-    console.error(`Analyzing commit ${command.commit} as one projected change.`);
-  } else {
-    console.error("Analyzing stdin diff in one local process.");
-  }
-  console.error(`Source: ${input.artifacts.map((artifact) => artifact.id).join(", ")}`);
-  console.error("Model calls: 1.");
+  console.error(`Window: ${diff.label}`);
+  console.error(`Diff: ${diff.stats.filesChanged} files changed, ${diff.stats.additions} added, ${diff.stats.deletions} deleted`);
+  console.error(`Model: ${MODEL_REGISTRY[command.model].name}`);
+  console.error(`Checks: ${checkIds.join(", ")}`);
 }
 
-async function modelInput(command: AnalyzeCommand): Promise<ModelInput> {
-  const artifact = await changeArtifact(command);
-  return { id: "change-001", artifacts: [artifact] };
-}
-
-async function changeArtifact(command: AnalyzeCommand): Promise<ChangeArtifact> {
-  if (command.kind === "stdin") return artifactFromStdinDiff();
-
-  const projection = command.kind === "commit"
-    ? await projectionForCommit(command.commit)
-    : await projectionForRecentCommits(command.count);
-  const projected = await projectChange(projection);
-  try {
-    return await artifactFromProjectedChange(projected);
-  } finally {
-    await projected.cleanup();
-  }
+async function netDiffForCommand(command: AnalyzeCommand): Promise<NetDiff> {
+  if (command.kind === "since") return netDiffSince(command.since);
+  if (command.kind === "stdin") return netDiffFromStdin(await readDiffFromStdin());
+  if (command.kind === "commit") return netDiffForCommit(command.commit);
+  return netDiffForRecentCommits(command.count);
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

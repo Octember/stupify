@@ -42,8 +42,5 @@
     "typecheck": "tsc -p tsconfig.json",
     "smoke": "bun run build && node ./dist/stupify.js --help"
   },
-  "dependencies": {
-    "node-llama-cpp": "^3.18.1",
-    "repomix": "^1.14.0"
-  }
+  "dependencies": {}
 }

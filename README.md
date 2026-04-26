@@ -3,9 +3,9 @@
 Local-only diagnostic tooling for checking whether AI is making developers
 dumber.
 
-Current goal: project a target change into a temporary worktree, serialize it
-with Repomix, inject the enabled check registry, send the artifact to the local
-model, and print findings.
+Current goal: build a recent net diff, split it into small line-sized batches,
+use the local model to find candidate hunks from an addition-focused view, audit
+those candidate regions, and print findings.
 
 ## CLI
 
@@ -21,11 +21,10 @@ Try a diff:
 npx @stupify/cli --commit HEAD
 ```
 
-Commit mode projects `<commit>^..commit` into a throwaway worktree, adds the
-target commit metadata, asks Repomix to include the pending diff and code
-context, and prints timing metadata to stderr.
-The default registry lives in `packages/cli/src/checks.ts` and keeps each check
-short because it runs in every prompt.
+By default, `stupify` is equivalent to `stupify --since "2 weeks ago"`.
+Commit mode analyzes `<commit>^..commit` as a net diff.
+The default registry currently checks duplicated schemas and unnecessary
+complexity.
 
 Analyze recent commits:
 
@@ -33,7 +32,7 @@ Analyze recent commits:
 npx @stupify/cli --commits 20
 ```
 
-Recent-commits mode projects the selected range as one change. Findings are
+Recent-commits mode analyzes the selected range as one change. Findings are
 range-level for now, not per-commit blame.
 
 Lower-level pipe mode still exists:
@@ -43,7 +42,7 @@ git diff HEAD~1..HEAD | npx @stupify/cli --stdin
 ```
 
 This iteration intentionally does not compare baselines, upload data, call
-hosted LLM APIs, or run a separate search/judge pipeline.
+hosted LLM APIs, use Repomix, or scan the whole repo.
 
 ## Local Runtime
 
