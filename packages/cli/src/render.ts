@@ -1,8 +1,9 @@
 import { VERSION } from "./constants.js";
+import { toShareCardPayload } from "./share-card.js";
 import type { Command, FindingsResult } from "./types.js";
 
 export function renderFindings(result: FindingsResult, command: Command): string {
-  if (command.kind === "help" || command.json) return JSON.stringify(result, null, 2);
+  if (command.kind === "help" || command.json) return JSON.stringify(toShareCardPayload(result), null, 2);
 
   if (result.findings.length === 0) {
     return `STUPIFY
