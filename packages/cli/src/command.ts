@@ -1,4 +1,4 @@
-import type { Command } from "./types.js";
+import type { Command } from "./types.ts";
 
 export function parseCommand(argv: readonly string[]): Command {
   if (argv.length === 1 && isHelp(argv[0])) {

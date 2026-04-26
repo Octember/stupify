@@ -1,4 +1,4 @@
-import type { StupifyCheck } from "./types.js";
+import type { StupifyCheck } from "./types.ts";
 
 export const defaultChecks: readonly StupifyCheck[] = [
   {

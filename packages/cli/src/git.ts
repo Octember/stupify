@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { prepareDiff } from "./diff.js";
-import type { DiffUnit } from "./types.js";
+import { prepareDiff } from "./diff.ts";
+import type { DiffUnit } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 

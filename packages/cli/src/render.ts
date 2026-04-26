@@ -1,5 +1,5 @@
-import { VERSION } from "./constants.js";
-import type { Command, FindingsResult } from "./types.js";
+import { VERSION } from "./constants.ts";
+import type { Command, FindingsResult } from "./types.ts";
 
 export function renderFindings(result: FindingsResult, command: Command): string {
   if (command.kind === "help" || command.json) return JSON.stringify(result, null, 2);

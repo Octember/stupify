@@ -1,7 +1,7 @@
-import { findingsPrompt } from "./prompts.js";
-import { isFindingsResult, sanitizeFindingsResult } from "./sanitize.js";
-import type { LocalModel } from "./model.js";
-import type { DiffPack, FindingsResult, StupifyCheck } from "./types.js";
+import { findingsPrompt } from "./prompts.ts";
+import { isFindingsResult, sanitizeFindingsResult } from "./sanitize.ts";
+import type { LocalModel } from "./model.ts";
+import type { DiffPack, FindingsResult, StupifyCheck } from "./types.ts";
 
 export async function analyzePack(
   model: LocalModel,

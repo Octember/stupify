@@ -2,6 +2,7 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "rootDir": "src",
+    "allowImportingTsExtensions": true,
     "noEmit": true
   },
   "include": ["src/**/*.ts"]
