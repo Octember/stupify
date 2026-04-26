@@ -45,11 +45,12 @@ git diff HEAD~1..HEAD | npx @stupify/cli --stdin
 This iteration intentionally does not compare baselines, upload data, call
 hosted LLM APIs, or run a separate search/judge pipeline.
 
-## Experimental Runtimes
+## Local Runtime
 
-Gemma 4 currently needs a newer external `llama.cpp` binary because the embedded
-`node-llama-cpp` runtime does not recognize the `gemma4` GGUF architecture yet.
-Setup notes live in [docs/gemma4-llama-cpp.md](docs/gemma4-llama-cpp.md).
+Stupify uses one local inference road: `llama-server`.
+The CLI starts it on localhost when needed and reuses the already-loaded model
+on later runs. Setup notes live in
+[docs/gemma4-llama-cpp.md](docs/gemma4-llama-cpp.md).
 
 ## Product framing
 
@@ -57,3 +58,15 @@ Stupify asks whether a diff shows signs that AI may be replacing engineering
 judgment instead of augmenting it.
 
 Your code stays on your machine.
+
+## Deployment
+
+The web app deploys as a server-rendered React Router app on Cloudflare Workers.
+
+```sh
+bun run typecheck:web
+bun run deploy
+```
+
+`bun run deploy` builds the app and publishes the Worker configured in
+`wrangler.jsonc`.
