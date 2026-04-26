@@ -31,7 +31,7 @@ Usage:
 
 Options:
   --checks <ids>        Comma-separated check ids.
-  --model <id>          qwen2.5-coder-7b, qwen2.5-coder-32b, or qwen2.5-coder-1.5b.
+  --model <id>          qwen3-4b-magicquant, qwen2.5-coder-7b, qwen2.5-coder-32b, or qwen2.5-coder-1.5b.
   --json                Print raw JSON findings.
 
 Default:

@@ -2,9 +2,16 @@ export const VERSION = "0.0.0";
 
 import type { ModelConfig, ModelId } from "./types.js";
 
-export const DEFAULT_MODEL_ID: ModelId = "qwen2.5-coder-7b";
+export const DEFAULT_MODEL_ID: ModelId = "qwen3-4b-magicquant";
 
 export const MODEL_REGISTRY: Record<ModelId, ModelConfig> = {
+  "qwen3-4b-magicquant": {
+    id: "qwen3-4b-magicquant",
+    name: "Qwen3-4B-Instruct-2507 MagicQuant Q4_K_M",
+    size: "about 2.4 GB",
+    file: "qwen3-4b-instruct-2507-magicquant-q4_k_m.gguf",
+    url: "https://huggingface.co/magiccodingman/Qwen3-4B-Instruct-2507-Unsloth-MagicQuant-v2-GGUF/resolve/main/Model-MQ-Q4_K_M_1.gguf?download=true",
+  },
   "qwen2.5-coder-1.5b": {
     id: "qwen2.5-coder-1.5b",
     name: "Qwen2.5-Coder-1.5B-Instruct Q4_K_M",

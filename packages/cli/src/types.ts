@@ -46,7 +46,11 @@ export type FindingsResult = Readonly<{
   findings: readonly Finding[];
 }>;
 
-export type ModelId = "qwen2.5-coder-1.5b" | "qwen2.5-coder-7b" | "qwen2.5-coder-32b";
+export type ModelId =
+  | "qwen3-4b-magicquant"
+  | "qwen2.5-coder-1.5b"
+  | "qwen2.5-coder-7b"
+  | "qwen2.5-coder-32b";
 
 export type ModelConfig = Readonly<{
   id: ModelId;
