@@ -3,6 +3,12 @@ import { promisify } from "node:util";
 import { sourceId, type SourceId } from "./types.js";
 
 const execFileAsync = promisify(execFile);
+const SUSPICIOUS_AUTHOR_PHRASES = [
+  "coauhtoried by",
+  "coauthored by",
+  "co-authored-by",
+  "co-authored by",
+] as const;
 
 export type CommitProjection = Readonly<{
   id: SourceId;
@@ -101,10 +107,10 @@ async function commitLogs(base: string, target: string): Promise<string> {
       "log",
       "--no-merges",
       "--reverse",
-      "--format=%h %s",
+      "--format=%H",
       `${base}..${target}`,
     ], { maxBuffer: 1024 * 1024 });
-    return stdout.trim();
+    return commitLogLines(stdout.split(/\r?\n/).filter(Boolean));
   } catch {
     throw new Error(`Could not read commit logs for ${base}..${target}.`);
   }
@@ -112,10 +118,37 @@ async function commitLogs(base: string, target: string): Promise<string> {
 
 async function commitLogLines(commits: readonly string[]): Promise<string> {
   const lines = await Promise.all(commits.map(async (commit) => {
-    const [short, message] = await Promise.all([shortCommit(commit), commitMessage(commit)]);
-    return `${short} ${firstLine(message) || "(no commit message)"}`;
+    const [short, message, authorSignal] = await Promise.all([
+      shortCommit(commit),
+      commitMessage(commit),
+      suspiciousAuthorSignal(commit),
+    ]);
+    const line = `${short} ${firstLine(message) || "(no commit message)"}`;
+    return authorSignal ? `${line}\nAuthor signal: ${authorSignal}` : line;
   }));
   return lines.join("\n");
+}
+
+async function suspiciousAuthorSignal(commit: string): Promise<string | null> {
+  const author = await commitAuthor(commit);
+  const phrase = matchingSuspiciousAuthorPhrase(author);
+  return phrase ? `author contains '${phrase}'` : null;
+}
+
+async function commitAuthor(commit: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", ["show", "--no-patch", "--format=%an <%ae>", commit], {
+      maxBuffer: 1024 * 1024,
+    });
+    return stdout;
+  } catch {
+    throw new Error(`Could not read author for ${commit}.`);
+  }
+}
+
+function matchingSuspiciousAuthorPhrase(author: string): string | null {
+  const normalized = author.toLowerCase().replace(/\s+/g, " ").trim();
+  return SUSPICIOUS_AUTHOR_PHRASES.find((phrase) => normalized.includes(phrase)) ?? null;
 }
 
 function firstLine(value: string): string {
