@@ -4,13 +4,27 @@ import { fileURLToPath } from "node:url";
 
 const VERSION = "0.0.0";
 
-type ParsedArgs = Readonly<{
-  help: boolean;
+type Command = Readonly<{
+  kind: "analyze" | "help" | "privacy";
+  json: boolean;
   llm: boolean;
   share: boolean;
-  json: boolean;
-  privacy: boolean;
   since: string | null;
+}>;
+
+type BoundaryState = Readonly<{
+  status: "ready" | "not_ready" | "skipped";
+  message: string;
+}>;
+
+type Analysis = Readonly<{
+  status: "not_ready";
+  question: "Is AI making you dumber?";
+  scannedFiles: 0;
+  readDiffs: false;
+  contactedModel: boolean;
+  uploaded: false;
+  message: string;
 }>;
 
 type Io = Readonly<{
@@ -18,10 +32,7 @@ type Io = Readonly<{
   stderr: Pick<typeof console, "error">;
 }>;
 
-const DEFAULT_IO: Io = {
-  stdout: console,
-  stderr: console,
-};
+const DEFAULT_IO: Io = { stdout: console, stderr: console };
 
 const HELP = `Stupify ${VERSION}
 
@@ -31,91 +42,26 @@ Usage:
   stupify [options]
 
 Options:
-  --llm                 Planned: use a local LLM for diagnostic judgment.
   --since <range>       Planned: check recent changes only.
-  --share               Planned: upload sanitized report metadata.
   --json                Print machine-readable output.
   --privacy             Show what can and cannot leave your machine.
+  --llm                 Accepted for now; local LLM will be the default engine.
+  --share               Planned: upload sanitized report metadata later.
   -h, --help            Show this help.
 
 Current status:
-  Structure-only foundation. Diagnostic engine not implemented yet.
+  Boundary scaffold only. Diagnostic analysis is not implemented yet.
 `;
 
-export function parseArgs(argv: readonly string[]): ParsedArgs {
-  const parsed = {
-    help: false,
-    llm: false,
-    share: false,
-    json: false,
-    privacy: false,
-    since: null as string | null,
-  };
-
-  for (let i = 0; i < argv.length; i += 1) {
-    const arg = argv[i];
-
-    if (arg === "--since") {
-      const value = argv[i + 1];
-      if (!value || value.startsWith("--")) {
-        throw new Error("--since requires a value, for example: --since \"1 week ago\"");
-      }
-      parsed.since = value;
-      i += 1;
-      continue;
-    }
-
-    if (arg === "--llm") {
-      parsed.llm = true;
-      continue;
-    }
-
-    if (arg === "--share") {
-      parsed.share = true;
-      continue;
-    }
-
-    if (arg === "--json") {
-      parsed.json = true;
-      continue;
-    }
-
-    if (arg === "--privacy") {
-      parsed.privacy = true;
-      continue;
-    }
-
-    if (arg === "--help" || arg === "-h") {
-      parsed.help = true;
-      continue;
-    }
-
-    throw new Error(`Unknown option: ${arg}`);
-  }
-
-  return parsed;
-}
-
-export function main(argv: readonly string[], io: Io = DEFAULT_IO): number {
+export async function main(argv: readonly string[], io: Io = DEFAULT_IO): Promise<number> {
   try {
-    const args = parseArgs(argv);
+    const command = localCommandInterface(argv);
+    const llm = await llmInterface(command);
+    const analysis = await rollupAnalysisLocally(command, llm);
+    const tui = tuiAroundAnalysis(command, analysis);
+    const share = await shareAfter(command, analysis);
 
-    if (args.help) {
-      io.stdout.log(HELP);
-      return 0;
-    }
-
-    if (args.privacy) {
-      io.stdout.log(formatPrivacy());
-      return 0;
-    }
-
-    if (args.json) {
-      io.stdout.log(JSON.stringify(formatJson(args), null, 2));
-      return 0;
-    }
-
-    io.stdout.log(formatPlaceholder(args));
+    io.stdout.log(command.json ? JSON.stringify({ analysis, llm, share }, null, 2) : tui);
     return 0;
   } catch (error) {
     io.stderr.error(error instanceof Error ? error.message : String(error));
@@ -124,11 +70,100 @@ export function main(argv: readonly string[], io: Io = DEFAULT_IO): number {
   }
 }
 
-function formatPrivacy(): string {
+export function parseArgs(argv: readonly string[]): Command {
+  return localCommandInterface(argv);
+}
+
+function localCommandInterface(argv: readonly string[]): Command {
+  const command = {
+    kind: "analyze" as Command["kind"],
+    json: false,
+    llm: false,
+    share: false,
+    since: null as string | null,
+  };
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === "-h" || arg === "--help") command.kind = "help";
+    else if (arg === "--privacy") command.kind = "privacy";
+    else if (arg === "--json") command.json = true;
+    else if (arg === "--llm") command.llm = true;
+    else if (arg === "--share") command.share = true;
+    else if (arg === "--since") {
+      const value = argv[++i];
+      if (!value || value.startsWith("--")) {
+        throw new Error("--since requires a value, for example: --since \"1 week ago\"");
+      }
+      command.since = value;
+    } else {
+      throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  return command;
+}
+
+async function llmInterface(command: Command): Promise<BoundaryState> {
+  if (command.kind !== "analyze") return skipped("LLM not needed for this command.");
+  return notReady("Local LLM detection and calls are not implemented yet.");
+}
+
+async function rollupAnalysisLocally(
+  command: Command,
+  llm: BoundaryState,
+): Promise<Analysis> {
+  return {
+    status: "not_ready",
+    question: "Is AI making you dumber?",
+    scannedFiles: 0,
+    readDiffs: false,
+    contactedModel: llm.status === "ready",
+    uploaded: false,
+    message:
+      command.kind === "analyze"
+        ? "Diagnostic analysis is not implemented yet."
+        : "Analysis skipped for this command.",
+  };
+}
+
+function tuiAroundAnalysis(command: Command, analysis: Analysis): string {
+  if (command.kind === "help") return HELP;
+  if (command.kind === "privacy") return privacyText();
+
+  return `STUPIFY REPORT
+
+Question:
+  ${analysis.question}
+
+Status:
+  ${analysis.message}
+
+Boundaries:
+  Local command interface: ready
+  LLM interface: stubbed
+  Local rollup analysis: stubbed
+  TUI around analysis: ready
+  Share after analysis: ${command.share ? "stubbed" : "skipped"}
+
+What happened:
+  No files were scanned.
+  No diffs were read.
+  No local model was contacted.
+  Nothing was uploaded.
+`;
+}
+
+async function shareAfter(command: Command, _analysis: Analysis): Promise<BoundaryState> {
+  if (!command.share) return skipped("Share not requested.");
+  return notReady("Share upload comes after local analysis and is not implemented yet.");
+}
+
+function privacyText(): string {
   return `STUPIFY PRIVACY
 
 Current status:
-  Structure-only foundation. Nothing is uploaded.
+  Boundary scaffold only. Nothing is uploaded.
 
 Future share uploads may include:
   - Diagnosis metadata
@@ -149,57 +184,16 @@ Future share uploads must not include:
 `;
 }
 
-function formatJson(args: ParsedArgs): Record<string, unknown> {
-  return {
-    status: "not_implemented",
-    message: "Diagnostic engine not implemented yet.",
-    engine: "none",
-    uploaded: false,
-    requested: {
-      llm: args.llm,
-      share: args.share,
-      since: args.since,
-    },
-  };
+function skipped(message: string): BoundaryState {
+  return { status: "skipped", message };
 }
 
-function formatPlaceholder(args: ParsedArgs): string {
-  const lines = [
-    "STUPIFY REPORT",
-    "",
-    "Question:",
-    "  Is AI making you dumber?",
-    "",
-    "Status:",
-    "  Diagnostic engine not implemented yet.",
-    "",
-    "What happened:",
-    "  No files were scanned.",
-    "  No diffs were read.",
-    "  No local model was contacted.",
-    "  Nothing was uploaded.",
-    "",
-  ];
-
-  if (args.llm) {
-    lines.push("Requested --llm: local LLM wiring is planned but not implemented yet.", "");
-  }
-
-  if (args.share) {
-    lines.push("Requested --share: upload wiring is planned but not implemented yet.", "");
-  }
-
-  if (args.since) {
-    lines.push(`Requested --since: ${args.since}`, "");
-  }
-
-  lines.push("Run `stupify --help` for the planned interface.");
-
-  return lines.join("\n");
+function notReady(message: string): BoundaryState {
+  return { status: "not_ready", message };
 }
 
 const isEntrypoint = process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isEntrypoint) {
-  process.exitCode = main(process.argv.slice(2));
+  process.exitCode = await main(process.argv.slice(2));
 }
