@@ -41,5 +41,8 @@
     "prepack": "bun run build",
     "typecheck": "tsc -p tsconfig.json",
     "smoke": "bun run build && node ./dist/stupify.js --help"
+  },
+  "dependencies": {
+    "node-llama-cpp": "^3.18.1"
   }
 }

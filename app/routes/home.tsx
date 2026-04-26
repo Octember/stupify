@@ -7,20 +7,19 @@ export function meta({}: Route.MetaArgs) {
     {
       name: "description",
       content:
-        "A local-only CLI that checks recent code changes for signs of judgment offload, autocomplete dependence, and AI-flavored slop acceptance.",
+        "A local-only CLI that diffs one target commit and asks a local model for one JSON judgment.",
     },
   ];
 }
 
-const COMMAND = "npx @stupify/cli";
+const COMMAND = "npx @stupify/cli --commit HEAD";
 
-const PLANNED_OPTIONS = [
-  ["stupify", "Run the local diagnostic check."],
-  ["stupify --llm", "Use a local LLM for deeper judgment checks."],
-  ['stupify --since "1 week ago"', "Check recent changes only."],
-  ["stupify --share", "Upload sanitized report metadata."],
-  ["stupify --json", "Print machine-readable output."],
-  ["stupify --privacy", "Show what can and cannot leave your machine."],
+const V0_STEPS = [
+  ["1", "Diff one target commit against its first parent."],
+  ["2", "Add simple hunk labels for proof pointers."],
+  ["3", "Download or load the cached GGUF model locally."],
+  ["4", "Ask the model for one structured JSON judgment."],
+  ["5", "Print that JSON to stdout."],
 ] as const;
 
 const NEVER_UPLOAD = [
@@ -54,24 +53,25 @@ export default function Home() {
           <a href="/" className="font-semibold tracking-tight text-white">
             stupify
           </a>
-          <span className="text-zinc-500">local-only diagnostic CLI</span>
+          <span className="text-zinc-500">local diff judgment CLI</span>
         </nav>
 
         <div className="grid flex-1 items-center gap-12 py-16 lg:grid-cols-[1.05fr_0.95fr]">
           <header>
             <p className="mb-4 text-sm font-medium uppercase tracking-[0.24em] text-zinc-500">
-              Developer self-check
+              Local diff check
             </p>
             <h1 className="max-w-3xl text-5xl font-semibold leading-none tracking-tight text-white sm:text-7xl">
               Is AI making you dumber?
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-zinc-300">
-              Stupify checks recent code changes for signs of judgment offload,
-              autocomplete dependence, and AI-flavored slop acceptance.
+              Stupify diffs one target commit, sends that patch to a local
+              model, and asks whether AI replaced engineering judgment instead
+              of helping it.
             </p>
             <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-500">
-              Your machine reads the code. Your local LLM does the judging. Our
-              server only receives sanitized metadata if you choose to share.
+              No hosted APIs. No sharing. No repo crawling. The current
+              milestone is only commit diff to local model to JSON.
             </p>
 
             <div className="mt-8 flex max-w-xl flex-col gap-3 sm:flex-row">
@@ -88,46 +88,46 @@ export default function Home() {
             </div>
 
             <p className="mt-4 text-sm text-zinc-600">
-              Structure-only foundation: the diagnostic engine is not
-              implemented yet.
+              No categories, no baseline, no scanner. Just one commit to one
+              judgment.
             </p>
           </header>
 
-          <ReportPreview />
+          <JudgmentPreview />
         </div>
 
         <section className="grid gap-4 pb-12 md:grid-cols-3">
           <InfoPanel title="Local first">
-            The CLI is designed so source code, diffs, and file contents stay on
-            your machine.
+            The model is downloaded into an OS cache directory and runs on your
+            machine.
           </InfoPanel>
-          <InfoPanel title="Judgment check">
-            The product asks whether AI is replacing developer judgment instead
-            of augmenting it.
+          <InfoPanel title="Diff only">
+            The unit of analysis is exactly the commit you pass to the command.
           </InfoPanel>
-          <InfoPanel title="Share carefully">
-            Shared reports will be sanitized cards, not repo analysis dumps.
+          <InfoPanel title="Nothing else">
+            No sharing, dashboards, server calls, hosted models, or repo-wide
+            scanning, categories, or baselines.
           </InfoPanel>
         </section>
 
         <section className="grid gap-8 border-t border-zinc-900 py-12 lg:grid-cols-[0.8fr_1.2fr]">
           <div>
             <h2 className="text-2xl font-semibold tracking-tight text-white">
-              CLI shape
+              Current shape
             </h2>
             <p className="mt-3 max-w-md text-sm leading-6 text-zinc-500">
-              The command surface is intentionally small. No fake scanner is
-              wired into this foundation pass.
+              The command surface stays small while the local model roundtrip
+              proves itself.
             </p>
           </div>
           <div className="divide-y divide-zinc-900 rounded-lg border border-zinc-900 bg-zinc-950">
-            {PLANNED_OPTIONS.map(([command, description]) => (
+            {V0_STEPS.map(([step, description]) => (
               <div
-                key={command}
-                className="grid gap-2 px-4 py-4 sm:grid-cols-[220px_1fr]"
+                key={step}
+                className="grid gap-2 px-4 py-4 sm:grid-cols-[40px_1fr]"
               >
                 <code className="font-mono text-sm text-zinc-100">
-                  {command}
+                  {step}
                 </code>
                 <span className="text-sm text-zinc-500">{description}</span>
               </div>
@@ -141,8 +141,8 @@ export default function Home() {
               Privacy boundary
             </h2>
             <p className="mt-3 max-w-md text-sm leading-6 text-zinc-500">
-              The server should only ever receive an allowlisted, sanitized
-              report card after explicit sharing.
+              The command does not upload data. Later share features must pass
+              through an allowlisted sanitizer.
             </p>
           </div>
           <ul className="grid gap-3 sm:grid-cols-2">
@@ -158,23 +158,23 @@ export default function Home() {
         </section>
 
         <footer className="border-t border-zinc-900 py-8 text-sm text-zinc-600">
-          Stupify is being rebuilt as a local-only cognitive offloading check.
+          Stupify is currently a local commit-to-judgment proof.
         </footer>
       </section>
     </main>
   );
 }
 
-function ReportPreview() {
+function JudgmentPreview() {
   return (
     <aside className="rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl shadow-black/30">
       <div className="mb-5 flex items-center justify-between border-b border-zinc-800 pb-4">
         <div>
           <p className="text-xs uppercase tracking-[0.2em] text-zinc-500">
-            Report surface
+            JSON judgment
           </p>
           <h2 className="mt-1 text-xl font-semibold text-white">
-            Stupify Report
+            Stupify Output
           </h2>
         </div>
         <span className="rounded-full border border-zinc-800 px-3 py-1 text-xs text-zinc-500">
@@ -184,18 +184,18 @@ function ReportPreview() {
 
       <dl className="space-y-4">
         <PreviewRow label="Question" value="Is AI making you dumber?" />
-        <PreviewRow label="Status" value="Diagnostic engine not implemented yet." />
-        <PreviewRow label="Files scanned" value="None" />
-        <PreviewRow label="Local model contacted" value="No" />
+        <PreviewRow label="Status" value="Local model roundtrip." />
+        <PreviewRow label="Input" value="One commit diff" />
+        <PreviewRow label="Local model contacted" value="Yes" />
         <PreviewRow label="Uploaded" value="Nothing" />
       </dl>
 
       <div className="mt-6 rounded-lg border border-zinc-800 bg-zinc-950 p-4">
         <p className="text-sm font-medium text-zinc-200">
-          Future shared report copy
+          Stdout shape
         </p>
         <p className="mt-2 text-sm leading-6 text-zinc-500">
-          Stupify checked whether AI is making me dumber. No code was uploaded.
+          score, why, proof, confidence. Nothing else is pretending to exist.
         </p>
       </div>
     </aside>
