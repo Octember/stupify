@@ -1,18 +1,17 @@
 import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.ts";
 import type { Command, ModelId } from "./types.ts";
 
-const DEFAULT_RECENT_COMMIT_COUNT = 5;
+const DEFAULT_SINCE = "2 weeks ago";
 type InputMode =
+  | Readonly<{ kind: "since"; since: string }>
   | Readonly<{ kind: "stdin" }>
   | Readonly<{ kind: "commit"; commit: string }>
   | Readonly<{ kind: "commits"; count: number }>;
 
 export function parseCommand(argv: readonly string[]): Command {
-  if (argv.length === 1 && isHelp(argv[0])) {
-    return { kind: "help" };
-  }
+  if (argv.length === 1 && isHelp(argv[0])) return { kind: "help" };
 
-  let inputMode: InputMode = { kind: "commits", count: DEFAULT_RECENT_COMMIT_COUNT };
+  let inputMode: InputMode = { kind: "since", since: DEFAULT_SINCE };
   let explicitInputMode = false;
   let checkIds: readonly string[] | null = null;
   let json = false;
@@ -22,7 +21,11 @@ export function parseCommand(argv: readonly string[]): Command {
     const arg = argv[index];
     if (arg === "--stdin") setInputMode({ kind: "stdin" });
     else if (arg === "--json") json = true;
-    else if (arg === "--commit") {
+    else if (arg === "--since") {
+      const value = argv[++index];
+      if (!value || value.startsWith("-")) throw new Error("--since requires a git date, such as \"2 weeks ago\".");
+      setInputMode({ kind: "since", since: value });
+    } else if (arg === "--commit") {
       const value = argv[++index];
       if (!value || !isSafeCommitArg(value)) throw new Error("Invalid commit.");
       setInputMode({ kind: "commit", commit: value });
@@ -46,7 +49,7 @@ export function parseCommand(argv: readonly string[]): Command {
   return { ...inputMode, checkIds, json, model };
 
   function setInputMode(next: InputMode): void {
-    if (explicitInputMode) throw new Error("Choose only one input mode: --stdin, --commit, or --commits.");
+    if (explicitInputMode) throw new Error("Choose only one input mode: --since, --stdin, --commit, or --commits.");
     inputMode = next;
     explicitInputMode = true;
   }

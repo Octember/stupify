@@ -1,126 +1,135 @@
-import { findingsPrompt } from "./prompts.ts";
-import { validateFindingsResult } from "./validate.ts";
+import { auditPrompt, scoutPrompt } from "./prompts.ts";
+import { validateAuditResult, validateScoutResult } from "./validate.ts";
 import type { LocalModel } from "./model.ts";
-import type { FindingsCandidate, FindingsResult, ModelInput, StupifyCheck } from "./types.ts";
+import type { CandidateContext, DiffBatch, FindingsResult, NetDiff, StupifyCheck } from "./types.ts";
 
-export async function analyzeInput(
+export async function scoutBatch(
   model: LocalModel,
-  input: ModelInput,
+  batch: DiffBatch,
   checks: readonly StupifyCheck[],
-): Promise<FindingsResult> {
-  const first = await runPrompt(model, findingsPrompt(input, checks));
-  const firstResult = parseFindings(first.raw, first.grammar, checks, input);
-  if (firstResult.findings.length > 0) return firstResult;
-
-  const second = await runPrompt(model, findingsPrompt(input, checks, { secondPass: true }));
-  return parseFindings(second.raw, second.grammar, checks, input);
+  sourceLabel: string,
+): Promise<readonly string[]> {
+  const raw = await runJsonPrompt(model, scoutPrompt(batch, checks, sourceLabel), scoutSchema(batch), 160, 0);
+  return validateScoutResult(raw, batch);
 }
 
-async function runPrompt(
+export async function auditCandidates(
   model: LocalModel,
-  prompt: string,
-): Promise<Readonly<{ raw: string; grammar: { parse(input: string): unknown } }>> {
-  const grammar = await model.llama.createGrammarForJsonSchema({
+  diff: NetDiff,
+  contexts: readonly CandidateContext[],
+  checks: readonly StupifyCheck[],
+): Promise<FindingsResult> {
+  if (contexts.length === 0) return { findings: [], summary: "No candidate regions found." };
+
+  const raw = await runJsonPrompt(model, auditPrompt(contexts, checks, diff.label), auditSchema(contexts), 520, 0);
+  return validateAuditResult(raw, diff, checks, contexts.map((context) => context.pointer));
+}
+
+function auditSchema(contexts: readonly CandidateContext[]): unknown {
+  return {
     type: "object",
     properties: {
-      checks: {
+      findings: {
         type: "array",
-        minItems: 1,
-        maxItems: 5,
         items: {
           type: "object",
           properties: {
-            sourceId: { type: "string" },
             checkId: { type: "string" },
-            matched: { type: "boolean" },
             why: { type: "string" },
-            proof: { type: "string" },
+            proof: { type: "string", enum: contexts.map((context) => context.pointer) },
           },
-          required: ["sourceId", "checkId", "matched", "why", "proof"],
+          required: ["checkId", "why", "proof"],
           additionalProperties: false,
         },
       },
+      summary: { type: "string" },
     },
-    required: ["checks"],
+    required: ["findings", "summary"],
     additionalProperties: false,
-  });
+  };
+}
 
+function scoutSchema(batch: DiffBatch): unknown {
+  return {
+    type: "object",
+    properties: {
+      candidates: {
+        type: "array",
+        maxItems: 3,
+        items: { type: "string", enum: batch.hunks.map((hunk) => hunk.pointer) },
+      },
+    },
+    required: ["candidates"],
+    additionalProperties: false,
+  };
+}
+
+async function runJsonPrompt(
+  model: LocalModel,
+  prompt: string,
+  schema: unknown,
+  maxTokens: number,
+  temperature: number,
+): Promise<unknown> {
   if (process.env.STUPIFY_DEBUG_PROMPT === "1") {
     console.error("Model prompt:");
     console.error(prompt);
   }
 
-  const raw = await model.session.prompt(prompt, {
-    grammar,
-    maxTokens: 420,
-    temperature: 1,
+  const first = await complete(model, prompt, schema, maxTokens, temperature);
+  const parsed = parseJson(first);
+  if (parsed.ok) return parsed.value;
+
+  const retry = await complete(model, `${prompt}
+
+Your previous response was not valid JSON. Return the requested JSON object only.`, schema, maxTokens, temperature);
+  const retryParsed = parseJson(retry);
+  if (retryParsed.ok) return retryParsed.value;
+
+  console.error("Raw model output:");
+  console.error(retry);
+  throw new Error("Model returned invalid JSON.");
+}
+
+async function complete(
+  model: LocalModel,
+  prompt: string,
+  schema: unknown,
+  maxTokens: number,
+  temperature: number,
+): Promise<string> {
+  const response = await fetch(`${model.baseUrl}/v1/chat/completions`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      model: model.id,
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: maxTokens,
+      temperature,
+      response_format: {
+        type: "json_object",
+        schema,
+      },
+    }),
   });
-  return { raw, grammar };
+
+  if (!response.ok) throw new Error(`llama-server request failed: HTTP ${response.status} ${await response.text()}`);
+
+  const body = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
+  const content = body.choices?.[0]?.message?.content;
+  if (typeof content !== "string") throw new Error("llama-server returned no message content.");
+  return content;
 }
 
-function parseFindings(
-  raw: string,
-  grammar: { parse(input: string): unknown },
-  checks: readonly StupifyCheck[],
-  input: ModelInput,
-): FindingsResult {
-  const parsed = parseModelJson(raw, grammar);
-  if (!isCheckResult(parsed)) {
-    console.error("Raw model output:");
-    console.error(raw);
-    throw new Error("Model returned invalid findings JSON.");
-  }
-  if (process.env.STUPIFY_DEBUG_MODEL === "1") {
-    console.error("Parsed model findings:");
-    console.error(JSON.stringify(parsed, null, 2));
-  }
-  return validateFindingsResult(decisionsToFindingCandidates(parsed), checks, input);
-}
-
-type CheckDecision = Readonly<{
-  sourceId: string;
-  checkId: string;
-  matched: boolean;
-  why: string;
-  proof: string;
-}>;
-
-type CheckResult = Readonly<{
-  checks: readonly CheckDecision[];
-}>;
-
-function isCheckResult(value: unknown): value is CheckResult {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return Array.isArray(record.checks) && record.checks.every(isCheckDecision);
-}
-
-function isCheckDecision(value: unknown): value is CheckDecision {
-  if (!value || typeof value !== "object") return false;
-  const record = value as Record<string, unknown>;
-  return (
-    typeof record.checkId === "string" &&
-    typeof record.sourceId === "string" &&
-    typeof record.matched === "boolean" &&
-    typeof record.why === "string" &&
-    typeof record.proof === "string"
-  );
-}
-
-function decisionsToFindingCandidates(result: CheckResult): FindingsCandidate {
-  return {
-    findings: result.checks
-      .filter((decision) => decision.matched)
-      .map(({ sourceId, checkId, why, proof }) => ({ sourceId, checkId, why, proof })),
-  };
-}
-
-function parseModelJson(raw: string, grammar: { parse(input: string): unknown }): unknown {
+function parseJson(raw: string): Readonly<{ ok: true; value: unknown }> | Readonly<{ ok: false }> {
   try {
-    return grammar.parse(raw);
-  } catch (error) {
-    console.error("Raw model output:");
-    console.error(raw);
-    throw error;
+    const value = JSON.parse(raw);
+    if (process.env.STUPIFY_DEBUG_MODEL === "1") {
+      console.error("Parsed model JSON:");
+      console.error(JSON.stringify(value, null, 2));
+    }
+    return { ok: true, value };
+  } catch {
+    return { ok: false };
   }
 }

@@ -1,22 +1,29 @@
 import { VERSION } from "./constants.ts";
-import type { AnalyzeCommand, FindingsResult } from "./types.ts";
+import type { AnalysisReport, AnalyzeCommand } from "./types.ts";
 
-export function renderFindings(result: FindingsResult, command: AnalyzeCommand): string {
-  if (command.json) return JSON.stringify(result, null, 2);
-
-  if (result.findings.length === 0) {
-    return `🧙 stupify 🪄
-Findings:
-  None.`;
+export function renderReport(report: AnalysisReport, command: AnalyzeCommand): string {
+  if (command.json) {
+    return JSON.stringify({
+      schemaVersion: "0.4",
+      model: { id: report.run.modelId },
+      checks: report.run.checkIds,
+      run: report.run,
+      findings: report.result.findings,
+      summary: report.result.summary,
+    }, null, 2);
   }
 
-  return `🧙 stupify 🪄
+  return `Search:
+  ${report.run.batchesScanned} batches scanned
+  ${report.run.candidateCount} candidate regions found
+Audit:
+  ${report.run.auditedCandidateCount} candidates inspected
+  ${report.result.findings.length} findings
+${renderWarnings(report)}
 Findings:
-${result.findings
-  .map((finding) => `- ${finding.sourceId} · ${finding.checkId}
-  ${finding.why}
-  Proof: ${finding.proof}`)
-  .join("\n")}`;
+${renderFindings(report)}
+Timing:
+  total_ms=${report.run.timingsMs.total} diff_ms=${report.run.timingsMs.diff} model_ms=${report.run.timingsMs.modelLoad} search_ms=${report.run.timingsMs.search} audit_ms=${report.run.timingsMs.audit}`;
 }
 
 export function helpText(): string {
@@ -24,20 +31,41 @@ export function helpText(): string {
 
 Usage:
   stupify
+  stupify --since "2 weeks ago"
   stupify --commit <commit>
   stupify --commits <count>
   git diff HEAD~1..HEAD | stupify --stdin
 
 Options:
+  --since <date>        Analyze the net diff from the first commit before this git date to HEAD.
+  --commit <commit>     Analyze one commit as a net diff.
+  --commits <count>     Analyze the net diff across the last N non-merge commits.
+  --stdin               Read a git diff from stdin.
   --checks <ids>        Comma-separated check ids.
-  --model <id>          qwen3-4b-magicquant, qwen2.5-coder-7b, qwen2.5-coder-32b, or qwen2.5-coder-1.5b.
-  --json                Print raw JSON findings.
+  --model <id>          qwen2.5-coder-1.5b, gemma-4-e4b, gemma-4-e2b, qwen3-4b-magicquant, qwen2.5-coder-7b, or qwen2.5-coder-32b.
+  --json                Print JSON only.
 
 Default:
-  stupify is equivalent to stupify --commits 5.
-  Options such as --json and --checks keep that default input mode unless --stdin, --commit, or --commits is provided.
+  stupify is equivalent to stupify --since "2 weeks ago".
 
 Not included:
-  Baselines, sharing, server calls, Ollama, BYO model setup, or a search/judge pipeline.
+  Baselines, sharing, hosted server calls, Ollama, GitHub, dashboards, or repo-wide scanning.
+`;
+}
+
+function renderFindings(report: AnalysisReport): string {
+  if (report.result.findings.length === 0) return "  None.";
+
+  return report.result.findings
+    .map((finding) => `- ${finding.checkId}
+  ${finding.why}
+  Proof: ${finding.proof}`)
+    .join("\n");
+}
+
+function renderWarnings(report: AnalysisReport): string {
+  if (report.run.warnings.length === 0) return "";
+  return `Warnings:
+${report.run.warnings.map((warning) => `  ${warning}`).join("\n")}
 `;
 }

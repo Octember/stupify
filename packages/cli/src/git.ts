@@ -1,41 +1,25 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { sourceId, type SourceId } from "./types.ts";
+import { sourceId, type NetDiff, type NetDiffStats } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
-const SUSPICIOUS_AUTHOR_PHRASES = [
-  "coauhtoried by",
-  "coauthored by",
-  "co-authored-by",
-  "co-authored by",
-] as const;
 
-export type CommitProjection = Readonly<{
-  id: SourceId;
-  label: string;
-  base: string;
-  target: string;
-  logs: string;
-}>;
+export async function netDiffSince(since: string): Promise<NetDiff> {
+  const [base, target] = await Promise.all([baseBefore(since), revParse("HEAD")]);
+  return netDiff(base, target, `last ${since}`);
+}
 
-export async function projectionForCommit(commit: string): Promise<CommitProjection> {
+export async function netDiffForCommit(commit: string): Promise<NetDiff> {
   const [base, target, shortTarget, message] = await Promise.all([
     revParse(`${commit}^1`),
     revParse(commit),
     shortCommit(commit),
     commitMessage(commit),
   ]);
-
-  return {
-    id: sourceId(shortTarget),
-    label: firstLine(message) || shortTarget,
-    base,
-    target,
-    logs: await commitLogs(base, target),
-  };
+  return netDiff(base, target, firstLine(message) || shortTarget, sourceId(shortTarget));
 }
 
-export async function projectionForRecentCommits(count: number): Promise<CommitProjection> {
+export async function netDiffForRecentCommits(count: number): Promise<NetDiff> {
   const commits = await recentCommits(count);
   if (commits.length === 0) throw new Error("No non-merge commits found.");
 
@@ -48,13 +32,121 @@ export async function projectionForRecentCommits(count: number): Promise<CommitP
     shortCommit(newest),
   ]);
 
+  return netDiff(base, target, `${commits.length} recent commits`, sourceId(`range:${shortBase}..${shortTarget}`));
+}
+
+export async function netDiffFromStdin(text: string): Promise<NetDiff> {
+  if (!text.trim()) throw new Error("No diff received on stdin.");
   return {
-    id: sourceId(`range:${shortBase}..${shortTarget}`),
-    label: `${commits.length} recent commits`,
+    id: sourceId("stdin"),
+    label: "stdin",
+    base: "stdin",
+    target: "stdin",
+    text,
+    stats: statsFromDiff(text),
+  };
+}
+
+async function netDiff(base: string, target: string, label: string, id?: NetDiff["id"]): Promise<NetDiff> {
+  const [text, stats, shortBase, shortTarget] = await Promise.all([
+    diff(base, target),
+    diffStats(base, target),
+    shortCommit(base),
+    shortCommit(target),
+  ]);
+  return {
+    id: id ?? sourceId(`net:${shortBase}..${shortTarget}`),
+    label,
     base,
     target,
-    logs: await commitLogLines(commits),
+    text,
+    stats,
   };
+}
+
+async function baseBefore(since: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", [
+      "log",
+      "--first-parent",
+      "--before",
+      since,
+      "-1",
+      "--format=%H",
+    ]);
+    const commit = stdout.trim();
+    if (commit) return commit;
+    return rootCommit();
+  } catch {
+    throw new Error(`Could not resolve base commit before ${since}.`);
+  }
+}
+
+async function rootCommit(): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-list", "--max-parents=0", "HEAD"]);
+    return stdout.trim().split(/\r?\n/, 1)[0] ?? "";
+  } catch {
+    throw new Error("Could not resolve repository root commit.");
+  }
+}
+
+async function diff(base: string, target: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", [
+      "diff",
+      "--no-ext-diff",
+      "--no-color",
+      "--unified=8",
+      base,
+      target,
+      "--",
+    ], { maxBuffer: 128 * 1024 * 1024 });
+    if (!stdout.trim()) throw new Error("empty diff");
+    return stdout;
+  } catch {
+    throw new Error(`No diff found for ${base}..${target}.`);
+  }
+}
+
+async function diffStats(base: string, target: string): Promise<NetDiffStats> {
+  try {
+    const { stdout } = await execFileAsync("git", ["diff", "--numstat", base, target, "--"], {
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    return statsFromNumstat(stdout);
+  } catch {
+    return { filesChanged: 0, additions: 0, deletions: 0 };
+  }
+}
+
+function statsFromDiff(diffText: string): NetDiffStats {
+  const files = new Set<string>();
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diffText.split(/\r?\n/)) {
+    const fileMatch = /^diff --git a\/.+ b\/(.+)$/.exec(line);
+    if (fileMatch) files.add(fileMatch[1]);
+    else if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
+    else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
+  }
+  return { filesChanged: files.size, additions, deletions };
+}
+
+function statsFromNumstat(numstat: string): NetDiffStats {
+  let filesChanged = 0;
+  let additions = 0;
+  let deletions = 0;
+
+  for (const line of numstat.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const [added, deleted] = line.split(/\s+/, 3);
+    filesChanged += 1;
+    additions += Number(added) || 0;
+    deletions += Number(deleted) || 0;
+  }
+
+  return { filesChanged, additions, deletions };
 }
 
 async function recentCommits(count: number): Promise<readonly string[]> {
@@ -99,56 +191,6 @@ async function commitMessage(commit: string): Promise<string> {
   } catch {
     throw new Error(`Could not read commit message for ${commit}.`);
   }
-}
-
-async function commitLogs(base: string, target: string): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync("git", [
-      "log",
-      "--no-merges",
-      "--reverse",
-      "--format=%H",
-      `${base}..${target}`,
-    ], { maxBuffer: 1024 * 1024 });
-    return commitLogLines(stdout.split(/\r?\n/).filter(Boolean));
-  } catch {
-    throw new Error(`Could not read commit logs for ${base}..${target}.`);
-  }
-}
-
-async function commitLogLines(commits: readonly string[]): Promise<string> {
-  const lines = await Promise.all(commits.map(async (commit) => {
-    const [short, message, authorSignal] = await Promise.all([
-      shortCommit(commit),
-      commitMessage(commit),
-      suspiciousAuthorSignal(commit),
-    ]);
-    const line = `${short} ${firstLine(message) || "(no commit message)"}`;
-    return authorSignal ? `${line}\nAuthor signal: ${authorSignal}` : line;
-  }));
-  return lines.join("\n");
-}
-
-async function suspiciousAuthorSignal(commit: string): Promise<string | null> {
-  const author = await commitAuthor(commit);
-  const phrase = matchingSuspiciousAuthorPhrase(author);
-  return phrase ? `author contains '${phrase}'` : null;
-}
-
-async function commitAuthor(commit: string): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync("git", ["show", "--no-patch", "--format=%an <%ae>", commit], {
-      maxBuffer: 1024 * 1024,
-    });
-    return stdout;
-  } catch {
-    throw new Error(`Could not read author for ${commit}.`);
-  }
-}
-
-function matchingSuspiciousAuthorPhrase(author: string): string | null {
-  const normalized = author.toLowerCase().replace(/\s+/g, " ").trim();
-  return SUSPICIOUS_AUTHOR_PHRASES.find((phrase) => normalized.includes(phrase)) ?? null;
 }
 
 function firstLine(value: string): string {
