@@ -1,4 +1,4 @@
-import type { DiffPack, StupifyCheck } from "./types.js";
+import type { DiffPack, StupifyCheck } from "./types.ts";
 
 export function findingsPrompt(pack: DiffPack, checks: readonly StupifyCheck[]): string {
   return `You are Stupify.

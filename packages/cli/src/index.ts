@@ -1,1 +1,1 @@
-export { main } from "./stupify.js";
+export { main } from "./stupify.ts";

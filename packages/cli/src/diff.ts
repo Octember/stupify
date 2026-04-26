@@ -1,5 +1,5 @@
 import { stdin as input } from "node:process";
-import type { DiffInput } from "./types.js";
+import type { DiffInput } from "./types.ts";
 
 export async function readDiffFromStdin(): Promise<DiffInput> {
   const raw = await readStdin();

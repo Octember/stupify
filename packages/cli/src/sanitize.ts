@@ -1,4 +1,4 @@
-import type { DiffPack, Finding, FindingsResult, StupifyCheck } from "./types.js";
+import type { DiffPack, Finding, FindingsResult, StupifyCheck } from "./types.ts";
 
 export function isFindingsResult(value: unknown): value is FindingsResult {
   if (!value || typeof value !== "object") return false;
