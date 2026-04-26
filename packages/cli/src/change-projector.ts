@@ -3,8 +3,8 @@ import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { CommitProjection } from "./git.js";
-import type { SourceId } from "./types.js";
+import type { CommitProjection } from "./git.ts";
+import type { SourceId } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 

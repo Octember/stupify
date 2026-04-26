@@ -1,4 +1,4 @@
-import type { Finding, FindingsCandidate, FindingsResult, ModelInput, StupifyCheck } from "./types.js";
+import type { Finding, FindingsCandidate, FindingsResult, ModelInput, StupifyCheck } from "./types.ts";
 
 export function validateFindingsResult(
   result: FindingsCandidate,

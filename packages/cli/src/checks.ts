@@ -1,20 +1,21 @@
-import { checkId, type StupifyCheck } from "./types.js";
+import { checkId, type StupifyCheck } from "./types.ts";
 
 // KEEP CHECKS CONCISE! They run in every prompt. DO NOT duplicate prompting.
 export const defaultChecks: readonly StupifyCheck[] = [
   {
-    id: checkId("duplicated_schema"), name: "Duplicated schema",
-    question: "Did the change duplicate an existing type, schema, payload, or DTO shape?",
+    id: checkId("duplicated_schema"),
+    name: "Duplicated schema",
+    question:
+      "Did the change duplicate an existing type, schema, payload, or DTO shape?",
     matchWhen: [
       "local shape mirrors existing fields and maps them one-for-one",
       "new response/payload/schema adds no filtering, renaming, validation, or versioning",
     ],
-    doNotMatchWhen: [
-      "test fixture, mock, or intentional external contract",
-    ],
+    doNotMatchWhen: ["test fixture, mock, or intentional external contract"],
   },
   {
-    id: checkId("unnecessary_complexity"), name: "Unnecessary complexity",
+    id: checkId("unnecessary_complexity"),
+    name: "Unnecessary complexity",
     question: "Did the change add structure without buying clarity?",
     matchWhen: [
       "helper, wrapper, service, layer, or extra file around simple logic without reuse",
@@ -30,9 +31,7 @@ export const defaultChecks: readonly StupifyCheck[] = [
     matchWhen: [
       "precise-looking counts, budgets, ratios, reports, or batching fields without useful behavior",
     ],
-    doNotMatchWhen: [
-      "simple fixed cap/chunking or external API requirement",
-    ],
+    doNotMatchWhen: ["simple fixed cap/chunking or external API requirement"],
   },
   {
     id: checkId("coauthored_slop"),
@@ -47,31 +46,21 @@ export const defaultChecks: readonly StupifyCheck[] = [
     id: checkId("mega_file"),
     name: "Mega file",
     question: "Is a touched non-config file over 1000 LOC?",
-    matchWhen: [
-      "touched non-config source file >1000 LOC",
-    ],
-    doNotMatchWhen: [
-      "config, lock, generated, fixture, or vendored file",
-    ],
+    matchWhen: ["touched non-config source file >1000 LOC"],
+    doNotMatchWhen: ["config, lock, generated, fixture, or vendored file"],
   },
   {
     id: checkId("class_pile"),
     name: "Class pile",
     question: "Are unrelated classes crammed into one file?",
-    matchWhen: [
-      "multiple unrelated classes in one touched file",
-    ],
-    doNotMatchWhen: [
-      "small private helper class or generated file",
-    ],
+    matchWhen: ["multiple unrelated classes in one touched file"],
+    doNotMatchWhen: ["small private helper class or generated file"],
   },
   {
     id: checkId("over_commenting"),
     name: "Over commenting",
     question: "Did the change add noisy comments?",
-    matchWhen: [
-      "comments restate obvious code or narrate simple logic",
-    ],
+    matchWhen: ["comments restate obvious code or narrate simple logic"],
     doNotMatchWhen: [
       "comment explains intent, constraint, workaround, or public API behavior",
     ],
@@ -80,9 +69,7 @@ export const defaultChecks: readonly StupifyCheck[] = [
     id: checkId("fake_history"),
     name: "Fake history",
     question: "Does code or comments cite history that is not real?",
-    matchWhen: [
-      "claims 'we do this because X' but X is not in the artifact",
-    ],
+    matchWhen: ["claims 'we do this because X' but X is not in the artifact"],
     doNotMatchWhen: [
       "references visible code, issue IDs, docs, or real historical context",
     ],
@@ -102,12 +89,8 @@ export const defaultChecks: readonly StupifyCheck[] = [
     id: checkId("bad_names"),
     name: "Bad names",
     question: "Did the change add short non-descriptive names?",
-    matchWhen: [
-      "new names like tmp/res/obj/data/val/x hide intent",
-    ],
-    doNotMatchWhen: [
-      "tiny loop index or established local abbreviation",
-    ],
+    matchWhen: ["new names like tmp/res/obj/data/val/x hide intent"],
+    doNotMatchWhen: ["tiny loop index or established local abbreviation"],
   },
   {
     id: checkId("inconsistent_patterns"),
@@ -135,9 +118,7 @@ export const defaultChecks: readonly StupifyCheck[] = [
     id: checkId("clever_loop"),
     name: "Clever loop",
     question: "Did the change over-optimize loop code?",
-    matchWhen: [
-      "manual/clever loop where simple iteration would be clearer",
-    ],
+    matchWhen: ["manual/clever loop where simple iteration would be clearer"],
     doNotMatchWhen: [
       "measured hot path or simpler than available abstractions",
     ],
@@ -146,9 +127,7 @@ export const defaultChecks: readonly StupifyCheck[] = [
     id: checkId("imaginary_edges"),
     name: "Imaginary edges",
     question: "Did the change handle exception cases nobody cares about?",
-    matchWhen: [
-      "branches, fallbacks, or states for unrealistic edge cases",
-    ],
+    matchWhen: ["branches, fallbacks, or states for unrealistic edge cases"],
     doNotMatchWhen: [
       "real user, API, security, data-loss, or compatibility case",
     ],
@@ -166,10 +145,14 @@ export const defaultChecks: readonly StupifyCheck[] = [
   },
 ] as const;
 
-export function enabledChecks(checkIds: readonly string[] | null): readonly StupifyCheck[] {
+export function enabledChecks(
+  checkIds: readonly string[] | null,
+): readonly StupifyCheck[] {
   if (!checkIds) return defaultChecks;
 
-  const checksById = new Map<string, StupifyCheck>(defaultChecks.map((check) => [check.id, check]));
+  const checksById = new Map<string, StupifyCheck>(
+    defaultChecks.map((check) => [check.id, check]),
+  );
   return checkIds.map((id) => {
     const check = checksById.get(id);
     if (!check) throw new Error(`Unknown check: ${id}`);

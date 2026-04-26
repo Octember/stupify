@@ -5,8 +5,8 @@ import { stdin as input, stderr as statusOutput, stdout as output } from "node:p
 import { createInterface } from "node:readline/promises";
 import path from "node:path";
 import { getLlama, LlamaChatSession } from "node-llama-cpp";
-import { MODEL_REGISTRY } from "./constants.js";
-import type { ModelId } from "./types.js";
+import { MODEL_REGISTRY } from "./constants.ts";
+import type { ModelId } from "./types.ts";
 
 export type LocalModel = Readonly<{
   llama: Awaited<ReturnType<typeof getLlama>>;

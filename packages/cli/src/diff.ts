@@ -1,5 +1,5 @@
 import { stdin as input } from "node:process";
-import { sourceId, type ChangeArtifact } from "./types.js";
+import { sourceId, type ChangeArtifact } from "./types.ts";
 
 export async function artifactFromStdinDiff(): Promise<ChangeArtifact> {
   const raw = await readStdin();
