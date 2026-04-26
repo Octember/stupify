@@ -1,5 +1,5 @@
-import { VERSION } from "./constants.js";
-import type { AnalyzeCommand, FindingsResult } from "./types.js";
+import { VERSION } from "./constants.ts";
+import type { AnalyzeCommand, FindingsResult } from "./types.ts";
 
 export function renderFindings(result: FindingsResult, command: AnalyzeCommand): string {
   if (command.json) return JSON.stringify(result, null, 2);

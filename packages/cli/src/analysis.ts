@@ -1,7 +1,7 @@
-import { findingsPrompt } from "./prompts.js";
-import { validateFindingsResult } from "./validate.js";
-import type { LocalModel } from "./model.js";
-import type { FindingsCandidate, FindingsResult, ModelInput, StupifyCheck } from "./types.js";
+import { findingsPrompt } from "./prompts.ts";
+import { validateFindingsResult } from "./validate.ts";
+import type { LocalModel } from "./model.ts";
+import type { FindingsCandidate, FindingsResult, ModelInput, StupifyCheck } from "./types.ts";
 
 export async function analyzeInput(
   model: LocalModel,

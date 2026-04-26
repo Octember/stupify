@@ -24,8 +24,8 @@ npx @stupify/cli --commit HEAD
 Commit mode projects `<commit>^..commit` into a throwaway worktree, adds the
 target commit metadata, asks Repomix to include the pending diff and code
 context, and prints timing metadata to stderr.
-The default registry currently checks duplicated schemas and unnecessary
-complexity.
+The default registry lives in `packages/cli/src/checks.ts` and keeps each check
+short because it runs in every prompt.
 
 Analyze recent commits:
 
