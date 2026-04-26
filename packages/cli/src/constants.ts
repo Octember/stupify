@@ -2,7 +2,7 @@ export const VERSION = "0.0.0";
 
 import type { ModelConfig, ModelId } from "./types.js";
 
-export const DEFAULT_MODEL_ID: ModelId = "qwen3-4b-magicquant";
+export const DEFAULT_MODEL_ID: ModelId = "qwen2.5-coder-1.5b";
 
 export const MODEL_REGISTRY: Record<ModelId, ModelConfig> = {
   "qwen3-4b-magicquant": {
