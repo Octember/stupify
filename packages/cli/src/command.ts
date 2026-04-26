@@ -11,47 +11,72 @@ type InputMode =
 export function parseCommand(argv: readonly string[]): Command {
   if (argv.length === 1 && isHelp(argv[0])) return { kind: "help" };
 
-  let inputMode: InputMode = { kind: "since", since: DEFAULT_SINCE };
-  let explicitInputMode = false;
-  let checkIds: readonly string[] | null = null;
-  let json = false;
-  let model: ModelId = DEFAULT_MODEL_ID;
+  type ParseState = Readonly<{
+    inputMode: InputMode;
+    explicitInputMode: boolean;
+    checkIds: readonly string[] | null;
+    json: boolean;
+    model: ModelId;
+  }>;
 
-  for (let index = 0; index < argv.length; index += 1) {
+  const initialState: ParseState = {
+    inputMode: { kind: "since", since: DEFAULT_SINCE },
+    explicitInputMode: false,
+    checkIds: null,
+    json: false,
+    model: DEFAULT_MODEL_ID,
+  };
+
+  const finalState = parseFrom(0, initialState);
+  return { ...finalState.inputMode, checkIds: finalState.checkIds, json: finalState.json, model: finalState.model };
+
+  function parseFrom(index: number, state: ParseState): ParseState {
+    if (index >= argv.length) return state;
+
     const arg = argv[index];
-    if (arg === "--stdin") setInputMode({ kind: "stdin" });
-    else if (arg === "--json") json = true;
-    else if (arg === "--since") {
-      const value = argv[++index];
+
+    if (arg === "--stdin") return parseFrom(index + 1, setInputMode(state, { kind: "stdin" }));
+    if (arg === "--json") return parseFrom(index + 1, { ...state, json: true });
+
+    if (arg === "--since") {
+      const value = argv[index + 1];
       if (!value || value.startsWith("-")) throw new Error("--since requires a git date, such as \"2 weeks ago\".");
-      setInputMode({ kind: "since", since: value });
-    } else if (arg === "--commit") {
-      const value = argv[++index];
+      return parseFrom(index + 2, setInputMode(state, { kind: "since", since: value }));
+    }
+
+    if (arg === "--commit") {
+      const value = argv[index + 1];
       if (!value || !isSafeCommitArg(value)) throw new Error("Invalid commit.");
-      setInputMode({ kind: "commit", commit: value });
-    } else if (arg === "--commits") {
-      const value = argv[++index];
+      return parseFrom(index + 2, setInputMode(state, { kind: "commit", commit: value }));
+    }
+
+    if (arg === "--commits") {
+      const value = argv[index + 1];
       const count = Number(value);
       if (!Number.isInteger(count) || count < 1) throw new Error("--commits requires a positive integer.");
-      setInputMode({ kind: "commits", count });
-    } else if (arg === "--checks") {
-      const value = argv[++index];
+      return parseFrom(index + 2, setInputMode(state, { kind: "commits", count }));
+    }
+
+    if (arg === "--checks") {
+      const value = argv[index + 1];
       if (!value || value.startsWith("-")) throw new Error("--checks requires a comma-separated list.");
-      checkIds = value.split(",").map((id) => id.trim()).filter(Boolean);
+      const checkIds = value.split(",").map((id) => id.trim()).filter(Boolean);
       if (checkIds.length === 0) throw new Error("--checks requires at least one check id.");
-    } else if (arg === "--model") {
-      const value = argv[++index];
+      return parseFrom(index + 2, { ...state, checkIds });
+    }
+
+    if (arg === "--model") {
+      const value = argv[index + 1];
       if (!value || !isModelId(value)) throw new Error(`--model must be one of: ${Object.keys(MODEL_REGISTRY).join(", ")}`);
-      model = value;
-    } else throw new Error(`Unknown option: ${arg}`);
+      return parseFrom(index + 2, { ...state, model: value });
+    }
+
+    throw new Error(`Unknown option: ${arg}`);
   }
 
-  return { ...inputMode, checkIds, json, model };
-
-  function setInputMode(next: InputMode): void {
-    if (explicitInputMode) throw new Error("Choose only one input mode: --since, --stdin, --commit, or --commits.");
-    inputMode = next;
-    explicitInputMode = true;
+  function setInputMode(state: ParseState, next: InputMode): ParseState {
+    if (state.explicitInputMode) throw new Error("Choose only one input mode: --since, --stdin, --commit, or --commits.");
+    return { ...state, inputMode: next, explicitInputMode: true };
   }
 }
 
