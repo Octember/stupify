@@ -76,182 +76,85 @@ export const defaultChecks: readonly StupifyCheck[] = [
   {
     id: "coauthored_slop",
     name: "Coauthored slop",
-    question: "Does the change metadata make authorship look untrustworthy by putting co-author wording in the author identity?",
+    question: "Does author metadata contain co-author text?",
     matchWhen: [
-      "author metadata or an author signal says the author contains 'coauhtoried by'",
-      "the author identity itself includes coauthored-by, co-authored-by, or similar co-author trailer text",
-      "commit metadata makes it unclear who really wrote the code by putting co-author wording in the author field",
+      "author signal says author contains 'coauhtoried by'",
+      "author identity includes coauthored/co-authored text",
     ],
     doNotMatchWhen: [
-      "a normal commit message body has a Co-authored-by trailer outside the author identity",
-      "the diff only documents Git co-author trailer syntax",
+      "normal Co-authored-by trailer in the commit body",
     ],
-    examples: {
-      match: [
-        "Author signal: author contains 'coauhtoried by'.",
-        "The author identity contains Co-authored-by-style text instead of a clear author.",
-      ],
-      noMatch: [
-        "A commit message has a normal Co-authored-by trailer in the body.",
-        "Documentation explains how to add a Co-authored-by trailer.",
-      ],
-    },
   },
   {
     id: "mega_file",
     name: "Mega file",
-    question: "Did the change cram too many classes, components, or responsibilities into one file?",
+    question: "Does the change create or keep a non-config file over 1000 LOC?",
     matchWhen: [
-      "adds multiple classes, components, services, or adapters to one new file when they have separate responsibilities",
-      "turns one file into a catch-all module with unrelated types, helpers, state, and behavior",
-      "creates a large file instead of extending the existing module boundaries nearby",
-      "puts all classes in one file without a clear local convention requiring it",
+      "a touched source file is over 1000 lines",
     ],
     doNotMatchWhen: [
-      "the file is a small barrel, fixture, or generated artifact",
-      "the surrounding codebase already uses a single-file pattern for the same small unit",
-      "the classes are tightly coupled implementation details of one small abstraction",
+      "config, lock, generated, fixture, or vendored file",
     ],
-    examples: {
-      match: [
-        "Adds a repository, parser, validator, renderer, and CLI command class in one new module.",
-        "Introduces several unrelated React components plus data helpers in one page file.",
-      ],
-      noMatch: [
-        "Keeps a tiny helper class beside the only function that uses it.",
-        "Adds a generated schema file that is intentionally monolithic.",
-      ],
-    },
   },
   {
     id: "over_commenting",
     name: "Over commenting",
-    question: "Did the change add comments that narrate obvious code instead of explaining real intent?",
+    question: "Did the change add noisy comments?",
     matchWhen: [
-      "adds comments before simple assignments, branches, imports, or function calls that are already self-explanatory",
-      "uses comments as a substitute for clearer names or simpler structure",
-      "adds dense step-by-step narration around straightforward implementation code",
-      "leaves noisy comments that restate what the next line literally does",
+      "comments restate obvious code",
+      "step-by-step narration around simple logic",
     ],
     doNotMatchWhen: [
-      "the comment explains a surprising constraint, external contract, workaround, or security decision",
-      "the comment documents public API behavior that callers need",
-      "the comment preserves context that cannot be represented in names or types",
+      "comment explains intent, constraint, workaround, or public API behavior",
     ],
-    examples: {
-      match: [
-        "Adds comments like 'loop over items', 'return the result', or 'set the variable' around obvious code.",
-        "Prefixes each small block in a short function with a comment that repeats the implementation.",
-      ],
-      noMatch: [
-        "Explains why a non-obvious timeout matches a third-party service limit.",
-        "Documents a public option whose behavior is not obvious from its name.",
-      ],
-    },
   },
   {
     id: "lint_bypass",
     name: "Lint bypass",
-    question: "Did the change bypass lint or type rules instead of fixing the underlying issue?",
+    question: "Did the change bypass lint or type rules?",
     matchWhen: [
-      "adds eslint-disable, biome-ignore, ts-ignore, ts-expect-error, or similar suppression without a narrow explanation",
-      "uses any, unknown casts, non-null assertions, or broad type assertions to silence a type problem",
-      "turns off a rule for a file, block, or generated-looking section to make the change pass",
-      "weakens lint, formatter, or typecheck configuration so new code avoids existing standards",
+      "adds eslint-disable, biome-ignore, ts-ignore, ts-expect-error, any, or broad casts",
+      "weakens lint, format, or typecheck config",
     ],
     doNotMatchWhen: [
-      "the suppression is narrow, local, and explains an unavoidable external typing bug",
-      "the file is generated and already excluded by project convention",
-      "the change replaces a broad suppression with a narrower one",
+      "narrow suppression with a reason, type-level test, or generated file convention",
     ],
-    examples: {
-      match: [
-        "Adds // eslint-disable-next-line with no reason before new code.",
-        "Adds // @ts-ignore to call an API instead of modeling the correct type.",
-      ],
-      noMatch: [
-        "Uses @ts-expect-error in a type-level test that intentionally asserts a compiler error.",
-        "Documents a third-party type defect next to a one-line suppression.",
-      ],
-    },
   },
   {
     id: "inconsistent_patterns",
     name: "Inconsistent patterns",
-    question: "Did the change introduce patterns that clash with nearby files doing the same kind of work?",
+    question: "Does the change clash with nearby patterns?",
     matchWhen: [
-      "implements a workflow differently from adjacent modules without a clear reason",
-      "mixes naming, error handling, state management, imports, or file layout styles across similar files",
-      "uses a new abstraction shape where an existing local pattern already covers the same job",
-      "adds code that looks copied from another stack or project instead of following this repository",
+      "same job done differently than adjacent files",
+      "new naming, error, state, import, or layout style without reason",
     ],
     doNotMatchWhen: [
-      "the new pattern is isolated behind a deliberate boundary and removes real duplication",
-      "the surrounding files are already inconsistent and the change follows the most recent local convention",
-      "the difference is required by an external API or framework contract",
+      "external API requires it or change follows a newer local convention",
     ],
-    examples: {
-      match: [
-        "Adds a new command parser style beside existing commands that use a shared parse helper.",
-        "Handles errors with ad hoc strings in one file while sibling files return typed results.",
-      ],
-      noMatch: [
-        "Introduces one adapter boundary around a genuinely different external SDK.",
-        "Migrates all touched call sites to a single clearer pattern.",
-      ],
-    },
   },
   {
     id: "reinvented_utils",
     name: "Reinvented utils",
-    question: "Did the change recreate utility logic that already exists in the repository or platform?",
+    question: "Did the change recreate an existing utility?",
     matchWhen: [
-      "adds a new helper that duplicates an existing local utility, parser, formatter, validator, or adapter",
-      "reimplements standard library behavior with custom code without adding domain-specific behavior",
-      "copies small utility logic into a feature file instead of using the package-owned helper",
-      "adds one-off normalization, parsing, date, path, or collection helpers while a nearby shared utility exists",
+      "new helper duplicates local utility or standard library behavior",
+      "one-off parse, format, normalize, path, date, or collection helper where shared one exists",
     ],
     doNotMatchWhen: [
-      "the existing utility has the wrong contract or unsafe side effects for this caller",
-      "the new helper is a small private expression that is clearer than importing shared machinery",
-      "the change deletes or consolidates duplicate utility code",
+      "existing utility has wrong contract or new helper is clearer as a tiny private expression",
     ],
-    examples: {
-      match: [
-        "Adds a local slugify, clamp, parseJson, or path join helper when the repo already exports one.",
-        "Implements custom array grouping beside an existing groupBy utility with the same behavior.",
-      ],
-      noMatch: [
-        "Adds a domain-specific formatter whose output differs from the shared generic helper.",
-        "Inlines a one-line predicate used only once.",
-      ],
-    },
   },
   {
     id: "operator_style_mismatch",
     name: "Operator style mismatch",
-    question: "Does the change read unlike the established style of the surrounding code?",
+    question: "Does the change read unlike the surrounding code?",
     matchWhen: [
-      "new code uses names, abstractions, comments, file structure, or control flow that feel alien next to nearby code",
-      "the change is mechanically correct but lacks the concise, local style already present in the touched package",
-      "the implementation sounds generic or template-like where surrounding code is direct and opinionated",
-      "the change introduces a different engineering voice without a functional reason",
+      "generic/template-like code next to direct local style",
+      "names, abstractions, comments, or control flow feel alien in the touched package",
     ],
     doNotMatchWhen: [
-      "the style difference comes from generated code, vendored code, or an external API shape",
-      "the change intentionally follows a newer convention already established elsewhere in the repo",
-      "the difference is limited to names required by a framework or protocol",
+      "generated, vendored, framework-required, or newer established local style",
     ],
-    examples: {
-      match: [
-        "Adds enterprise-style manager/factory naming in a package that uses small direct functions.",
-        "Introduces generic tutorial-like comments and abstractions beside terse local implementation code.",
-      ],
-      noMatch: [
-        "Uses framework-required route names that differ from internal helper naming.",
-        "Updates old code to match a newer pattern already used in sibling modules.",
-      ],
-    },
   },
 ] as const;
 

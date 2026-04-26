@@ -46,17 +46,16 @@ function formatCheck(check: StupifyCheck): string {
     ?.map((example) => `- ${example}`)
     .join("\n") ?? "";
 
-  return `# ${check.name}
+  return [`# ${check.name}
 ID: ${check.id}
 Q: ${check.question}
 Match when:
 ${matches}
 Do not match when:
-${noMatches}
-Match examples:
-${matchExamples}
-No-match examples:
-${noMatchExamples}`;
+${noMatches}`,
+    matchExamples ? `Match examples:\n${matchExamples}` : "",
+    noMatchExamples ? `No-match examples:\n${noMatchExamples}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function formatArtifact(artifact: ModelInput["artifacts"][number]): string {
