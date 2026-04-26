@@ -61,7 +61,7 @@ export default function Home() {
           </div>
 
           <p className="mt-5 max-w-xl text-sm leading-6 text-zinc-600">
-            Runs locally. Checks the diff. Keeps your code on your machine.
+            Privacy first. No code ever leaves your machine
           </p>
         </div>
       </section>

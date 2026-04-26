@@ -10,24 +10,53 @@ type ParsedHunk = Readonly<{
   lineCount: number;
 }>;
 
-export function batchDiff(diff: string, linesPerBatch = DEFAULT_BATCH_LINES): readonly DiffBatch[] {
-  const parsed = parseHunks(diff);
-  const batches: DiffBatch[] = [];
-  let current: DiffHunk[] = [];
-  let currentLines = 0;
+export function batchDiff(
+  diff: string,
+  linesPerBatch = DEFAULT_BATCH_LINES,
+): readonly DiffBatch[] {
+  const hunks = parseHunks(diff).flatMap((item) =>
+    splitLargeHunk(item, linesPerBatch),
+  );
 
-  for (const hunk of parsed.flatMap((item) => splitLargeHunk(item, linesPerBatch))) {
-    if (current.length > 0 && currentLines + hunk.lineCount > linesPerBatch) {
-      batches.push(toBatch(batches.length + 1, current));
-      current = [];
-      currentLines = 0;
-    }
-    current.push(toDiffHunk(hunk, batches.length + 1));
-    currentLines += hunk.lineCount;
+  type BatchState = Readonly<{
+    batches: readonly DiffBatch[];
+    current: readonly DiffHunk[];
+    currentLines: number;
+    batchNumber: number;
+  }>;
+
+  const initialState: BatchState = {
+    batches: [],
+    current: [],
+    currentLines: 0,
+    batchNumber: 1,
+  };
+
+  const finalized = hunks.reduce<BatchState>((state, hunk) => {
+    const needsFlush =
+      state.current.length > 0 &&
+      state.currentLines + hunk.lineCount > linesPerBatch;
+
+    const flushed = needsFlush ? flush(state) : state;
+    return {
+      ...flushed,
+      current: [...flushed.current, toDiffHunk(hunk, flushed.batchNumber)],
+      currentLines: flushed.currentLines + hunk.lineCount,
+    };
+  }, initialState);
+
+  return finalized.current.length > 0
+    ? [...finalized.batches, toBatch(finalized.batchNumber, finalized.current)]
+    : finalized.batches;
+
+  function flush(state: BatchState): BatchState {
+    return {
+      batches: [...state.batches, toBatch(state.batchNumber, state.current)],
+      current: [],
+      currentLines: 0,
+      batchNumber: state.batchNumber + 1,
+    };
   }
-
-  if (current.length > 0) batches.push(toBatch(batches.length + 1, current));
-  return batches;
 }
 
 export function allHunks(batches: readonly DiffBatch[]): readonly DiffHunk[] {
@@ -78,7 +107,10 @@ function parseHunks(diff: string): readonly ParsedHunk[] {
   }
 }
 
-function splitLargeHunk(hunk: ParsedHunk, linesPerBatch: number): readonly ParsedHunk[] {
+function splitLargeHunk(
+  hunk: ParsedHunk,
+  linesPerBatch: number,
+): readonly ParsedHunk[] {
   if (hunk.lineCount <= linesPerBatch) return [hunk];
   const lines = hunk.text.split(/\r?\n/);
   const chunks: ParsedHunk[] = [];
@@ -122,13 +154,14 @@ ${searchView(hunk.text)}`;
 function searchView(text: string): string {
   return text
     .split(/\r?\n/)
-    .filter((line) => (
-      line.startsWith("diff --git ") ||
-      line.startsWith("--- ") ||
-      line.startsWith("+++ ") ||
-      line.startsWith("@@ ") ||
-      (line.startsWith("+") && !line.startsWith("+++"))
-    ))
+    .filter(
+      (line) =>
+        line.startsWith("diff --git ") ||
+        line.startsWith("--- ") ||
+        line.startsWith("+++ ") ||
+        line.startsWith("@@ ") ||
+        (line.startsWith("+") && !line.startsWith("+++")),
+    )
     .join("\n");
 }
 
