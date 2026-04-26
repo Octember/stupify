@@ -10,6 +10,7 @@ import { readUnitForCommit, readUnitsForRecentCommits, unitFromStdinDiff } from 
 import { firstRunModelBootstrap, loadLocalModel } from "./model.js";
 import { packDiffs } from "./pack.js";
 import { helpText, renderFindings } from "./render.js";
+import { trace } from "./trace.js";
 import type { AnalyzeCommand, DiffPack, DiffUnit, FindingsResult, StupifyCheck } from "./types.js";
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -23,18 +24,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
     const checks = enabledChecks(command.checkIds);
     const diffStartedAt = Date.now();
-    const units = await readUnits(command);
-    const packs = packDiffs(units, checks);
+    const units = await trace.trace("diff.readUnits", () => readUnits(command));
+    const packs = trace.traceSync("diff.pack", () => packDiffs(units, checks), {
+      units: units.length,
+      checks: checks.length,
+    });
     const diffMs = Date.now() - diffStartedAt;
     printRunPlan(command, units, packs);
 
     const modelStartedAt = Date.now();
-    const modelPath = await firstRunModelBootstrap(command.model);
-    const model = await loadLocalModel(modelPath, MODEL_REGISTRY[command.model].name);
+    const { modelPath, model } = await trace.trace("model.load", async () => {
+      const modelPath = await firstRunModelBootstrap(command.model);
+      const model = await loadLocalModel(modelPath, MODEL_REGISTRY[command.model].name);
+      return { modelPath, model };
+    });
     const modelMs = Date.now() - modelStartedAt;
 
     const promptStartedAt = Date.now();
-    const result = mergeResults(await analyzePacks(model, packs, checks));
+    const result = await trace.trace(
+      "analyze.packs",
+      async () => mergeResults(await analyzePacks(model, packs, checks)),
+      { packs: packs.length, units: units.length, checks: checks.length, modelPath },
+    );
     const promptMs = Date.now() - promptStartedAt;
 
     console.log(renderFindings(result, command));
