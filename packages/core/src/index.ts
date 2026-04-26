@@ -1,8 +1,6 @@
 export type DiffFinding = Readonly<{
   sourceId: string;
   checkId: string;
-  score: number;
-  confidence: number;
   why: string;
   proof: string;
 }>;

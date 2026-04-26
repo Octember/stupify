@@ -1,20 +1,21 @@
-import { VERSION } from "./constants.ts";
-import type { Command, FindingsResult } from "./types.ts";
+import { VERSION } from "./constants.js";
+import { toShareCardPayload } from "./share-card.js";
+import type { Command, FindingsResult } from "./types.js";
 
 export function renderFindings(result: FindingsResult, command: Command): string {
-  if (command.kind === "help" || command.json) return JSON.stringify(result, null, 2);
+  if (command.kind === "help" || command.json) return JSON.stringify(toShareCardPayload(result), null, 2);
 
   if (result.findings.length === 0) {
-    return `STUPIFY
+    return `🧙 stupify 🪄
 Findings:
   None.`;
   }
 
-  return `STUPIFY
+  return `🧙 stupify 🪄
 Findings:
 ${result.findings
   .map(
-    (finding, index) => `${index + 1}. ${finding.checkId} · ${finding.score}/10 · confidence ${finding.confidence}
+    (finding, index) => `${index + 1}. ${finding.checkId}
    Source: ${finding.sourceId}
    ${finding.why}
    Proof: ${finding.proof}`,
@@ -32,6 +33,7 @@ Usage:
 
 Options:
   --checks <ids>        Comma-separated check ids.
+  --model <id>          qwen2.5-coder-7b, qwen2.5-coder-32b, or qwen2.5-coder-1.5b.
   --json                Print raw JSON findings.
 
 Output:

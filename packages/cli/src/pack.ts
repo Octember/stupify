@@ -1,4 +1,4 @@
-import type { DiffPack, DiffUnit, StupifyCheck } from "./types.ts";
+import type { DiffPack, DiffUnit, StupifyCheck } from "./types.js";
 
 const PACK_CHAR_BUDGET = 60_000;
 

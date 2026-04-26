@@ -1,4 +1,5 @@
-import type { Command } from "./types.ts";
+import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.js";
+import type { Command } from "./types.js";
 
 export function parseCommand(argv: readonly string[]): Command {
   if (argv.length === 1 && isHelp(argv[0])) {
@@ -10,6 +11,7 @@ export function parseCommand(argv: readonly string[]): Command {
   let count = 0;
   let checkIds: readonly string[] | null = null;
   let json = false;
+  let model = DEFAULT_MODEL_ID;
 
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -30,12 +32,16 @@ export function parseCommand(argv: readonly string[]): Command {
       if (!value || value.startsWith("-")) throw new Error("--checks requires a comma-separated list.");
       checkIds = value.split(",").map((id) => id.trim()).filter(Boolean);
       if (checkIds.length === 0) throw new Error("--checks requires at least one check id.");
+    } else if (arg === "--model") {
+      const value = argv[++index];
+      if (!value || !(value in MODEL_REGISTRY)) throw new Error(`--model must be one of: ${Object.keys(MODEL_REGISTRY).join(", ")}`);
+      model = value as keyof typeof MODEL_REGISTRY;
     } else throw new Error(`Unknown option: ${arg}`);
   }
 
-  if (kind === "stdin") return { kind, checkIds, json };
-  if (kind === "commit") return { kind, commit, checkIds, json };
-  if (kind === "commits") return { kind, count, checkIds, json };
+  if (kind === "stdin") return { kind, checkIds, json, model };
+  if (kind === "commit") return { kind, commit, checkIds, json, model };
+  if (kind === "commits") return { kind, count, checkIds, json, model };
   throw new Error("Usage: stupify --commit <commit>");
 }
 

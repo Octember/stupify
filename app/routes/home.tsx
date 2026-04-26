@@ -144,7 +144,7 @@ export default function Home() {
             </h2>
             <p className="mt-3 max-w-md text-sm leading-6 text-zinc-500">
               The command does not upload data. Later share features must pass
-              through an allowlisted sanitizer.
+              through an explicit upload boundary.
             </p>
           </div>
           <ul className="grid gap-3 sm:grid-cols-2">
@@ -197,8 +197,7 @@ function JudgmentPreview() {
           Stdout shape
         </p>
         <p className="mt-2 text-sm leading-6 text-zinc-500">
-          checkId, score, confidence, why, proof. Nothing else is pretending to
-          exist.
+          sourceId, checkId, why, proof. Nothing else is pretending to exist.
         </p>
       </div>
     </aside>

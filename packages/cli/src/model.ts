@@ -5,47 +5,49 @@ import { stdin as input, stderr as statusOutput, stdout as output } from "node:p
 import { createInterface } from "node:readline/promises";
 import path from "node:path";
 import { getLlama, LlamaChatSession } from "node-llama-cpp";
-import { MODEL_FILE, MODEL_NAME, MODEL_SIZE, MODEL_URL } from "./constants.ts";
+import { MODEL_REGISTRY } from "./constants.js";
+import type { ModelId } from "./types.js";
 
 export type LocalModel = Readonly<{
   llama: Awaited<ReturnType<typeof getLlama>>;
   session: LlamaChatSession;
 }>;
 
-export async function firstRunModelBootstrap(): Promise<string> {
+export async function firstRunModelBootstrap(modelId: ModelId): Promise<string> {
+  const selectedModel = MODEL_REGISTRY[modelId];
   const modelDir = path.join(cacheDir(), "models");
-  const modelPath = path.join(modelDir, MODEL_FILE);
+  const modelPath = path.join(modelDir, selectedModel.file);
   if (await exists(modelPath)) return modelPath;
 
   console.error(`No local Stupify model found.
 Stupify runs locally.
-Download the default model now?
-Model: ${MODEL_NAME}
-Size: ${MODEL_SIZE}`);
+Download this model now?
+Model: ${selectedModel.name}
+Size: ${selectedModel.size}`);
 
   if (!(await confirm("Continue? y/N "))) throw new Error("Setup cancelled.");
 
   await mkdir(modelDir, { recursive: true });
-  await downloadModel(modelPath);
+  await downloadModel(modelPath, selectedModel.url);
   if (!(await exists(modelPath))) throw new Error("Model download failed: file was not created.");
   return modelPath;
 }
 
-export async function loadLocalModel(modelPath: string): Promise<LocalModel> {
-  console.error("Loading local model...");
+export async function loadLocalModel(modelPath: string, modelName = "local model"): Promise<LocalModel> {
+  console.error(`Loading local model weights: ${modelName}`);
   const llama = await getLlama();
   const model = await llama.loadModel({ modelPath });
   const context = await model.createContext();
   return { llama, session: new LlamaChatSession({ contextSequence: context.getSequence() }) };
 }
 
-async function downloadModel(modelPath: string): Promise<void> {
+async function downloadModel(modelPath: string, modelUrl: string): Promise<void> {
   const tempPath = `${modelPath}.download`;
   await rm(tempPath, { force: true });
 
   console.error("Downloading model...");
   try {
-    const response = await fetch(MODEL_URL);
+    const response = await fetch(modelUrl);
     if (!response.ok || !response.body) throw new Error(`Model download failed: HTTP ${response.status}`);
 
     const total = Number(response.headers.get("content-length") ?? 0);
