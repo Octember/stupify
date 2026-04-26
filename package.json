@@ -8,11 +8,14 @@
   ],
   "scripts": {
     "build": "react-router build",
+    "cf-typegen": "wrangler types",
+    "deploy": "bun run build && wrangler deploy",
+    "deploy:cloudflare": "bun run deploy",
     "dev": "react-router dev",
     "start": "react-router-serve ./build/server/index.js",
     "build:cli": "tsc -p packages/cli/tsconfig.build.json",
-    "typecheck": "react-router typegen && tsc -p tsconfig.json && tsc -p packages/cli/tsconfig.json",
-    "typecheck:web": "react-router typegen && tsc -p tsconfig.json",
+    "typecheck": "wrangler types && react-router typegen && tsc -p tsconfig.json && tsc -p packages/cli/tsconfig.json",
+    "typecheck:web": "wrangler types && react-router typegen && tsc -p tsconfig.json",
     "typecheck:cli": "tsc -p packages/cli/tsconfig.json",
     "smoke:cli": "bun run build:cli && node packages/cli/dist/stupify.js --help"
   },
@@ -25,6 +28,7 @@
     "react-router": "7.14.0"
   },
   "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.33.2",
     "@react-router/dev": "7.14.0",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^22",
@@ -32,6 +36,7 @@
     "@types/react-dom": "^19.2.3",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3",
-    "vite": "^8.0.3"
+    "vite": "^8.0.3",
+    "wrangler": "^4.85.0"
   }
 }

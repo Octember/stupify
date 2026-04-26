@@ -1,6 +1,8 @@
 .DS_Store
 .env
 node_modules/
+.wrangler/
+worker-configuration.d.ts
 
 # React Router
 /.react-router/
