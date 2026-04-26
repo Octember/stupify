@@ -1,0 +1,1 @@
+# stupif.ai
