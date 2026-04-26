@@ -1,5 +1,6 @@
 import { checkId, type StupifyCheck } from "./types.js";
 
+// KEEP CHECKS CONCISE! They run in every prompt. DO NOT duplicate prompting.
 export const defaultChecks: readonly StupifyCheck[] = [
   {
     id: checkId("duplicated_schema"), name: "Duplicated schema",
@@ -78,8 +79,7 @@ export const defaultChecks: readonly StupifyCheck[] = [
     name: "Coauthored slop",
     question: "Does author metadata contain co-author text?",
     matchWhen: [
-      "author signal says author contains 'coauhtoried by'",
-      "author identity includes coauthored/co-authored text",
+      "author signal says author contains coauhtoried/coauthored/co-authored text",
     ],
     doNotMatchWhen: [
       "normal Co-authored-by trailer in the commit body",
