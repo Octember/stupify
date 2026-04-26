@@ -1,5 +1,5 @@
-import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.js";
-import type { Command, ModelId } from "./types.js";
+import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.ts";
+import type { Command, ModelId } from "./types.ts";
 
 const DEFAULT_RECENT_COMMIT_COUNT = 5;
 type InputMode =

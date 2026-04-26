@@ -1,4 +1,4 @@
-import type { ModelInput, StupifyCheck } from "./types.js";
+import type { ModelInput, StupifyCheck } from "./types.ts";
 
 export function findingsPrompt(
   input: ModelInput,

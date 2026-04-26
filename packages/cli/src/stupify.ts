@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 
 import { fileURLToPath } from "node:url";
-import { analyzeInput } from "./analysis.js";
-import { projectChange } from "./change-projector.js";
-import { enabledChecks } from "./checks.js";
-import { parseCommand } from "./command.js";
-import { MODEL_REGISTRY } from "./constants.js";
-import { artifactFromStdinDiff } from "./diff.js";
-import { projectionForCommit, projectionForRecentCommits } from "./git.js";
-import { firstRunModelBootstrap, loadLocalModel } from "./model.js";
-import { artifactFromProjectedChange } from "./repomix-adapter.js";
-import { helpText, renderFindings } from "./render.js";
-import { trace } from "./trace.js";
-import type { AnalyzeCommand, ChangeArtifact, ModelInput } from "./types.js";
+import { analyzeInput } from "./analysis.ts";
+import { projectChange } from "./change-projector.ts";
+import { enabledChecks } from "./checks.ts";
+import { parseCommand } from "./command.ts";
+import { MODEL_REGISTRY } from "./constants.ts";
+import { artifactFromStdinDiff } from "./diff.ts";
+import { projectionForCommit, projectionForRecentCommits } from "./git.ts";
+import { firstRunModelBootstrap, loadLocalModel } from "./model.ts";
+import { artifactFromProjectedChange } from "./repomix-adapter.ts";
+import { helpText, renderFindings } from "./render.ts";
+import { trace } from "./trace.ts";
+import type { AnalyzeCommand, ChangeArtifact, ModelInput } from "./types.ts";
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
