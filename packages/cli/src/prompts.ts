@@ -50,9 +50,8 @@ function formatCheck(check: StupifyCheck): string {
 ID: ${check.id}
 Q: ${check.question}
 Match when:
-${matches}
-Do not match when:
-${noMatches}`,
+${matches}`,
+    noMatches ? `Do not match when:\n${noMatches}` : "",
     matchExamples ? `Match examples:\n${matchExamples}` : "",
     noMatchExamples ? `No-match examples:\n${noMatchExamples}` : "",
   ].filter(Boolean).join("\n");
