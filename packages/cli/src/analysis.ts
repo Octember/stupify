@@ -1,11 +1,11 @@
 import { findingsPrompt } from "./prompts.js";
 import { isFindingsResult, sanitizeFindingsResult } from "./sanitize.js";
 import type { LocalModel } from "./model.js";
-import type { DiffInput, FindingsResult, StupifyCheck } from "./types.js";
+import type { DiffPack, FindingsResult, StupifyCheck } from "./types.js";
 
-export async function analyzeDiff(
+export async function analyzePack(
   model: LocalModel,
-  diff: DiffInput,
+  pack: DiffPack,
   checks: readonly StupifyCheck[],
 ): Promise<FindingsResult> {
   const grammar = await model.llama.createGrammarForJsonSchema({
@@ -17,13 +17,14 @@ export async function analyzeDiff(
         items: {
           type: "object",
           properties: {
+            sourceId: { type: "string" },
             checkId: { type: "string" },
             score: { type: "number" },
             confidence: { type: "number" },
             why: { type: "string" },
             proof: { type: "string" },
           },
-          required: ["checkId", "score", "confidence", "why", "proof"],
+          required: ["sourceId", "checkId", "score", "confidence", "why", "proof"],
           additionalProperties: false,
         },
       },
@@ -32,14 +33,14 @@ export async function analyzeDiff(
     additionalProperties: false,
   });
 
-  const raw = await model.session.prompt(findingsPrompt(diff, checks), { grammar, maxTokens: 420 });
+  const raw = await model.session.prompt(findingsPrompt(pack, checks), { grammar, maxTokens: 420 });
   const parsed = parseModelJson(raw, grammar);
   if (!isFindingsResult(parsed)) {
     console.error("Raw model output:");
     console.error(raw);
     throw new Error("Model returned invalid findings JSON.");
   }
-  return sanitizeFindingsResult(parsed, checks);
+  return sanitizeFindingsResult(parsed, checks, pack);
 }
 
 function parseModelJson(raw: string, grammar: { parse(input: string): unknown }): unknown {

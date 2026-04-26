@@ -1,4 +1,4 @@
-import type { Finding, FindingsResult, StupifyCheck } from "./types.js";
+import type { DiffPack, Finding, FindingsResult, StupifyCheck } from "./types.js";
 
 export function isFindingsResult(value: unknown): value is FindingsResult {
   if (!value || typeof value !== "object") return false;
@@ -9,11 +9,13 @@ export function isFindingsResult(value: unknown): value is FindingsResult {
 export function sanitizeFindingsResult(
   result: FindingsResult,
   checks: readonly StupifyCheck[],
+  pack: DiffPack,
 ): FindingsResult {
   const checkIds = new Set(checks.map((check) => check.id));
+  const sourceIds = new Set(pack.units.map((unit) => unit.id));
   return {
     findings: result.findings
-      .filter((finding) => checkIds.has(finding.checkId))
+      .filter((finding) => checkIds.has(finding.checkId) && sourceIds.has(finding.sourceId))
       .slice(0, 5)
       .map(sanitizeFinding),
   };
@@ -24,6 +26,7 @@ function isFinding(value: unknown): value is Finding {
   const record = value as Record<string, unknown>;
   return (
     typeof record.checkId === "string" &&
+    typeof record.sourceId === "string" &&
     typeof record.score === "number" &&
     typeof record.confidence === "number" &&
     typeof record.why === "string" &&
@@ -33,6 +36,7 @@ function isFinding(value: unknown): value is Finding {
 
 function sanitizeFinding(finding: Finding): Finding {
   return {
+    sourceId: finding.sourceId,
     checkId: finding.checkId,
     score: Math.max(0, Math.min(10, Math.round(finding.score))),
     confidence: Math.max(0, Math.min(1, Number(finding.confidence.toFixed(2)))),

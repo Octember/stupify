@@ -5,8 +5,9 @@ export function parseCommand(argv: readonly string[]): Command {
     return { kind: "help" };
   }
 
-  let kind: "stdin" | "commit" | null = null;
+  let kind: "stdin" | "commit" | "commits" | null = null;
   let commit = "";
+  let count = 0;
   let checkIds: readonly string[] | null = null;
   let json = false;
 
@@ -19,6 +20,11 @@ export function parseCommand(argv: readonly string[]): Command {
       if (!value || !isSafeCommitArg(value)) throw new Error("Invalid commit.");
       kind = "commit";
       commit = value;
+    } else if (arg === "--commits") {
+      const value = argv[++index];
+      count = Number(value);
+      if (!Number.isInteger(count) || count < 1) throw new Error("--commits requires a positive integer.");
+      kind = "commits";
     } else if (arg === "--checks") {
       const value = argv[++index];
       if (!value || value.startsWith("-")) throw new Error("--checks requires a comma-separated list.");
@@ -29,6 +35,7 @@ export function parseCommand(argv: readonly string[]): Command {
 
   if (kind === "stdin") return { kind, checkIds, json };
   if (kind === "commit") return { kind, commit, checkIds, json };
+  if (kind === "commits") return { kind, count, checkIds, json };
   throw new Error("Usage: stupify --commit <commit>");
 }
 

@@ -3,8 +3,8 @@
 Local-only diagnostic tooling for checking whether AI is making developers
 dumber.
 
-Current goal: point `npx @stupify/cli` at one commit, inject the enabled check
-registry, run the local model, and print findings for that commit diff.
+Current goal: load diffs, inject the enabled check registry, pack inputs to fit
+the model window, run the local model, and print findings.
 
 ## CLI
 
@@ -24,6 +24,14 @@ Commit mode includes the commit message, uses a zero-context git diff, and
 prints timing metadata to stderr.
 The default registry currently checks duplicated schemas and unnecessary
 complexity.
+
+Analyze recent commits:
+
+```sh
+npx @stupify/cli --commits 20
+```
+
+Small commits are packed together. Oversized commits are split into parts.
 
 Lower-level pipe mode still exists:
 

@@ -7,7 +7,7 @@ export function meta({}: Route.MetaArgs) {
     {
       name: "description",
       content:
-        "A local-only CLI that diffs one target commit and asks a local model for registry-based findings.",
+        "A local-only CLI that packs diffs with a check registry and asks a local model for findings.",
     },
   ];
 }
@@ -15,11 +15,11 @@ export function meta({}: Route.MetaArgs) {
 const COMMAND = "npx @stupify/cli --commit HEAD";
 
 const V0_STEPS = [
-  ["1", "Diff one target commit against its first parent."],
-  ["2", "Add simple hunk labels for proof pointers."],
-  ["3", "Download or load the cached GGUF model locally."],
-  ["4", "Ask the model for findings from that registry."],
-  ["5", "Print findings to stdout."],
+  ["1", "Load commit diffs or stdin diff."],
+  ["2", "Pack small diffs together and split oversized diffs."],
+  ["3", "Inject the enabled check registry."],
+  ["4", "Ask the local model for findings."],
+  ["5", "Merge findings and print them."],
 ] as const;
 
 const NEVER_UPLOAD = [
@@ -65,14 +65,14 @@ export default function Home() {
               Is AI making you dumber?
             </h1>
             <p className="mt-6 max-w-2xl text-lg leading-8 text-zinc-300">
-              Stupify diffs one target commit, sends that patch to a local
-              model with a tiny check registry, and asks whether AI replaced
-              engineering judgment instead of helping it.
+              Stupify packs commit diffs with a tiny check registry, sends them
+              to a local model, and asks whether AI replaced engineering
+              judgment instead of helping it.
             </p>
             <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-500">
               No hosted APIs. No sharing. No repo crawling. The current
-              milestone is only commit diff plus checks to local model to
-              findings.
+              milestone is only diffs plus checks to packed local model calls
+              to findings.
             </p>
 
             <div className="mt-8 flex max-w-xl flex-col gap-3 sm:flex-row">
@@ -89,8 +89,8 @@ export default function Home() {
             </div>
 
             <p className="mt-4 text-sm text-zinc-600">
-              No search pipeline, no baseline, no scanner. Just one commit, a
-              registry, and findings.
+              No search pipeline, no baseline, no scanner. Just checks, diffs,
+              packs, and findings.
             </p>
           </header>
 
@@ -103,7 +103,8 @@ export default function Home() {
             machine.
           </InfoPanel>
           <InfoPanel title="Diff only">
-            The unit of analysis is exactly the commit you pass to the command.
+            The unit of analysis is exactly the diff input you pass to the
+            command.
           </InfoPanel>
           <InfoPanel title="Nothing else">
             No sharing, dashboards, server calls, hosted models, or repo-wide
@@ -159,7 +160,7 @@ export default function Home() {
         </section>
 
         <footer className="border-t border-zinc-900 py-8 text-sm text-zinc-600">
-          Stupify is currently a local commit-to-findings proof.
+          Stupify is currently a local diffs-to-findings proof.
         </footer>
       </section>
     </main>

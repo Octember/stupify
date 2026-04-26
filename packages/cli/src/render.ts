@@ -15,6 +15,7 @@ Findings:
 ${result.findings
   .map(
     (finding, index) => `${index + 1}. ${finding.checkId} · ${finding.score}/10 · confidence ${finding.confidence}
+   Source: ${finding.sourceId}
    ${finding.why}
    Proof: ${finding.proof}`,
   )
@@ -26,6 +27,7 @@ export function helpText(): string {
 
 Usage:
   stupify --commit <commit>
+  stupify --commits <count>
   git diff HEAD~1..HEAD | stupify --stdin
 
 Options:
