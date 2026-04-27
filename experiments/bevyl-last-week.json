@@ -1,0 +1,85 @@
+{
+  "name": "bevyl-last-week-v1",
+  "cwd": "$BEVYL_REPO",
+  "baseCommand": [
+    "--engine",
+    "sem",
+    "--scout",
+    "counter",
+    "--since",
+    "1 week ago",
+    "--checks",
+    "duplicated_schema,unnecessary_complexity,fake_precision_windowing,coauthored_slop,mega_file,over_commenting,lint_bypass,inconsistent_patterns,reinvented_utils,operator_style_mismatch",
+    "--json"
+  ],
+  "runs": [
+    {
+      "id": "max5_sem_only_high_bar",
+      "args": [
+        "--max-candidates",
+        "5",
+        "--audit-context",
+        "none",
+        "--audit-prompt",
+        "high_bar"
+      ]
+    },
+    {
+      "id": "max10_sem_only_high_bar",
+      "args": [
+        "--max-candidates",
+        "10",
+        "--audit-context",
+        "none",
+        "--audit-prompt",
+        "high_bar"
+      ]
+    },
+    {
+      "id": "max10_repomix_high_bar",
+      "args": [
+        "--max-candidates",
+        "10",
+        "--audit-context",
+        "repomix",
+        "--audit-prompt",
+        "high_bar"
+      ]
+    },
+    {
+      "id": "max15_repomix_high_bar",
+      "args": [
+        "--max-candidates",
+        "15",
+        "--audit-context",
+        "repomix",
+        "--audit-prompt",
+        "high_bar"
+      ]
+    },
+    {
+      "id": "max10_repomix_strict",
+      "args": [
+        "--max-candidates",
+        "10",
+        "--audit-context",
+        "repomix",
+        "--audit-prompt",
+        "strict"
+      ]
+    },
+    {
+      "id": "max10_repomix_high_bar_no_operator_style",
+      "args": [
+        "--max-candidates",
+        "10",
+        "--audit-context",
+        "repomix",
+        "--audit-prompt",
+        "high_bar",
+        "--checks",
+        "duplicated_schema,unnecessary_complexity,fake_precision_windowing,coauthored_slop,mega_file,over_commenting,lint_bypass,inconsistent_patterns,reinvented_utils"
+      ]
+    }
+  ]
+}

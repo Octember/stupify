@@ -8,6 +8,7 @@ worker-configuration.d.ts
 /.react-router/
 /build/
 /packages/*/dist/
+/experiments/results/
 
 # Claude Code harness
 /.claude/

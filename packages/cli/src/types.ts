@@ -14,25 +14,39 @@ export function checkId(value: string): CheckId {
 }
 
 export type Engine = "raw-diff" | "sem";
+export type ScoutMode = "llm" | "counter";
+export type AuditContextMode = "none" | "repomix";
+export type AuditPromptName = "strict" | "high_bar";
 
 type AnalyzeOptions = Readonly<{
   checkIds: readonly string[] | null;
   json: boolean;
   model: ModelId;
   engine: Engine;
+  scout: ScoutMode;
+  auditContext: AuditContextMode;
+  auditPrompt: AuditPromptName;
   debugSem: boolean;
+  debugTargets: boolean;
   maxCandidates: number;
   auditBatchSize: number;
+  maxAuditInputTokens: number;
+  auditConcurrency: number;
 }>;
 
 export type Command =
   | Readonly<{ kind: "help" }>
+  | Readonly<{ kind: "experiment"; configPath: string }>
   | (Readonly<{ kind: "since"; since: string }> & AnalyzeOptions)
   | (Readonly<{ kind: "stdin" }> & AnalyzeOptions)
   | (Readonly<{ kind: "commit"; commit: string }> & AnalyzeOptions)
   | (Readonly<{ kind: "commits"; count: number }> & AnalyzeOptions);
 
-export type AnalyzeCommand = Exclude<Command, Readonly<{ kind: "help" }>>;
+type ControlCommand =
+  | Readonly<{ kind: "help" }>
+  | Readonly<{ kind: "experiment"; configPath: string }>;
+
+export type AnalyzeCommand = Exclude<Command, ControlCommand>;
 
 export type StupifyCheck = Readonly<{
   id: CheckId;
@@ -40,6 +54,7 @@ export type StupifyCheck = Readonly<{
   question: string;
   lookFor: readonly string[];
   ignoreWhen: readonly string[];
+  enabledByDefault?: boolean;
   examples?: Readonly<{
     match?: readonly string[];
     noMatch?: readonly string[];
@@ -153,17 +168,32 @@ export type SemChangeSet = Readonly<{
 
 export type SemCandidate = Readonly<{
   sourceId: SourceId;
+  targetId: string;
   entityId: string;
-  checkIds: readonly CheckId[];
+  checkId: CheckId;
+  reason: string;
 }>;
 
 export type SemContext = Readonly<{
-  candidateId: string;
+  targetId: string;
   entityId: string;
   entityName: string;
-  checkIds: readonly CheckId[];
+  entityKind: string;
+  changeKind: string;
+  checkId: CheckId;
+  reason: string;
   filePath?: string;
   text: string;
+}>;
+
+export type DebugTarget = Readonly<{
+  targetId: string;
+  checkId: CheckId;
+  entityId: string;
+  entityKind?: string;
+  changeKind?: string;
+  scoutReason?: string;
+  sourceLabel?: string;
 }>;
 
 export type SemContextPack = Readonly<{
@@ -176,6 +206,8 @@ export type SemContextPack = Readonly<{
 
 export type AnalysisRun = Readonly<{
   engine: Engine;
+  auditContext: AuditContextMode;
+  auditPrompt: AuditPromptName;
   mode: AnalyzeCommand["kind"];
   modelId: ModelId;
   checkIds: readonly CheckId[];
@@ -184,6 +216,7 @@ export type AnalysisRun = Readonly<{
   stats: NetDiffStats;
   batchesScanned: number;
   candidateCount: number;
+  targetsByCheck?: Readonly<Record<string, number>>;
   entitiesScanned: number;
   auditedCandidateCount: number;
   scoutModelCalls: number;
@@ -197,6 +230,7 @@ export type AnalysisRun = Readonly<{
   }>;
   warnings: readonly string[];
   auditStats?: AuditReviewStats;
+  debugTargets?: readonly DebugTarget[];
   traceEvents?: readonly TraceEvent[];
 }>;
 

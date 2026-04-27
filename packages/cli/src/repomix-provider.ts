@@ -1,25 +1,30 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pack, setLogLevel } from "repomix";
 import type { SemCandidate, SemChange, SemContext, SemContextPack } from "./types.ts";
 
-const MAX_PACK_FILE_SIZE_BYTES = 512 * 1024;
+const MAX_PACK_FILE_SIZE_BYTES = 48 * 1024;
+const MAX_PACK_TOTAL_SIZE_BYTES = 128 * 1024;
+
+export function emptyContextPack(): SemContextPack {
+  return {
+    provider: "repomix",
+    filePaths: [],
+    totalCharacters: 0,
+    totalTokens: 0,
+    text: "",
+  };
+}
 
 export async function repomixContextPack(
   cwd: string,
   contexts: readonly SemContext[],
   changes: readonly SemChange[],
 ): Promise<SemContextPack> {
-  const filePaths = candidateFilePaths(contexts, changes);
+  const filePaths = await candidateFilePaths(cwd, contexts, changes);
   if (filePaths.length === 0) {
-    return {
-      provider: "repomix",
-      filePaths: [],
-      totalCharacters: 0,
-      totalTokens: 0,
-      text: "",
-    };
+    return emptyContextPack();
   }
 
   setLogLevel(-1);
@@ -39,7 +44,7 @@ export async function repomixContextPack(
           directoryStructure: false,
           files: true,
           removeComments: false,
-          removeEmptyLines: false,
+          removeEmptyLines: true,
           compress: true,
           topFilesLength: 0,
           showLineNumbers: true,
@@ -86,17 +91,17 @@ export function entityContextsFromChanges(
   changes: readonly SemChange[],
 ): readonly SemContext[] {
   const byEntityId = new Map(changes.map((change) => [change.entityId, change]));
-  const seen = new Set<string>();
   return candidates.flatMap((candidate): readonly SemContext[] => {
-    if (seen.has(candidate.entityId)) return [];
-    seen.add(candidate.entityId);
     const change = byEntityId.get(candidate.entityId);
     if (!change) return [];
     return [{
-      candidateId: candidate.entityId,
+      targetId: candidate.targetId,
       entityId: change.entityId,
       entityName: change.entityName,
-      checkIds: candidate.checkIds,
+      entityKind: change.entityType,
+      changeKind: change.changeType,
+      checkId: candidate.checkId,
+      reason: candidate.reason,
       filePath: change.filePath,
       text: JSON.stringify({
         source: "sem diff",
@@ -111,19 +116,41 @@ export function entityContextsFromChanges(
   });
 }
 
-function candidateFilePaths(
+async function candidateFilePaths(
+  cwd: string,
   contexts: readonly SemContext[],
   changes: readonly SemChange[],
-): readonly string[] {
+): Promise<readonly string[]> {
   const byEntityId = new Map(changes.map((change) => [change.entityId, change.filePath]));
   const paths = contexts.flatMap((context) => context.filePath ?? byEntityId.get(context.entityId) ?? []);
-  return [...new Set(paths)].filter(isSafeRelativeFilePath);
+  const safePaths = [...new Set(paths)].filter(isSafeRelativeFilePath);
+  const selected = [];
+  let totalBytes = 0;
+  for (const filePath of safePaths) {
+    const bytes = await fileSize(cwd, filePath);
+    if (bytes === null || bytes > MAX_PACK_FILE_SIZE_BYTES) continue;
+    if (totalBytes + bytes > MAX_PACK_TOTAL_SIZE_BYTES) continue;
+    totalBytes += bytes;
+    selected.push(filePath);
+  }
+  return selected;
 }
 
 function isSafeRelativeFilePath(value: string): boolean {
   if (!value || path.isAbsolute(value)) return false;
   const normalized = path.normalize(value);
   return normalized !== "." && !normalized.startsWith("..") && !path.isAbsolute(normalized);
+}
+
+async function fileSize(cwd: string, filePath: string): Promise<number | null> {
+  try {
+    const fullPath = path.join(cwd, filePath);
+    if (!fullPath.startsWith(`${cwd}${path.sep}`)) return null;
+    const result = await stat(fullPath);
+    return result.isFile() ? result.size : null;
+  } catch {
+    return null;
+  }
 }
 
 function shortenCode(value: string | null): string {

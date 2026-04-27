@@ -4,60 +4,124 @@ export const defaultChecks: readonly StupifyCheck[] = [
   {
     id: checkId("duplicated_schema"),
     name: "Duplicated schema",
-    question: "Did the change copy an existing or typed shape into a new local type, payload, DTO, schema, or response object?",
+    question: "Did the change duplicate an existing type, schema, payload, or DTO shape?",
     lookFor: [
-      "imports a shared or typed input and defines a local payload with matching fields",
-      "maps fields one-for-one from an input object into an output object",
-      "adds a type and a mapper that copy the same fields together",
-      "adds a local type and mapper that copy the same property names even when the original type definition is not shown",
-      "creates a response, payload, DTO, result, or schema shape without filtering, renaming, validating, or versioning fields",
+      "local shape mirrors existing fields and maps them one-for-one",
+      "new response, payload, schema, or DTO adds no filtering, renaming, validation, or versioning",
     ],
     ignoreWhen: [
-      "the output shape filters, renames, validates, versions, or intentionally hides fields",
-      "the type is a test fixture or mock data shape",
+      "test fixture, mock, or intentional external contract",
     ],
-    examples: {
-      match: [
-        "Receives a typed result, defines a local payload with the same fields, then maps each field across.",
-        "Adds a new module that imports a typed input, defines a local output item type, and copies each item field into that output.",
-        "Defines item and container payload types beside a mapper that copies matching fields from the input collection.",
-        "Pattern: import a result type, define a local item shape with fields a/b/c, define a local payload containing those items, then map each input item field across.",
-      ],
-      noMatch: [
-        "Creates a response type that intentionally hides private fields.",
-        "Defines a versioned external contract with renamed fields.",
-      ],
-    },
   },
   {
     id: checkId("unnecessary_complexity"),
     name: "Unnecessary complexity",
     question: "Did the change add structure without buying clarity?",
     lookFor: [
-      "simple logic split across layers",
-      "wrapper/helper/service around one operation",
-      "more files without clearer behavior",
+      "helper, wrapper, service, layer, or extra file around simple logic without reuse",
     ],
     ignoreWhen: [
-      "the boundary isolates an external dependency",
-      "the extraction removes duplication or makes behavior easier to test",
+      "isolates dependency, removes duplication, or improves testability",
     ],
-    examples: {
-      match: [
-        "Adds a helper, service, or wrapper around one direct operation without changing behavior.",
-        "Moves a three-line calculation into a manager plus adapter plus factory.",
-        "Introduces an orchestration layer that only forwards arguments.",
-      ],
-      noMatch: [
-        "Extracts a reused calculation into a named function.",
-        "Adds a boundary around a flaky external service.",
-      ],
-    },
+  },
+  {
+    id: checkId("fake_precision_windowing"),
+    name: "Fake precision windowing",
+    question: "Did the change add fake precision around model context?",
+    lookFor: [
+      "precise-looking counts, budgets, ratios, reports, or batching fields without useful behavior",
+    ],
+    ignoreWhen: [
+      "simple fixed cap or chunking",
+      "external API requirement",
+    ],
+  },
+  {
+    id: checkId("coauthored_slop"),
+    name: "Coauthored slop",
+    question: "Does author metadata contain co-author text?",
+    lookFor: [
+      "author signal contains coauhtoried, coauthored, or co-authored text",
+    ],
+    ignoreWhen: [
+      "normal Co-authored-by trailer in the commit body",
+    ],
+  },
+  {
+    id: checkId("mega_file"),
+    name: "Mega file",
+    question: "Is a touched non-config file over 1000 LOC?",
+    lookFor: [
+      "touched non-config source file over 1000 LOC",
+    ],
+    ignoreWhen: [
+      "config, lock, generated, fixture, or vendored file",
+    ],
+  },
+  {
+    id: checkId("over_commenting"),
+    name: "Over commenting",
+    question: "Did the change add noisy comments?",
+    lookFor: [
+      "comments restate obvious code or narrate simple logic",
+    ],
+    ignoreWhen: [
+      "comment explains intent, constraint, workaround, or public API behavior",
+    ],
+  },
+  {
+    id: checkId("lint_bypass"),
+    name: "Lint bypass",
+    question: "Did the change bypass lint or type rules?",
+    lookFor: [
+      "adds suppressions, any, broad casts, or weakens lint/typecheck config",
+    ],
+    ignoreWhen: [
+      "narrow suppression with a reason",
+      "type-level test",
+      "generated file convention",
+    ],
+  },
+  {
+    id: checkId("inconsistent_patterns"),
+    name: "Inconsistent patterns",
+    question: "Does the change clash with nearby patterns?",
+    lookFor: [
+      "same job uses different naming, errors, state, imports, or layout than nearby files",
+    ],
+    ignoreWhen: [
+      "external API requires it",
+      "change follows a newer local convention",
+    ],
+  },
+  {
+    id: checkId("reinvented_utils"),
+    name: "Reinvented utils",
+    question: "Did the change recreate an existing utility?",
+    lookFor: [
+      "new helper duplicates local utility or standard library behavior",
+    ],
+    ignoreWhen: [
+      "existing utility has wrong contract",
+      "new helper is clearer as a tiny private expression",
+    ],
+  },
+  {
+    id: checkId("operator_style_mismatch"),
+    name: "Operator style mismatch",
+    question: "Does the change read unlike the surrounding code?",
+    lookFor: [
+      "generic or template-like names, abstractions, comments, or control flow clash with local style",
+    ],
+    ignoreWhen: [
+      "generated, vendored, framework-required, or newer established local style",
+    ],
+    enabledByDefault: false,
   },
 ] as const;
 
 export function enabledChecks(checkIds: readonly string[] | null): readonly StupifyCheck[] {
-  if (!checkIds) return defaultChecks;
+  if (!checkIds) return defaultChecks.filter((check) => check.enabledByDefault !== false);
 
   const checksById = new Map<string, StupifyCheck>(defaultChecks.map((check) => [check.id, check]));
   return checkIds.map((id) => {

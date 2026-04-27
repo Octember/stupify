@@ -3,6 +3,8 @@
 import { fileURLToPath } from "node:url";
 import {
   auditCandidates,
+  countPromptTokens,
+  findingsAuditRequest,
   runFindingsAudit,
   scoutBatch,
   scoutSemChanges,
@@ -12,7 +14,9 @@ import { candidateContexts } from "./candidate-context.ts";
 import { enabledChecks } from "./checks.ts";
 import { parseCommand } from "./command.ts";
 import { MODEL_REGISTRY } from "./constants.ts";
+import { counterScoutTargets } from "./counter-scout.ts";
 import { readDiffFromStdin } from "./diff.ts";
+import { runExperiment } from "./experiment.ts";
 import {
   netDiffForCommit,
   netDiffForRecentCommits,
@@ -20,14 +24,16 @@ import {
   netDiffSince,
 } from "./git.ts";
 import { loadLocalModels, type LocalModel } from "./model.ts";
-import { entityContextsFromChanges, repomixContextPack } from "./repomix-provider.ts";
+import { emptyContextPack, entityContextsFromChanges, repomixContextPack } from "./repomix-provider.ts";
 import { helpText, renderReport } from "./render.ts";
 import { semChangeSetForCommand } from "./sem-provider.ts";
 import { trace } from "./trace.ts";
 import type {
   AnalysisReport,
   AnalyzeCommand,
+  AuditReviewResult,
   AuditReviewStats,
+  DebugTarget,
   FindingsResult,
   NetDiff,
   SemCandidate,
@@ -38,12 +44,18 @@ import type {
 
 const SEM_SCOUT_CHUNK_SIZE = 200;
 
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
   try {
     const command = parseCommand(argv);
     if (command.kind === "help") {
       console.log(helpText());
+      return 0;
+    }
+    if (command.kind === "experiment") {
+      const outputDir = await runExperiment(command.configPath);
+      console.log(`Experiment results written to ${outputDir}`);
       return 0;
     }
 
@@ -111,6 +123,8 @@ async function runRawDiffEngine(
     run: {
       mode: command.kind,
       engine: command.engine,
+      auditContext: command.auditContext,
+      auditPrompt: command.auditPrompt,
       modelId: command.model,
       checkIds: checks.map((check) => check.id),
       sourceId: diff.id,
@@ -130,6 +144,7 @@ async function runRawDiffEngine(
         total: Date.now() - startedAt,
       },
       warnings: [],
+      debugTargets: command.debugTargets ? [] : undefined,
     },
     result,
   };
@@ -179,19 +194,21 @@ async function runSemEngine(
       async () =>
         candidateBatches.length === 0
           ? []
-          : scoutSemBatches(
-              scoutModel,
-              candidateBatches,
-              checks,
-              command,
-              traceEvents,
-            ),
+          : command.scout === "counter"
+            ? counterScoutTargets(changeSet, checks, command.maxCandidates)
+            : scoutSemBatches(
+                scoutModel,
+                candidateBatches,
+                checks,
+                command,
+                traceEvents,
+              ),
     );
     traceEvents.push({
       name: "scout.total",
       ms: searchMs,
       count: candidates.length,
-      detail: `${candidateBatches.length} batches`,
+      detail: `${command.scout} scout ${candidateBatches.length} batches`,
     });
     debugSemTrace(command, traceEvents[traceEvents.length - 1]);
 
@@ -225,7 +242,7 @@ async function runSemEngine(
       name: "audit.total",
       ms: auditMs,
       count: result.findings.length,
-      detail: `${auditBatches.length} batches targets=${result.stats.totalTargets} clean=${result.stats.clean} uncertain=${result.stats.uncertain} invalid=${result.stats.invalid}`,
+      detail: `${result.auditModelCalls} calls targets=${result.stats.totalTargets} clean=${result.stats.clean} uncertain=${result.stats.uncertain} invalid=${result.stats.invalid}`,
     });
     debugSemTrace(command, traceEvents[traceEvents.length - 1]);
 
@@ -233,6 +250,8 @@ async function runSemEngine(
       run: {
         mode: command.kind,
         engine: command.engine,
+        auditContext: command.auditContext,
+        auditPrompt: command.auditPrompt,
         modelId: command.model,
         checkIds: checks.map((check) => check.id),
         sourceId: changeSet.id,
@@ -245,9 +264,10 @@ async function runSemEngine(
         batchesScanned: 0,
         entitiesScanned: changeSet.summary.total,
         candidateCount: candidates.length,
+        targetsByCheck: countTargetsByCheck(candidates),
         auditedCandidateCount: contexts.length,
         scoutModelCalls: traceEvents.filter((event) => event.name === "scout.batch").length,
-        auditModelCalls: auditBatches.length,
+        auditModelCalls: result.auditModelCalls,
         timingsMs: {
           diff: diffMs,
           modelLoad: modelMs,
@@ -257,6 +277,7 @@ async function runSemEngine(
         },
         warnings: [],
         auditStats: result.stats,
+        debugTargets: command.debugTargets ? debugTargetsFromContexts(contexts, changeSet.label) : undefined,
         traceEvents,
       },
       result,
@@ -273,40 +294,22 @@ async function findingsAuditBatches(
   checks: ReturnType<typeof enabledChecks>,
   traceEvents: TraceEvent[],
   command: AnalyzeCommand,
-): Promise<FindingsResult & { stats: AuditReviewStats }> {
+): Promise<FindingsResult & { stats: AuditReviewStats; auditModelCalls: number }> {
   const findings = [];
-  const summaries = [];
   const stats = { totalTargets: 0, finding: 0, clean: 0, uncertain: 0, invalid: 0 };
+  const limiter = new ConcurrencyLimiter(command.auditConcurrency);
   for (const [index, batch] of batches.entries()) {
-    const { value: pack, ms: contextMs } = await trace.trace(
-      "context.pack",
-      () => repomixContextPack(changeSet.contextCwd, batch, changeSet.changes),
-      { candidates: batch.length },
+    const result = await findingsAuditBatch(
+      model,
+      changeSet,
+      batch,
+      checks,
+      traceEvents,
+      command,
+      limiter,
+      `${index + 1}/${batches.length}`,
     );
-    const contextEvent = {
-      name: "context.pack",
-      ms: contextMs,
-      count: pack.filePaths.length,
-      detail: `batch=${index + 1}/${batches.length} tokens=${pack.totalTokens} chars=${pack.totalCharacters}`,
-    };
-    traceEvents.push(contextEvent);
-    debugSemTrace(command, contextEvent);
-
-    const { value: result, ms: auditMs } = await trace.trace(
-      "audit.batch",
-      () => runFindingsAudit(model, changeSet, batch, pack, checks),
-      { candidates: batch.length },
-    );
-    const event = {
-      name: "audit.batch",
-      ms: auditMs,
-      count: result.findings.length,
-      detail: `batch=${index + 1}/${batches.length} candidates=${batch.length} targets=${result.stats.totalTargets} clean=${result.stats.clean} uncertain=${result.stats.uncertain} invalid=${result.stats.invalid}`,
-    };
-    traceEvents.push(event);
-    debugSemTrace(command, event);
     findings.push(...result.findings);
-    if (result.summary) summaries.push(result.summary);
     stats.totalTargets += result.stats.totalTargets;
     stats.finding += result.stats.finding;
     stats.clean += result.stats.clean;
@@ -318,9 +321,157 @@ async function findingsAuditBatches(
     summary:
       findings.length === 0
         ? "No clear judgment-offload signal found."
-        : summaries.join(" "),
+        : `${findings.length} finding review${findings.length === 1 ? "" : "s"} accepted.`,
     stats,
+    auditModelCalls: traceEvents.filter((event) => event.name === "audit.batch").length,
   };
+}
+
+async function findingsAuditBatch(
+  model: LocalModel,
+  changeSet: SemChangeSet,
+  batch: readonly SemContext[],
+  checks: ReturnType<typeof enabledChecks>,
+  traceEvents: TraceEvent[],
+  command: AnalyzeCommand,
+  limiter: ConcurrencyLimiter,
+  batchLabel: string,
+): Promise<AuditReviewResult> {
+  const { value: pack, ms: contextMs } = await trace.trace(
+    "context.pack",
+    () =>
+      command.auditContext === "none"
+        ? Promise.resolve(emptyContextPack())
+        : repomixContextPack(changeSet.contextCwd, batch, changeSet.changes),
+    { candidates: batch.length },
+  );
+  const request = findingsAuditRequest(changeSet, batch, pack, checks, command.auditPrompt);
+  const inputTokens = await countPromptTokens(model, request.prompt);
+  const contextEvent = {
+    name: "context.pack",
+    ms: contextMs,
+    count: pack.filePaths.length,
+    detail: `batch=${batchLabel} input_tokens=${inputTokens} pack_tokens=${pack.totalTokens} chars=${pack.totalCharacters}`,
+  };
+  traceEvents.push(contextEvent);
+  debugSemTrace(command, contextEvent);
+
+  if (inputTokens > command.maxAuditInputTokens) {
+    if (batch.length <= 1) {
+      throw new Error(`Findings audit input has ${inputTokens} tokens, above max ${command.maxAuditInputTokens}.`);
+    }
+    const splitAt = Math.ceil(batch.length / 2);
+    const splitEvent = {
+      name: "audit.split",
+      ms: 0,
+      count: batch.length,
+      detail: `batch=${batchLabel} input_tokens=${inputTokens} max=${command.maxAuditInputTokens}`,
+    };
+    traceEvents.push(splitEvent);
+    debugSemTrace(command, splitEvent);
+    const [left, right] = await Promise.all([
+      findingsAuditBatch(
+        model,
+        changeSet,
+        batch.slice(0, splitAt),
+        checks,
+        traceEvents,
+        command,
+        limiter,
+        `${batchLabel}.1`,
+      ),
+      findingsAuditBatch(
+        model,
+        changeSet,
+        batch.slice(splitAt),
+        checks,
+        traceEvents,
+        command,
+        limiter,
+        `${batchLabel}.2`,
+      ),
+    ]);
+    return combineAuditResults(left, right);
+  }
+
+  const { value: result, ms: auditMs } = await trace.trace(
+    "audit.batch",
+    () => limiter.run(() => runFindingsAudit(model, changeSet, batch, pack, checks, request)),
+    { candidates: batch.length },
+  );
+  const event = {
+    name: "audit.batch",
+    ms: auditMs,
+    count: result.findings.length,
+    detail: `batch=${batchLabel} candidates=${batch.length} input_tokens=${inputTokens} targets=${result.stats.totalTargets} clean=${result.stats.clean} uncertain=${result.stats.uncertain} invalid=${result.stats.invalid}`,
+  };
+  traceEvents.push(event);
+  debugSemTrace(command, event);
+  return result;
+}
+
+function combineAuditResults(
+  left: AuditReviewResult,
+  right: AuditReviewResult,
+): AuditReviewResult {
+  const findings = [...left.findings, ...right.findings];
+  return {
+    findings,
+    summary:
+      findings.length === 0
+        ? "No clear judgment-offload signal found."
+        : `${findings.length} finding review${findings.length === 1 ? "" : "s"} accepted.`,
+    stats: {
+      totalTargets: left.stats.totalTargets + right.stats.totalTargets,
+      finding: left.stats.finding + right.stats.finding,
+      clean: left.stats.clean + right.stats.clean,
+      uncertain: left.stats.uncertain + right.stats.uncertain,
+      invalid: left.stats.invalid + right.stats.invalid,
+    },
+  };
+}
+
+function countTargetsByCheck(candidates: readonly SemCandidate[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const candidate of candidates) {
+    counts[candidate.checkId] = (counts[candidate.checkId] ?? 0) + 1;
+  }
+  return counts;
+}
+
+function debugTargetsFromContexts(
+  contexts: readonly SemContext[],
+  sourceLabel: string,
+): readonly DebugTarget[] {
+  return contexts.map((context) => ({
+    targetId: context.targetId,
+    checkId: context.checkId,
+    entityId: context.entityId,
+    entityKind: context.entityKind,
+    changeKind: context.changeKind,
+    scoutReason: context.reason,
+    sourceLabel,
+  }));
+}
+
+class ConcurrencyLimiter {
+  private active = 0;
+  private readonly queue: Array<() => void> = [];
+
+  constructor(private readonly max: number) {}
+
+  async run<T>(task: () => Promise<T>): Promise<T> {
+    if (this.active >= this.max) {
+      await new Promise<void>((resolve) => this.queue.push(resolve));
+    }
+    this.active += 1;
+    try {
+      return await task();
+    } finally {
+      this.active -= 1;
+      this.queue.shift()?.();
+    }
+  }
 }
 
 async function scoutSemBatches(
@@ -332,6 +483,8 @@ async function scoutSemBatches(
 ): Promise<readonly SemCandidate[]> {
   const candidates: SemCandidate[] = [];
   const seen = new Set<string>();
+  const targetsByCheck = new Map<string, number>();
+  const maxTargetsPerCheck = 6;
   for (const [index, batch] of batches.entries()) {
     if (candidates.length >= command.maxCandidates) break;
     const remaining = command.maxCandidates - candidates.length;
@@ -349,9 +502,16 @@ async function scoutSemBatches(
     traceEvents.push(event);
     debugSemTrace(command, event);
     for (const candidate of batchCandidates) {
-      if (seen.has(candidate.entityId)) continue;
-      seen.add(candidate.entityId);
-      candidates.push(candidate);
+      const key = `${candidate.entityId}\u0000${candidate.checkId}`;
+      if (seen.has(key)) continue;
+      const checkCount = targetsByCheck.get(candidate.checkId) ?? 0;
+      if (checkCount >= maxTargetsPerCheck) continue;
+      seen.add(key);
+      targetsByCheck.set(candidate.checkId, checkCount + 1);
+      candidates.push({
+        ...candidate,
+        targetId: `t${String(candidates.length + 1).padStart(3, "0")}`,
+      });
       if (candidates.length >= command.maxCandidates) break;
     }
   }

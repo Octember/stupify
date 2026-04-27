@@ -1,4 +1,12 @@
-import type { CandidateContext, DiffBatch, SemChangeSet, SemContext, SemContextPack, StupifyCheck } from "./types.ts";
+import type {
+  AuditPromptName,
+  CandidateContext,
+  DiffBatch,
+  SemChangeSet,
+  SemContext,
+  SemContextPack,
+  StupifyCheck,
+} from "./types.ts";
 
 export function scoutPrompt(batch: DiffBatch, checks: readonly StupifyCheck[], sourceLabel: string): string {
   return `Pick diff hunks that match enabled checks.
@@ -57,15 +65,17 @@ export function semScoutPrompt(
   checks: readonly StupifyCheck[],
   maxCandidates: number,
 ): string {
-  return `Pick changed entities that match enabled checks.
+  return `Pick changed entity/check targets worth auditing.
 Return JSON only:
-{ "candidates": [{ "entityId": "exact entityId", "checkIds": ["check_id"] }] }
+{ "targets": [{ "entityId": "exact entityId", "checkId": "check_id", "reason": "short scout reason" }] }
 
 Rules:
 - Use entityId values exactly as shown.
-- Return at most ${maxCandidates} candidates.
-- Return { "candidates": [] } if clean.
+- Each target has exactly one checkId.
+- Return at most ${maxCandidates} targets.
+- Return { "targets": [] } if clean.
 - Pick definitions over usage sites.
+- Prefer high recall, but do not attach unrelated checks.
 
 ${formatCompactChecks(checks)}
 
@@ -84,32 +94,56 @@ export function findingsAuditPrompt(
   pack: SemContextPack,
   checks: readonly StupifyCheck[],
   sourceLabel: string,
+  promptName: AuditPromptName,
 ): string {
-  return `You are Stupify's auditor.
-Audit candidate entities against enabled checks.
+  const task =
+    promptName === "high_bar"
+      ? `You are Stupify's audit model.
+You are reviewing candidate/check targets for signs that AI-assisted coding may have replaced engineering judgment.
+Only emit a finding if it is clearly useful to a developer.
+A useful finding must:
+- match the target's check exactly
+- point to a concrete change pattern
+- explain why the change may reflect judgment-offload
+- avoid generic code-review commentary
+If the target is normal engineering work, omit it.
+If the target is merely plausible but not strong, omit it.
+If the target does not exactly match its assigned check, omit it.`
+      : `You are Stupify's auditor.
+Audit only the listed target/check pairs.
+Emit only exceptions.`;
+
+  const highBarRules =
+    promptName === "high_bar"
+      ? `- Prefer clean over weak.
+- Prefer no finding over generic finding.
+- Do not emit style feedback unless the assigned check is truly about style.
+- Do not turn functional refactors into style mismatch findings.`
+      : "";
+
+  return `${task}
 Return JSON only:
 {
   "findings": [
     {
-      "candidateId": "string",
-      "checkId": "check_id",
+      "targetId": "t001",
       "why": "one sentence",
       "proof": "short pointer"
     }
   ],
   "uncertain": [
     {
-      "candidateId": "string",
-      "checkId": "check_id",
+      "targetId": "t002",
       "why": "one sentence"
     }
   ]
 }
 
 Rules:
-- Inspect every candidate/check target.
-- Emit a finding only when the candidate clearly matches the check.
-- Emit uncertain only when the candidate may match, but evidence is insufficient.
+- Inspect every target.
+- Each target has exactly one check.
+- Emit a finding only when the target clearly matches its check.
+- Emit uncertain only when the target may match, but evidence is insufficient.
 - If a target is clean, emit nothing for it.
 - Omitted target means clean.
 - Do not output clean reviews.
@@ -117,14 +151,14 @@ Rules:
 - Do not write "no evidence" as a finding.
 - Do not put negative statements in findings.
 - Prefer omission over weak findings.
-- Use only provided candidateIds and checkIds.
+- Use only provided targetIds.
+- Do not search for other checks.
 - Do not quote source code.
 - Use packed file context only as supporting evidence for these candidate entities.
+${highBarRules}
 
-Candidate/check targets:
-${contexts.map(formatAuditTarget).join("\n")}
-
-${formatFullChecks(checks)}
+Targets:
+${contexts.map((context) => formatAuditTarget(context, checks)).join("\n\n")}
 
 SOURCE:
 ${sourceLabel}
@@ -172,18 +206,22 @@ PATH ${change.filePath}`;
 }
 
 function formatSemContext(context: SemContext): string {
-  return `CANDIDATE ${context.candidateId}
+  return `TARGET ${context.targetId}
 ENTITY ${context.entityId}
 NAME ${context.entityName}
-CHECKS ${context.checkIds.join(", ")}
+KIND ${context.entityKind}
+CHANGE ${context.changeKind}
+CHECK ${context.checkId}
+SCOUT_REASON ${context.reason}
 CONTEXT:
 ${context.text}`;
 }
 
-function formatAuditTarget(context: SemContext): string {
-  return context.checkIds
-    .map((checkId) => `- candidateId=${context.candidateId} checkId=${checkId} entityId=${context.entityId}`)
-    .join("\n");
+function formatAuditTarget(context: SemContext, checks: readonly StupifyCheck[]): string {
+  const check = checks.find((item) => item.id === context.checkId);
+  return `- targetId=${context.targetId} checkId=${context.checkId} entityId=${context.entityId}
+scoutReason=${context.reason}
+${check ? formatCheck(check) : ""}`;
 }
 
 function shortenCode(value: string | null): string {

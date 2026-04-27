@@ -1,0 +1,58 @@
+{
+  "name": "bevyl-per-check-v1",
+  "cwd": "$BEVYL_REPO",
+  "baseCommand": [
+    "--engine",
+    "sem",
+    "--scout",
+    "counter",
+    "--since",
+    "1 week ago",
+    "--max-candidates",
+    "10",
+    "--audit-context",
+    "repomix",
+    "--audit-prompt",
+    "high_bar",
+    "--debug-targets",
+    "--json"
+  ],
+  "runs": [
+    {
+      "id": "check_duplicated_schema",
+      "args": ["--checks", "duplicated_schema"]
+    },
+    {
+      "id": "check_unnecessary_complexity",
+      "args": ["--checks", "unnecessary_complexity"]
+    },
+    {
+      "id": "check_fake_precision_windowing",
+      "args": ["--checks", "fake_precision_windowing"]
+    },
+    {
+      "id": "check_coauthored_slop",
+      "args": ["--checks", "coauthored_slop"]
+    },
+    {
+      "id": "check_mega_file",
+      "args": ["--checks", "mega_file"]
+    },
+    {
+      "id": "check_over_commenting",
+      "args": ["--checks", "over_commenting"]
+    },
+    {
+      "id": "check_lint_bypass",
+      "args": ["--checks", "lint_bypass"]
+    },
+    {
+      "id": "check_inconsistent_patterns",
+      "args": ["--checks", "inconsistent_patterns"]
+    },
+    {
+      "id": "check_reinvented_utils",
+      "args": ["--checks", "reinvented_utils"]
+    }
+  ]
+}

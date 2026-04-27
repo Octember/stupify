@@ -49,6 +49,7 @@ Usage:
   stupify --since "2 weeks ago"
   stupify --commit <commit>
   stupify --commits <count>
+  stupify experiment <config.json>
   git diff HEAD~1..HEAD | stupify --stdin
 
 Options:
@@ -57,10 +58,19 @@ Options:
   --commits <count>     Analyze the net diff across the last N non-merge commits.
   --stdin               Read a git diff from stdin.
   --engine <engine>     raw-diff or sem. Default: raw-diff.
+  --scout <mode>        llm or counter for --engine sem. Default: counter.
+  --audit-context <mode>
+                         none or repomix for --engine sem. Default: repomix.
+  --audit-prompt <name> strict or high_bar for --engine sem. Default: high_bar.
   --debug-sem           Print sem commands and stderr.
-  --max-candidates <n>  Max semantic candidates for --engine sem. Default: 25.
+  --debug-targets       Include audited sem target details in JSON output.
+  --max-candidates <n>  Max semantic candidates for --engine sem. Default: 10.
   --audit-batch-size <n>
                          Semantic candidates per audit model call. Default: 25.
+  --max-audit-input-tokens <n>
+                         Max findings-audit input tokens before splitting. Default: 20000.
+  --audit-concurrency <n>
+                         Parallel findings-audit model calls. Default: 2.
   --checks <ids>        Comma-separated check ids.
   --model <id>          gemma-4-e2b, gemma-4-e4b, gemma-4-26b-a4b, qwen3-4b-magicquant, qwen2.5-coder-1.5b, qwen2.5-coder-7b, or qwen2.5-coder-32b.
   --json                Print JSON only.
