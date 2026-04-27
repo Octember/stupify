@@ -183,8 +183,8 @@ export type AnalysisRun = Readonly<{
   label: string;
   stats: NetDiffStats;
   batchesScanned: number;
-  entitiesScanned: number;
   candidateCount: number;
+  entitiesScanned: number;
   auditedCandidateCount: number;
   scoutModelCalls: number;
   auditModelCalls: number;
