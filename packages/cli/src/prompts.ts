@@ -79,7 +79,7 @@ SEM ENTITY CHANGES:
 ${changeSet.changes.map(formatSemChange).join("\n\n")}`;
 }
 
-export function semAuditPrompt(
+export function findingsAuditPrompt(
   contexts: readonly SemContext[],
   pack: SemContextPack,
   checks: readonly StupifyCheck[],

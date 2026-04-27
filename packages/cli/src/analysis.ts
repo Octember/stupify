@@ -1,9 +1,9 @@
-import { auditPrompt, scoutPrompt, semAuditPrompt, semScoutPrompt } from "./prompts.ts";
+import { auditPrompt, findingsAuditPrompt, scoutPrompt, semScoutPrompt } from "./prompts.ts";
 import { cachedJson, fingerprint } from "./cache.ts";
 import {
   validateAuditResult,
+  validateFindingsAuditResult,
   validateScoutResult,
-  validateSemAuditResult,
   validateSemScoutResult,
 } from "./validate.ts";
 import type { LocalModel } from "./model.ts";
@@ -26,7 +26,7 @@ export async function scoutBatch(
   checks: readonly StupifyCheck[],
   sourceLabel: string,
 ): Promise<readonly string[]> {
-  const raw = await runJsonPrompt(model, scoutPrompt(batch, checks, sourceLabel), scoutSchema(batch), 160, 0);
+  const raw = await runJsonPrompt(model, scoutPrompt(batch, checks, sourceLabel), scoutSchema(batch), 0);
   return validateScoutResult(raw, batch);
 }
 
@@ -38,7 +38,7 @@ export async function auditCandidates(
 ): Promise<FindingsResult> {
   if (contexts.length === 0) return { findings: [], summary: "No candidate regions found." };
 
-  const raw = await runJsonPrompt(model, auditPrompt(contexts, checks, diff.label), auditSchema(contexts), 520, 0);
+  const raw = await runJsonPrompt(model, auditPrompt(contexts, checks, diff.label), auditSchema(contexts), 0);
   return validateAuditResult(raw, diff, checks, contexts.map((context) => context.pointer));
 }
 
@@ -52,13 +52,12 @@ export async function scoutSemChanges(
     model,
     semScoutPrompt(changeSet, checks, maxCandidates),
     semScoutSchema(changeSet, checks, maxCandidates),
-    Math.max(1_500, maxCandidates * 180),
     0,
   );
   return validateSemScoutResult(raw, changeSet, checks, maxCandidates);
 }
 
-export async function auditSemContexts(
+export async function runFindingsAudit(
   model: LocalModel,
   changeSet: SemChangeSet,
   contexts: readonly SemContext[],
@@ -75,20 +74,14 @@ export async function auditSemContexts(
 
   const raw = await runJsonPrompt(
     model,
-    semAuditPrompt(contexts, pack, checks, changeSet.label),
-    semAuditSchema(contexts),
-    semAuditMaxTokens(contexts),
+    findingsAuditPrompt(contexts, pack, checks, changeSet.label),
+    findingsAuditSchema(contexts),
     0,
   );
-  return validateSemAuditResult(raw, changeSet.id, checks, contexts);
+  return validateFindingsAuditResult(raw, changeSet.id, checks, contexts);
 }
 
-function semAuditMaxTokens(contexts: readonly SemContext[]): number {
-  const targetCount = contexts.reduce((sum, context) => sum + context.checkIds.length, 0);
-  return Math.max(1_500, targetCount * 120);
-}
-
-function semAuditSchema(contexts: readonly SemContext[]): unknown {
+function findingsAuditSchema(contexts: readonly SemContext[]): unknown {
   const candidateIds = contexts.map((context) => context.candidateId);
   const checkIds = [...new Set(contexts.flatMap((context) => context.checkIds))];
   const findingItem = {
@@ -205,7 +198,6 @@ async function runJsonPrompt(
   model: LocalModel,
   prompt: string,
   schema: unknown,
-  maxTokens: number,
   temperature: number,
 ): Promise<unknown> {
   return cachedJson(
@@ -216,10 +208,9 @@ async function runJsonPrompt(
       profile: model.profile,
       prompt,
       schema,
-      maxTokens,
       temperature,
     }),
-    () => runJsonPromptUncached(model, prompt, schema, maxTokens, temperature),
+    () => runJsonPromptUncached(model, prompt, schema, temperature),
   );
 }
 
@@ -227,16 +218,15 @@ async function runJsonPromptUncached(
   model: LocalModel,
   prompt: string,
   schema: unknown,
-  maxTokens: number,
   temperature: number,
 ): Promise<unknown> {
-  const first = await complete(model, prompt, schema, maxTokens, temperature);
+  const first = await complete(model, prompt, schema, temperature);
   const parsed = parseJson(first);
   if (parsed.ok) return parsed.value;
 
   const retry = await complete(model, `${prompt}
 
-Your previous response was not valid JSON. Return the requested JSON object only.`, schema, maxTokens, temperature);
+Your previous response was not valid JSON. Return the requested JSON object only.`, schema, temperature);
   const retryParsed = parseJson(retry);
   if (retryParsed.ok) return retryParsed.value;
 
@@ -249,7 +239,6 @@ async function complete(
   model: LocalModel,
   prompt: string,
   schema: unknown,
-  maxTokens: number,
   temperature: number,
 ): Promise<string> {
   const response = await fetch(`${model.baseUrl}/v1/chat/completions`, {
@@ -258,7 +247,6 @@ async function complete(
     body: JSON.stringify({
       model: model.id,
       messages: [{ role: "user", content: prompt }],
-      max_tokens: maxTokens,
       temperature,
       response_format: {
         type: "json_object",

@@ -32,22 +32,22 @@ type SemScoutResult = Readonly<{
   candidates: readonly SemScoutCandidate[];
 }>;
 
-type SemFindingReview = Readonly<{
+type FindingReview = Readonly<{
   candidateId: string;
   checkId: string;
   why: string;
   proof: string;
 }>;
 
-type SemUncertainReview = Readonly<{
+type UncertainReview = Readonly<{
   candidateId: string;
   checkId: string;
   why: string;
 }>;
 
-type SemAuditReviewResult = Readonly<{
-  findings?: readonly SemFindingReview[];
-  uncertain?: readonly SemUncertainReview[];
+type FindingsAuditOutput = Readonly<{
+  findings?: readonly FindingReview[];
+  uncertain?: readonly UncertainReview[];
 }>;
 
 export function validateScoutResult(value: unknown, batch: DiffBatch): readonly string[] {
@@ -101,13 +101,13 @@ export function validateSemScoutResult(
   }).slice(0, maxCandidates);
 }
 
-export function validateSemAuditResult(
+export function validateFindingsAuditResult(
   value: unknown,
   sourceId: SourceId,
   checks: readonly StupifyCheck[],
   contexts: readonly SemContext[],
 ): AuditReviewResult {
-  if (!isSemAuditReviewResult(value)) throw new Error("Model returned invalid sem audit JSON.");
+  if (!isFindingsAuditOutput(value)) throw new Error("Model returned invalid findings audit JSON.");
   const checkIds = new Map<string, StupifyCheck["id"]>(checks.map((check) => [check.id, check.id]));
   const contextsByCandidateId = new Map(contexts.map((context) => [context.candidateId, context]));
   const expectedPairs = new Set(contexts.flatMap((context) =>
@@ -181,16 +181,16 @@ function isScoutResult(value: unknown): value is ScoutResult {
   return Array.isArray(record.candidates) && record.candidates.every((item) => typeof item === "string");
 }
 
-function isSemAuditReviewResult(value: unknown): value is SemAuditReviewResult {
+function isFindingsAuditOutput(value: unknown): value is FindingsAuditOutput {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   return (
-    optionalArray(record.findings, isSemFindingReview) &&
-    optionalArray(record.uncertain, isSemUncertainReview)
+    optionalArray(record.findings, isFindingReview) &&
+    optionalArray(record.uncertain, isUncertainReview)
   );
 }
 
-function isSemFindingReview(value: unknown): value is SemFindingReview {
+function isFindingReview(value: unknown): value is FindingReview {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   return (
@@ -201,7 +201,7 @@ function isSemFindingReview(value: unknown): value is SemFindingReview {
   );
 }
 
-function isSemUncertainReview(value: unknown): value is SemUncertainReview {
+function isUncertainReview(value: unknown): value is UncertainReview {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   return (
@@ -264,7 +264,7 @@ function startsWithNegativeFindingLanguage(value: string): boolean {
 }
 
 function validReviewTarget(
-  review: Pick<SemFindingReview, "candidateId" | "checkId">,
+  review: Pick<FindingReview, "candidateId" | "checkId">,
   contextsByCandidateId: ReadonlyMap<string, SemContext>,
   checkIds: ReadonlyMap<string, CheckId>,
   seen: ReadonlySet<string>,
