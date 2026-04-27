@@ -107,8 +107,27 @@ async function runStagedSearch(command: SearchCommand, startedAt: number): Promi
   printSearchRunPlan(command, diff.stats, patternIds);
   const modelPath = await firstRunModelBootstrap(command.model);
   const model = await loadLocalModel(modelPath, command.model, "scout");
-  const bounded = await boundedSearchInput(model, diff.text, checks, command.maxSearchInputTokens);
-  const matches = await searchStagedChanges(model, bounded.text, checks);
+  const inputTokens = await countPromptTokens(model, searchRequest(diff.text, checks).prompt);
+  if (inputTokens > command.maxSearchInputTokens) {
+    return {
+      schemaVersion: "search.v1",
+      mode: "search",
+      source: "staged",
+      model: { id: command.model },
+      patterns: patternIds,
+      stats: {
+        elapsedMs: Date.now() - startedAt,
+        modelCalls: 0,
+        inputTokens,
+        inputTokenCap: command.maxSearchInputTokens,
+        skipped: true,
+        skipReason: "input_too_large",
+      },
+      matches: [],
+    };
+  }
+
+  const matches = await searchStagedChanges(model, diff.text, checks);
 
   return {
     schemaVersion: "search.v1",
@@ -119,40 +138,11 @@ async function runStagedSearch(command: SearchCommand, startedAt: number): Promi
     stats: {
       elapsedMs: Date.now() - startedAt,
       modelCalls: 1,
-      inputTokens: bounded.tokens,
-      truncated: bounded.truncated || undefined,
+      inputTokens,
+      inputTokenCap: command.maxSearchInputTokens,
     },
     matches,
   };
-}
-
-async function boundedSearchInput(
-  model: LocalModel,
-  stagedChanges: string,
-  checks: ReturnType<typeof searchChecks>,
-  maxTokens: number,
-): Promise<Readonly<{ text: string; tokens: number; truncated: boolean }>> {
-  let text = stagedChanges;
-  let truncated = false;
-
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    const tokens = await countPromptTokens(model, searchRequest(text, checks).prompt);
-    if (tokens <= maxTokens) return { text, tokens, truncated };
-
-    truncated = true;
-    const estimatedLength = Math.max(
-      1_000,
-      Math.floor(text.length * (maxTokens / tokens) * 0.85),
-    );
-    const nextLength = estimatedLength >= text.length
-      ? Math.max(200, Math.floor(text.length * 0.75))
-      : estimatedLength;
-    text = `${stagedChanges.slice(0, nextLength)}
-[stupify: staged diff truncated to fit search input budget]`;
-  }
-
-  const tokens = await countPromptTokens(model, searchRequest(text, checks).prompt);
-  return { text, tokens, truncated };
 }
 
 async function runRawDiffEngine(

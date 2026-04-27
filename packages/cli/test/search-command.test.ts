@@ -36,10 +36,10 @@ test("parses hook subcommands", () => {
 test("default staged search patterns are intentionally narrow", () => {
   assert.deepEqual(searchChecks(null).map((check) => check.id), [
     "unnecessary_complexity",
-    "over_commenting",
   ]);
 });
 
 test("explicit checks can opt in non-default hook patterns", () => {
   assert.deepEqual(searchChecks(["lint_bypass"]).map((check) => check.id), ["lint_bypass"]);
+  assert.deepEqual(searchChecks(["over_commenting"]).map((check) => check.id), ["over_commenting"]);
 });

@@ -24,7 +24,21 @@ export const defaultChecks: readonly StupifyCheck[] = [
       "isolates dependency, removes duplication, or improves testability",
     ],
     hookMode: "warn",
-    searchPrompt: "Find staged changes where a simple decision is wrapped in new helpers, services, wrappers, boundaries, abstractions, or indirection without an obvious payoff.",
+    searchPrompt: `Find staged changes where a locally simple decision is made harder to understand by new indirection.
+Only match when the staged diff clearly shows:
+- a new named helper, wrapper, service, adapter, boundary, or abstraction
+- and the surrounding change still appears locally simple
+- and the new structure makes the decision harder to see
+Do not match:
+- plain conditionals, guard clauses, skip paths, or error handling
+- normal feature structure
+- exported utilities that are part of a real feature
+- command plumbing
+- prompt/instruction files
+- domain configuration
+- refactors that make ownership clearer
+- changes where the payoff is unclear from the diff
+Prefer no match over a weak match.`,
     searchExamples: {
       match: [
         "A small inline operation becomes a helper/service/wrapper with one obvious caller.",
@@ -83,7 +97,6 @@ export const defaultChecks: readonly StupifyCheck[] = [
     ignoreWhen: [
       "comment explains intent, constraint, workaround, or public API behavior",
     ],
-    hookMode: "warn",
     searchPrompt: "Find staged changes where comments appear to substitute for judgment rather than clarify it.",
     searchExamples: {
       match: [

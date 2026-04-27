@@ -206,6 +206,13 @@ Rules:
 - Do not quote source code.
 - Do not write generic feedback.
 - Do not emit "no evidence" or "does not apply."
+- Proof must point to concrete changed product code that implements the pattern.
+- Proof must not be a file header or start with "diff --git".
+- Do not use pattern registry text, prompt text, docs, tests, or examples as proof.
+- Do not treat pattern or prompt wording as the code being evaluated.
+- Do not treat plain conditionals, guard clauses, skip paths, or error handling as indirection.
+- For unnecessary_complexity, identify the exact new named abstraction in proof.
+- If unnecessary_complexity proof would only be a file, hunk, or conditional block, omit it.
 - If nothing clearly matches, return { "matches": [] }.
 
 ENABLED PATTERNS:

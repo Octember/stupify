@@ -44,19 +44,29 @@ Timing:
 export function renderSearchRun(run: SearchRunJson, command: SearchCommand): string {
   if (command.json) return JSON.stringify(run, null, 2);
 
+  if (run.stats.skipped && run.stats.skipReason === "input_too_large") {
+    return `🧙 stupify 🪄
+Staged diff is too large for precise hook search.
+Size:
+~${run.stats.inputTokens ?? "unknown"} tokens
+Limit:
+${run.stats.inputTokenCap ?? "unknown"} tokens
+Stupify skipped the hook scan rather than review a truncated diff.
+Commit will not be blocked.
+Try:
+stupify --staged --max-search-input-tokens ${Math.max((run.stats.inputTokens ?? 12_000) + 1, (run.stats.inputTokenCap ?? 12_000) * 2)}`;
+  }
+
   if (run.stats.modelCalls === 0 && run.matches.length === 0) {
     return `🧙 stupify 🪄
 No staged changes found.`;
   }
 
-  const truncation = run.stats.truncated
-    ? "\nWarning: staged diff was truncated to fit the search input budget."
-    : "";
   if (run.matches.length === 0) {
     return `🧙 stupify 🪄
 Staged search complete.
 Patterns: ${run.patterns.join(", ")}
-No judgment-offload signals found.${truncation}`;
+No judgment-offload signals found.`;
   }
 
   return `🧙 stupify 🪄
@@ -64,7 +74,7 @@ Possible judgment-offload detected in staged changes:
 ${run.matches.map((match, index) => `${index + 1}. ${match.patternId}
    ${match.reason}
    Proof: ${match.proof}`).join("\n")}
-Hook mode is warn-only.${truncation}`;
+Hook mode is warn-only.`;
 }
 
 export function helpText(): string {

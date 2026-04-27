@@ -289,8 +289,11 @@ export type SearchRunJson = Readonly<{
     elapsedMs: number;
     modelCalls: number;
     inputTokens?: number;
+    inputTokenCap?: number;
     outputTokens?: number;
     truncated?: boolean;
+    skipped?: boolean;
+    skipReason?: "input_too_large";
   }>;
   matches: readonly SearchMatch[];
 }>;
