@@ -1,6 +1,6 @@
 {
   "name": "@stupify/cli",
-  "version": "0.0.0",
+  "version": "0.0.3",
   "description": "Local-only diagnostic CLI for checking whether AI is making you dumber.",
   "private": false,
   "type": "module",
