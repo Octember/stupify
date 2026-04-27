@@ -64,11 +64,9 @@ async function runRawDiffEngine(
   checks: ReturnType<typeof enabledChecks>,
   startedAt: number,
 ): Promise<AnalysisReport> {
-  const diffStartedAt = Date.now();
-  const diff = await trace.trace("net.diff", () =>
+  const { value: diff, ms: diffMs } = await trace.trace("net.diff", () =>
     netDiffForCommand(command),
   );
-  const diffMs = Date.now() - diffStartedAt;
 
   printRunPlan(
     command,
@@ -76,39 +74,40 @@ async function runRawDiffEngine(
     checks.map((check) => check.id),
   );
 
-  const modelStartedAt = Date.now();
-  const modelPath = await firstRunModelBootstrap(command.model);
-  const scoutModel = await loadLocalModel(modelPath, command.model, "scout");
-  const auditModel = await loadLocalModel(modelPath, command.model, "audit");
-  const modelMs = Date.now() - modelStartedAt;
+  const { value: models, ms: modelMs } = await trace.trace("model.load", async () => {
+    const modelPath = await firstRunModelBootstrap(command.model);
+    const scoutModel = await loadLocalModel(modelPath, command.model, "scout");
+    const auditModel = await loadLocalModel(modelPath, command.model, "audit");
+    return { scoutModel, auditModel };
+  });
+  const { scoutModel, auditModel } = models;
 
   const batches = batchDiff(diff.text);
-  const searchStartedAt = Date.now();
-  const candidatePointers: string[] = [];
-  for (const batch of batches) {
-    const candidates = await trace.trace(
+  const { value: candidatePointers, ms: searchMs } = await trace.trace("search.total", async () => {
+    const pointers: string[] = [];
+    for (const batch of batches) {
+      const { value: candidates } = await trace.trace(
       "search.batch",
       () => scoutBatch(scoutModel, batch, checks, diff.label),
       {
         batch: batch.id,
       },
     );
-    candidatePointers.push(...candidates);
-  }
-  const searchMs = Date.now() - searchStartedAt;
+      pointers.push(...candidates);
+    }
+    return pointers;
+  });
 
   const contexts = candidateContexts(batches, candidatePointers);
   const auditedContexts = contexts;
   const warnings: string[] = [];
-  const auditStartedAt = Date.now();
-  const result = await trace.trace(
+  const { value: result, ms: auditMs } = await trace.trace(
     "audit.candidates",
     () => auditCandidates(auditModel, diff, auditedContexts, checks),
     {
       candidates: auditedContexts.length,
     },
   );
-  const auditMs = Date.now() - auditStartedAt;
 
   return {
     run: {
@@ -143,9 +142,10 @@ async function runSemEngine(
   checks: ReturnType<typeof enabledChecks>,
   startedAt: number,
 ): Promise<AnalysisReport> {
-  const diffStartedAt = Date.now();
-  const changeSet = await trace.trace("sem.diff", () => semChangeSetForCommand(command));
-  const diffMs = Date.now() - diffStartedAt;
+  const { value: changeSet, ms: diffMs } = await trace.trace(
+    "sem.diff",
+    () => semChangeSetForCommand(command),
+  );
   const semTrace: SemTraceEvent[] = [{
     name: "sem.diff",
     ms: diffMs,
@@ -160,11 +160,13 @@ async function runSemEngine(
     checks.map((check) => check.id),
   );
 
-  const modelStartedAt = Date.now();
-  const modelPath = await firstRunModelBootstrap(command.model);
-  const scoutModel = await loadLocalModel(modelPath, command.model, "scout");
-  const auditModel = await loadLocalModel(modelPath, command.model, "audit");
-  const modelMs = Date.now() - modelStartedAt;
+  const { value: models, ms: modelMs } = await trace.trace("model.load", async () => {
+    const modelPath = await firstRunModelBootstrap(command.model);
+    const scoutModel = await loadLocalModel(modelPath, command.model, "scout");
+    const auditModel = await loadLocalModel(modelPath, command.model, "audit");
+    return { scoutModel, auditModel };
+  });
+  const { scoutModel, auditModel } = models;
   semTrace.push({
     name: "model.load",
     ms: modelMs,
@@ -174,12 +176,14 @@ async function runSemEngine(
   debugSemTrace(command, semTrace[semTrace.length - 1]);
 
   try {
-    const searchStartedAt = Date.now();
     const candidateBatches = chunkSemChangeSet(changeSet);
-    const candidates = candidateBatches.length === 0
-      ? []
-      : await scoutSemBatches(scoutModel, candidateBatches, checks, command, semTrace);
-    const searchMs = Date.now() - searchStartedAt;
+    const { value: candidates, ms: searchMs } = await trace.trace(
+      "sem.scout.total",
+      async () =>
+        candidateBatches.length === 0
+          ? []
+          : scoutSemBatches(scoutModel, candidateBatches, checks, command, semTrace),
+    );
     semTrace.push({
       name: "sem.scout.total",
       ms: searchMs,
@@ -188,8 +192,7 @@ async function runSemEngine(
     });
     debugSemTrace(command, semTrace[semTrace.length - 1]);
 
-    const contextStartedAt = Date.now();
-    const contexts = await trace.trace(
+    const { value: contexts, ms: contextMs } = await trace.trace(
       "sem.context",
       () => semContexts(
         changeSet.contextCwd,
@@ -199,7 +202,6 @@ async function runSemEngine(
       ),
       { candidates: candidates.length },
     );
-    const contextMs = Date.now() - contextStartedAt;
     semTrace.push({
       name: "sem.context.total",
       ms: contextMs,
@@ -207,10 +209,10 @@ async function runSemEngine(
     });
     debugSemTrace(command, semTrace[semTrace.length - 1]);
 
-    const auditStartedAt = Date.now();
     const auditBatches = chunkSemContexts(contexts);
-    const result = await auditSemContextBatches(auditModel, changeSet, auditBatches, checks, semTrace, command);
-    const auditMs = Date.now() - auditStartedAt;
+    const { value: result, ms: auditMs } = await trace.trace("sem.audit.total", () =>
+      auditSemContextBatches(auditModel, changeSet, auditBatches, checks, semTrace, command)
+    );
     semTrace.push({
       name: "sem.audit.total",
       ms: auditMs,
@@ -267,7 +269,7 @@ async function auditSemContextBatches(
   const summaries = [];
   for (const [index, batch] of batches.entries()) {
     const startedAt = Date.now();
-    const result = await trace.trace(
+    const { value: result } = await trace.trace(
       "audit.sem",
       () => auditSemContexts(model, changeSet, batch, checks),
       { candidates: batch.length },
@@ -304,7 +306,7 @@ async function scoutSemBatches(
     if (candidates.length >= command.maxCandidates) break;
     const remaining: number = command.maxCandidates - candidates.length;
     const startedAt = Date.now();
-    const batchCandidates: readonly SemCandidate[] = await trace.trace(
+    const { value: batchCandidates } = await trace.trace(
       "search.sem",
       () => scoutSemChanges(model, batch, checks, remaining),
       { entities: batch.changes.length },
