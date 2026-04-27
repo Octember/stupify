@@ -3,7 +3,7 @@
 import { fileURLToPath } from "node:url";
 import {
   auditCandidates,
-  auditSemContexts,
+  runFindingsAudit,
   scoutBatch,
   scoutSemChanges,
 } from "./analysis.ts";
@@ -212,7 +212,7 @@ async function runSemEngine(
     const { value: result, ms: auditMs } = await trace.trace(
       "audit.total",
       () =>
-        auditSemContextBatches(
+        findingsAuditBatches(
           auditModel,
           changeSet,
           auditBatches,
@@ -266,7 +266,7 @@ async function runSemEngine(
   }
 }
 
-async function auditSemContextBatches(
+async function findingsAuditBatches(
   model: LocalModel,
   changeSet: SemChangeSet,
   batches: readonly (readonly SemContext[])[],
@@ -294,7 +294,7 @@ async function auditSemContextBatches(
 
     const { value: result, ms: auditMs } = await trace.trace(
       "audit.batch",
-      () => auditSemContexts(model, changeSet, batch, pack, checks),
+      () => runFindingsAudit(model, changeSet, batch, pack, checks),
       { candidates: batch.length },
     );
     const event = {
