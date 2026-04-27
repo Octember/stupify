@@ -179,11 +179,10 @@ async function runSemEngine(
     checks.map((check) => check.id),
   );
 
-  const { value: models, ms: modelMs } = await trace.trace(
-    "model.load",
-    async () => loadLocalModels(command.model),
-  );
-  const { scoutModel, auditModel } = models;
+  const {
+    value: { scoutModel, auditModel },
+    ms: modelMs,
+  } = await trace.trace("model.load", () => loadLocalModels(command.model));
   semTrace.push({
     name: "model.load",
     ms: modelMs,
