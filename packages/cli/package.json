@@ -5,7 +5,7 @@
   "private": false,
   "type": "module",
   "bin": {
-    "stupify": "./dist/stupify.js"
+    "stupify": "dist/stupify.js"
   },
   "repository": {
     "type": "git",
