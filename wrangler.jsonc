@@ -6,8 +6,8 @@
   "main": "./workers/app.ts",
   "workers_dev": false,
   "routes": [
-    { "pattern": "stupif.ai", "custom_domain": true },
-    { "pattern": "www.stupif.ai", "custom_domain": true }
+    { "pattern": "stupif.ai/*", "zone_name": "stupif.ai" },
+    { "pattern": "www.stupif.ai/*", "zone_name": "stupif.ai" }
   ],
   "observability": {
     "enabled": true
