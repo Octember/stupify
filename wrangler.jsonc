@@ -4,6 +4,11 @@
   "compatibility_date": "2026-04-26",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./workers/app.ts",
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "stupif.ai", "custom_domain": true },
+    { "pattern": "www.stupif.ai", "custom_domain": true }
+  ],
   "observability": {
     "enabled": true
   }

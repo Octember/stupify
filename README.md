@@ -1,4 +1,9 @@
-# stupif.ai
+# Stupify
+
+**This project is called Stupify.**
+
+**The domain is `stupif.ai` - read it as "stupify"; the `ai` makes a `y`
+sound.**
 
 Local-only diagnostic tooling for checking whether AI is making developers
 dumber.
@@ -69,6 +74,7 @@ Your code stays on your machine.
 ## Deployment
 
 The web app deploys as a server-rendered React Router app on Cloudflare Workers.
+The Worker is bound to `stupif.ai` and `www.stupif.ai` in `wrangler.jsonc`.
 
 ```sh
 bun run typecheck:web
