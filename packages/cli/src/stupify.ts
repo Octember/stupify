@@ -23,7 +23,7 @@ import { loadLocalModels, type LocalModel } from "./model.ts";
 import { entityContextsFromChanges, repomixContextPack } from "./repomix-provider.ts";
 import { helpText, renderReport } from "./render.ts";
 import { semChangeSetForCommand } from "./sem-provider.ts";
-import { createEventedTracer, trace } from "./trace.ts";
+import { createTracer, trace } from "./trace.ts";
 import type {
   AnalysisReport,
   AnalyzeCommand,
@@ -90,9 +90,7 @@ async function runRawDiffEngine(
         const { value: candidates } = await trace.trace(
           "search.batch",
           () => scoutBatch(scoutModel, batch, checks, diff.label),
-          {
-            batch: batch.id,
-          },
+          { fields: { batch: batch.id } },
         );
         pointers.push(...candidates);
       }
@@ -105,9 +103,7 @@ async function runRawDiffEngine(
   const { value: result, ms: auditMs } = await trace.trace(
     "audit.candidates",
     () => auditCandidates(auditModel, diff, auditedContexts, checks),
-    {
-      candidates: auditedContexts.length,
-    },
+    { fields: { candidates: auditedContexts.length } },
   );
 
   return {
@@ -144,8 +140,7 @@ async function runSemEngine(
   startedAt: number,
 ): Promise<AnalysisReport> {
   const traceEvents: TraceEvent[] = [];
-  const t = createEventedTracer({
-    tracer: trace,
+  const t = createTracer({
     onEvent: (event) => {
       traceEvents.push(event);
       debugSemTrace(command, event);
@@ -169,7 +164,7 @@ async function runSemEngine(
 
   const { value: models, ms: modelMs } = await t.trace(
     "model.load",
-    async () => loadLocalModels(command.model),
+    () => loadLocalModels(command.model),
     {
       count: () => 2,
       detail: () => "scout+audit",
@@ -271,7 +266,7 @@ async function findingsAuditBatches(
   batches: readonly (readonly SemContext[])[],
   checks: ReturnType<typeof enabledChecks>,
   traceEvents: TraceEvent[],
-  t: ReturnType<typeof createEventedTracer>,
+  t: ReturnType<typeof createTracer>,
   command: AnalyzeCommand,
 ): Promise<FindingsResult & { stats: AuditReviewStats }> {
   const findings = [];
@@ -323,7 +318,7 @@ async function scoutSemBatches(
   checks: ReturnType<typeof enabledChecks>,
   command: AnalyzeCommand,
   traceEvents: TraceEvent[],
-  t: ReturnType<typeof createEventedTracer>,
+  t: ReturnType<typeof createTracer>,
 ): Promise<readonly SemCandidate[]> {
   const candidates: SemCandidate[] = [];
   const seen = new Set<string>();
