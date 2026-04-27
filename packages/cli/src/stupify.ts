@@ -120,7 +120,6 @@ async function runRawDiffEngine(
 
   const contexts = candidateContexts(batches, candidatePointers);
   const auditedContexts = contexts;
-  const warnings: string[] = [];
   const { value: result, ms: auditMs } = await trace.trace(
     "audit.candidates",
     () => auditCandidates(auditModel, diff, auditedContexts, checks),
@@ -139,8 +138,8 @@ async function runRawDiffEngine(
       label: diff.label,
       stats: diff.stats,
       batchesScanned: batches.length,
-      entitiesScanned: 0,
       candidateCount: new Set(candidatePointers).size,
+      entitiesScanned: 0,
       auditedCandidateCount: auditedContexts.length,
       scoutModelCalls: batches.length,
       auditModelCalls: auditedContexts.length > 0 ? 1 : 0,
@@ -151,7 +150,6 @@ async function runRawDiffEngine(
         audit: auditMs,
         total: Date.now() - startedAt,
       },
-      warnings,
     },
     result,
   };
@@ -282,7 +280,6 @@ async function runSemEngine(
           audit: auditMs + contextMs,
           total: Date.now() - startedAt,
         },
-        warnings: [],
         semTrace,
       },
       result,
