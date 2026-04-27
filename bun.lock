@@ -31,9 +31,17 @@
       "bin": {
         "stupify": "./dist/stupify.js",
       },
+      "dependencies": {
+        "@ataraxy-labs/sem": "^0.3.24",
+      },
     },
   },
+  "trustedDependencies": [
+    "@ataraxy-labs/sem",
+  ],
   "packages": {
+    "@ataraxy-labs/sem": ["@ataraxy-labs/sem@0.3.24", "", { "bin": { "sem": "bin/sem.js" } }, "sha512-8+sDppl7V4Wp0Bl4d2/KokjX4pFtA+K1/RsfuCnFWRhA5oG7/zrE3DDUM++yEI3J0D1kac7HWdXbPj0tzDFBfg=="],
+
     "@babel/code-frame": ["@babel/code-frame@7.29.0", "", { "dependencies": { "@babel/helper-validator-identifier": "^7.28.5", "js-tokens": "^4.0.0", "picocolors": "^1.1.1" } }, "sha512-9NhCeYjq9+3uxgdtp20LSiJXJvN0FeCtNGpJxuMFZ1Kv3cWUNb6DOhJwUvcVCzKGR66cw4njwM6hrJLqgOwbcw=="],
 
     "@babel/compat-data": ["@babel/compat-data@7.29.0", "", {}, "sha512-T1NCJqT/j9+cn8fvkt7jtwbLBfLC/1y1c7NtCeXFRgzGTsafi68MRv8yzkYSapBnFA6L3U2VSc02ciDzoAJhJg=="],

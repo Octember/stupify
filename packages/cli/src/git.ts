@@ -1,25 +1,40 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { sourceId, type NetDiff, type NetDiffStats } from "./types.ts";
+import { sourceId, type NetDiff, type NetDiffStats, type SourceRange } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 
 export async function netDiffSince(since: string): Promise<NetDiff> {
-  const [base, target] = await Promise.all([baseBefore(since), revParse("HEAD")]);
-  return netDiff(base, target, `last ${since}`);
+  const range = await sourceRangeSince(since);
+  return netDiff(range.base, range.target, range.label, range.id);
 }
 
 export async function netDiffForCommit(commit: string): Promise<NetDiff> {
+  const range = await sourceRangeForCommit(commit);
+  return netDiff(range.base, range.target, range.label, range.id);
+}
+
+export async function netDiffForRecentCommits(count: number): Promise<NetDiff> {
+  const range = await sourceRangeForRecentCommits(count);
+  return netDiff(range.base, range.target, range.label, range.id);
+}
+
+export async function sourceRangeSince(since: string): Promise<SourceRange> {
+  const [base, target] = await Promise.all([baseBefore(since), revParse("HEAD")]);
+  return sourceRange(base, target, `last ${since}`);
+}
+
+export async function sourceRangeForCommit(commit: string): Promise<SourceRange> {
   const [base, target, shortTarget, message] = await Promise.all([
     revParse(`${commit}^1`),
     revParse(commit),
     shortCommit(commit),
     commitMessage(commit),
   ]);
-  return netDiff(base, target, firstLine(message) || shortTarget, sourceId(shortTarget));
+  return sourceRange(base, target, firstLine(message) || shortTarget, sourceId(shortTarget));
 }
 
-export async function netDiffForRecentCommits(count: number): Promise<NetDiff> {
+export async function sourceRangeForRecentCommits(count: number): Promise<SourceRange> {
   const commits = await recentCommits(count);
   if (commits.length === 0) throw new Error("No non-merge commits found.");
 
@@ -32,7 +47,7 @@ export async function netDiffForRecentCommits(count: number): Promise<NetDiff> {
     shortCommit(newest),
   ]);
 
-  return netDiff(base, target, `${commits.length} recent commits`, sourceId(`range:${shortBase}..${shortTarget}`));
+  return sourceRange(base, target, `${commits.length} recent commits`, sourceId(`range:${shortBase}..${shortTarget}`));
 }
 
 export async function netDiffFromStdin(text: string): Promise<NetDiff> {
@@ -60,6 +75,21 @@ async function netDiff(base: string, target: string, label: string, id?: NetDiff
     base,
     target,
     text,
+    stats,
+  };
+}
+
+async function sourceRange(base: string, target: string, label: string, id?: SourceRange["id"]): Promise<SourceRange> {
+  const [stats, shortBase, shortTarget] = await Promise.all([
+    diffStats(base, target),
+    shortCommit(base),
+    shortCommit(target),
+  ]);
+  return {
+    id: id ?? sourceId(`net:${shortBase}..${shortTarget}`),
+    label,
+    base,
+    target,
     stats,
   };
 }

@@ -13,6 +13,20 @@ export function renderReport(report: AnalysisReport, command: AnalyzeCommand): s
     }, null, 2);
   }
 
+  if (report.run.engine === "sem") {
+    return `Search:
+  ${report.run.entitiesScanned} entities scanned
+  ${report.run.candidateCount} candidate entities found
+Audit:
+  ${report.run.auditedCandidateCount} candidates inspected
+  ${report.result.findings.length} findings
+${renderWarnings(report)}
+Findings:
+${renderFindings(report)}
+Timing:
+  total_ms=${report.run.timingsMs.total} sem_ms=${report.run.timingsMs.diff} model_ms=${report.run.timingsMs.modelLoad} search_ms=${report.run.timingsMs.search} audit_ms=${report.run.timingsMs.audit}`;
+  }
+
   return `Search:
   ${report.run.batchesScanned} batches scanned
   ${report.run.candidateCount} candidate regions found
@@ -41,8 +55,11 @@ Options:
   --commit <commit>     Analyze one commit as a net diff.
   --commits <count>     Analyze the net diff across the last N non-merge commits.
   --stdin               Read a git diff from stdin.
+  --engine <engine>     raw-diff or sem. Default: raw-diff.
+  --debug-sem           Print sem commands and stderr.
+  --max-candidates <n>  Max semantic candidates for --engine sem. Default: 25.
   --checks <ids>        Comma-separated check ids.
-  --model <id>          qwen2.5-coder-1.5b, gemma-4-e4b, gemma-4-e2b, qwen3-4b-magicquant, qwen2.5-coder-7b, or qwen2.5-coder-32b.
+  --model <id>          gemma-4-e2b, gemma-4-e4b, gemma-4-26b-a4b, qwen3-4b-magicquant, qwen2.5-coder-1.5b, qwen2.5-coder-7b, or qwen2.5-coder-32b.
   --json                Print JSON only.
 
 Default:

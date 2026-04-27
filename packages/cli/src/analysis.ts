@@ -1,7 +1,21 @@
-import { auditPrompt, scoutPrompt } from "./prompts.ts";
-import { validateAuditResult, validateScoutResult } from "./validate.ts";
+import { auditPrompt, scoutPrompt, semAuditPrompt, semScoutPrompt } from "./prompts.ts";
+import {
+  validateAuditResult,
+  validateScoutResult,
+  validateSemAuditResult,
+  validateSemScoutResult,
+} from "./validate.ts";
 import type { LocalModel } from "./model.ts";
-import type { CandidateContext, DiffBatch, FindingsResult, NetDiff, StupifyCheck } from "./types.ts";
+import type {
+  CandidateContext,
+  DiffBatch,
+  FindingsResult,
+  NetDiff,
+  SemCandidate,
+  SemChangeSet,
+  SemContext,
+  StupifyCheck,
+} from "./types.ts";
 
 export async function scoutBatch(
   model: LocalModel,
@@ -25,7 +39,45 @@ export async function auditCandidates(
   return validateAuditResult(raw, diff, checks, contexts.map((context) => context.pointer));
 }
 
+export async function scoutSemChanges(
+  model: LocalModel,
+  changeSet: SemChangeSet,
+  checks: readonly StupifyCheck[],
+  maxCandidates: number,
+): Promise<readonly SemCandidate[]> {
+  const raw = await runJsonPrompt(
+    model,
+    semScoutPrompt(changeSet, checks, maxCandidates),
+    semScoutSchema(changeSet, checks, maxCandidates),
+    Math.max(1_500, maxCandidates * 180),
+    0,
+  );
+  return validateSemScoutResult(raw, changeSet, checks, maxCandidates);
+}
+
+export async function auditSemContexts(
+  model: LocalModel,
+  changeSet: SemChangeSet,
+  contexts: readonly SemContext[],
+  checks: readonly StupifyCheck[],
+): Promise<FindingsResult> {
+  if (contexts.length === 0) return { findings: [], summary: "No candidate entities found." };
+
+  const raw = await runJsonPrompt(
+    model,
+    semAuditPrompt(contexts, checks, changeSet.label),
+    auditSchemaFromProofs(contexts.map((context) => context.entityId)),
+    3_000,
+    0,
+  );
+  return validateSemAuditResult(raw, changeSet.id, checks, contexts);
+}
+
 function auditSchema(contexts: readonly CandidateContext[]): unknown {
+  return auditSchemaFromProofs(contexts.map((context) => context.pointer));
+}
+
+function auditSchemaFromProofs(proofs: readonly string[]): unknown {
   return {
     type: "object",
     properties: {
@@ -36,7 +88,7 @@ function auditSchema(contexts: readonly CandidateContext[]): unknown {
           properties: {
             checkId: { type: "string" },
             why: { type: "string" },
-            proof: { type: "string", enum: contexts.map((context) => context.pointer) },
+            proof: { type: "string", enum: proofs },
           },
           required: ["checkId", "why", "proof"],
           additionalProperties: false,
@@ -45,6 +97,36 @@ function auditSchema(contexts: readonly CandidateContext[]): unknown {
       summary: { type: "string" },
     },
     required: ["findings", "summary"],
+    additionalProperties: false,
+  };
+}
+
+function semScoutSchema(
+  changeSet: SemChangeSet,
+  checks: readonly StupifyCheck[],
+  maxCandidates: number,
+): unknown {
+  return {
+    type: "object",
+    properties: {
+      candidates: {
+        type: "array",
+        maxItems: maxCandidates,
+        items: {
+          type: "object",
+          properties: {
+            entityId: { type: "string", enum: changeSet.changes.map((change) => change.entityId) },
+            checkIds: {
+              type: "array",
+              items: { type: "string", enum: checks.map((check) => check.id) },
+            },
+          },
+          required: ["entityId", "checkIds"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["candidates"],
     additionalProperties: false,
   };
 }

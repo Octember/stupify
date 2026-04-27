@@ -2,12 +2,17 @@
 
 Local-only diagnostic CLI for checking whether AI is making you dumber.
 
-This iteration analyzes a recent net diff locally. It splits the diff into
-small line-sized batches, runs an addition-focused pointer-only search step,
-audits the candidate regions with the local model, and prints findings.
+This iteration analyzes a recent net diff locally. The default engine uses
+line-sized diff batches. The sem engine uses entity-level changes, scouts
+candidate entity IDs, fetches budgeted sem context for those candidates, and
+prints findings.
 
 ```sh
 npx @stupify/cli --commit HEAD
+```
+
+```sh
+npx @stupify/cli --engine sem --commit HEAD
 ```
 
 By default, `stupify` is equivalent to `stupify --since "2 weeks ago"`.

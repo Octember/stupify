@@ -6,6 +6,9 @@
   "workspaces": [
     "packages/*"
   ],
+  "trustedDependencies": [
+    "@ataraxy-labs/sem"
+  ],
   "scripts": {
     "build": "react-router build",
     "cf-typegen": "wrangler types",

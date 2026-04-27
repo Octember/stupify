@@ -1,7 +1,7 @@
 export const VERSION = "0.0.0";
 import type { ModelConfig, ModelId } from "./types.ts";
 
-export const DEFAULT_MODEL_ID: ModelId = "qwen2.5-coder-1.5b";
+export const DEFAULT_MODEL_ID: ModelId = "gemma-4-e2b";
 
 export const MODEL_REGISTRY: Record<ModelId, ModelConfig> = {
   "gemma-4-e2b": {

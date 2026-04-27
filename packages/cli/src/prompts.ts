@@ -1,25 +1,15 @@
-import type { CandidateContext, DiffBatch, StupifyCheck } from "./types.ts";
+import type { CandidateContext, DiffBatch, SemChangeSet, SemContext, StupifyCheck } from "./types.ts";
 
 export function scoutPrompt(batch: DiffBatch, checks: readonly StupifyCheck[], sourceLabel: string): string {
-  return `You are Stupify's fast search step.
-Keep an eye out for the following antipatterns in this git diff batch.
-Your job is only to point at candidate hunks for a later audit.
-Return pointer-only JSON.
-No explanations.
-
+  return `Pick diff hunks that match enabled checks.
 Return JSON only:
-{
-  "candidates": ["batch-001:file-002:hunk-001"]
-}
+{ "candidates": ["exact POINTER"] }
 
 Rules:
 - Use POINTER values exactly as shown.
 - Return at most 3 candidates.
-- If a batch looks clean, return { "candidates": [] }.
-- Prefer catching subtle possible issues over being quiet.
-- Added exported types, payloads, mappers, helpers, wrappers, or boundaries are worth pointing at when they resemble an enabled check.
-- For duplicated_schema, include hunks that add both a local type/payload/schema and a function that maps fields from an imported typed input.
-- When related hunks appear together, prefer the hunk where the new shape, mapper, wrapper, or boundary is defined over a hunk that only uses it.
+- Return { "candidates": [] } if clean.
+- Pick definitions over usage sites.
 
 ${formatCompactChecks(checks)}
 
@@ -35,35 +25,20 @@ export function auditPrompt(
   checks: readonly StupifyCheck[],
   sourceLabel: string,
 ): string {
-  return `You are Stupify's audit step.
-Stupify checks whether recent code changes show signs that AI replaced engineering judgment with plausible code.
-You will receive candidate diff regions selected by a local search step.
-Report subtle issues when the pattern is visible in the candidate region.
-Clean candidates can be omitted.
-
+  return `Audit candidate diff regions against enabled checks.
 Return JSON only:
 {
-  "findings": [
-    {
-      "checkId": "duplicated_schema",
-      "why": "one sentence",
-      "proof": "batch-001:file-002:hunk-001"
-    }
-  ],
+  "findings": [{ "checkId": "check_id", "why": "one sentence", "proof": "exact POINTER" }],
   "summary": "one short sentence"
 }
 
 Rules:
-- Use only the checks listed below.
-- proof must be one exact POINTER value from the candidate regions.
-- proof should point to the hunk containing the duplicated shape, mapper, wrapper, or boundary, not merely a usage site.
-- why should describe why the check matched.
-- why should not quote source code or name identifiers.
-- Use generic phrases like "local payload type", "mapper", and "input result shape" instead of type or function names.
-- Ignore-when examples are reasons to omit a finding, not finding explanations.
-- Findings should describe the suspicious structure only.
-- If a candidate is fine, omit it.
-- If there are no findings, return { "findings": [], "summary": "No clear judgment-offload signal found." }.
+- Use only checks listed below.
+- checkId must be a check ID, never a POINTER.
+- proof must be one exact POINTER from candidate regions.
+- why describes the suspicious structure, not an identifier.
+- Do not describe an issue in summary unless it is also in findings.
+- If no findings, return { "findings": [], "summary": "No clear judgment-offload signal found." }.
 
 Allowed proof pointers:
 ${contexts.map((context) => `- ${context.pointer}`).join("\n")}
@@ -75,6 +50,66 @@ ${sourceLabel}
 
 CANDIDATE REGIONS:
 ${contexts.map(formatContext).join("\n\n")}`;
+}
+
+export function semScoutPrompt(
+  changeSet: SemChangeSet,
+  checks: readonly StupifyCheck[],
+  maxCandidates: number,
+): string {
+  return `Pick changed entities that match enabled checks.
+Return JSON only:
+{ "candidates": [{ "entityId": "exact entityId", "checkIds": ["check_id"] }] }
+
+Rules:
+- Use entityId values exactly as shown.
+- Return at most ${maxCandidates} candidates.
+- Return { "candidates": [] } if clean.
+- Pick definitions over usage sites.
+
+${formatCompactChecks(checks)}
+
+SOURCE:
+${changeSet.label}
+
+SEM CHANGE SUMMARY:
+${JSON.stringify(changeSet.summary, null, 2)}
+
+SEM ENTITY CHANGES:
+${changeSet.changes.map(formatSemChange).join("\n\n")}`;
+}
+
+export function semAuditPrompt(
+  contexts: readonly SemContext[],
+  checks: readonly StupifyCheck[],
+  sourceLabel: string,
+): string {
+  return `Audit candidate entity contexts against enabled checks.
+Return JSON only:
+{
+  "findings": [{ "checkId": "check_id", "why": "one sentence", "proof": "exact entityId" }],
+  "summary": "one short sentence"
+}
+
+Rules:
+- Use only checks listed below.
+- checkId must be a check ID, never an entityId.
+- proof must be one exact entityId from candidate contexts.
+- why describes the suspicious structure, not an identifier.
+- Do not describe an issue in summary unless it is also in findings.
+- Return every clear finding in the provided candidates.
+- If no findings, return { "findings": [], "summary": "No clear judgment-offload signal found." }.
+
+Allowed proof entity IDs:
+${contexts.map((context) => `- ${context.entityId}`).join("\n")}
+
+${formatFullChecks(checks)}
+
+SOURCE:
+${sourceLabel}
+
+CANDIDATE ENTITY CONTEXTS:
+${contexts.map(formatSemContext).join("\n\n")}`;
 }
 
 function formatCompactChecks(checks: readonly StupifyCheck[]): string {
@@ -103,4 +138,27 @@ ${(check.examples?.noMatch ?? []).map((example) => `- ${example}`).join("\n")}`;
 function formatContext(context: CandidateContext): string {
   return `POINTER ${context.pointer}
 ${context.text}`;
+}
+
+function formatSemChange(change: SemChangeSet["changes"][number]): string {
+  return `ENTITY ${change.entityId}
+TYPE ${change.entityType}
+CHANGE ${change.changeType}
+PATH ${change.filePath}`;
+}
+
+function formatSemContext(context: SemContext): string {
+  return `ENTITY ${context.entityId}
+NAME ${context.entityName}
+CONTEXT:
+${context.text}`;
+}
+
+function shortenCode(value: string | null): string {
+  if (!value) return "(none)";
+  const lines = value.split(/\r?\n/);
+  const limit = 80;
+  if (lines.length <= limit) return value;
+  return `${lines.slice(0, limit).join("\n")}
+[stupify: sem entity content shortened after ${limit} lines]`;
 }

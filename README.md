@@ -3,9 +3,8 @@
 Local-only diagnostic tooling for checking whether AI is making developers
 dumber.
 
-Current goal: build a recent net diff, split it into small line-sized batches,
-use the local model to find candidate hunks from an addition-focused view, audit
-those candidate regions, and print findings.
+Current goal: turn recent local changes into compact review evidence, use the
+local model to scout candidates, audit those candidates, and print findings.
 
 ## CLI
 
@@ -25,6 +24,15 @@ By default, `stupify` is equivalent to `stupify --since "2 weeks ago"`.
 Commit mode analyzes `<commit>^..commit` as a net diff.
 The default registry currently checks duplicated schemas and unnecessary
 complexity.
+
+Try semantic ingestion:
+
+```sh
+npx @stupify/cli --engine sem --commit HEAD
+```
+
+The sem engine uses `sem diff` for entity-level changes, scouts candidate
+entity IDs, then fetches budgeted `sem context` only for candidates.
 
 Analyze recent commits:
 

@@ -10,14 +10,23 @@ import { MODEL_REGISTRY } from "./constants.ts";
 import type { ModelId } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
-const DEFAULT_LLAMA_SERVER_URL = "http://127.0.0.1:8091";
 const LLAMA_SERVER_HOST = "127.0.0.1";
-const LLAMA_SERVER_PORT = "8091";
+
+export type ModelProfile = "scout" | "audit";
+
+type ModelRuntime = Readonly<{
+  profile: ModelProfile;
+  baseUrl: string;
+  port: string;
+  reasoning: "on" | "off" | "auto";
+  reasoningBudget?: number;
+}>;
 
 export type LocalModel = Readonly<{
   id: ModelId;
   name: string;
   baseUrl: string;
+  profile: ModelProfile;
 }>;
 
 export async function firstRunModelBootstrap(modelId: ModelId): Promise<string> {
@@ -40,23 +49,44 @@ Size: ${selectedModel.size}`);
   return modelPath;
 }
 
-export async function loadLocalModel(modelPath: string, modelId: ModelId): Promise<LocalModel> {
+export async function loadLocalModel(modelPath: string, modelId: ModelId, profile: ModelProfile = "scout"): Promise<LocalModel> {
   const selectedModel = MODEL_REGISTRY[modelId];
-  const baseUrl = process.env.STUPIFY_LLAMA_SERVER_URL ?? DEFAULT_LLAMA_SERVER_URL;
-  const runningModel = await runningServerModel(baseUrl);
+  const runtime = modelRuntime(profile);
+  const runningModel = await runningServerModel(runtime.baseUrl);
 
   if (runningModel) {
-    if (runningModel !== modelId) await stopManagedServer(baseUrl);
+    if (runningModel !== modelId) await stopManagedServer(runtime);
     if (runningModel === modelId) {
-      console.error(`Using already-loaded local model: ${selectedModel.name}`);
-      return { id: modelId, name: selectedModel.name, baseUrl };
+      console.error(`Using already-loaded local ${profile} model: ${selectedModel.name}`);
+      return { id: modelId, name: selectedModel.name, baseUrl: runtime.baseUrl, profile };
     }
   }
 
   await ensureLlamaServerBinary();
-  await startLlamaServer(modelPath, modelId, selectedModel.name);
-  await waitForServer(baseUrl, modelId);
-  return { id: modelId, name: selectedModel.name, baseUrl };
+  await startLlamaServer(modelPath, modelId, selectedModel.name, runtime);
+  await waitForServer(runtime.baseUrl, modelId);
+  return { id: modelId, name: selectedModel.name, baseUrl: runtime.baseUrl, profile };
+}
+
+function modelRuntime(profile: ModelProfile): ModelRuntime {
+  if (profile === "audit") {
+    const baseUrl = process.env.STUPIFY_AUDIT_LLAMA_SERVER_URL ?? "http://127.0.0.1:8092";
+    return {
+      profile,
+      baseUrl,
+      port: new URL(baseUrl).port || "8092",
+      reasoning: "on",
+      reasoningBudget: 4_096,
+    };
+  }
+
+  const baseUrl = process.env.STUPIFY_SCOUT_LLAMA_SERVER_URL ?? process.env.STUPIFY_LLAMA_SERVER_URL ?? "http://127.0.0.1:8091";
+  return {
+    profile,
+    baseUrl,
+    port: new URL(baseUrl).port || "8091",
+    reasoning: "off",
+  };
 }
 
 async function runningServerModel(baseUrl: string): Promise<string | null> {
@@ -81,55 +111,65 @@ Install llama.cpp first:
   }
 }
 
-async function startLlamaServer(modelPath: string, modelId: ModelId, modelName: string): Promise<void> {
+async function startLlamaServer(
+  modelPath: string,
+  modelId: ModelId,
+  modelName: string,
+  runtime: ModelRuntime,
+): Promise<void> {
   const logDir = path.join(cacheDir(), "logs");
   await mkdir(logDir, { recursive: true });
   const logPath = path.join(logDir, "llama-server.log");
   const out = await open(logPath, "a");
   const err = await open(logPath, "a");
 
-  console.error(`Starting local model server: ${modelName}`);
+  console.error(`Starting local ${runtime.profile} model server: ${modelName}`);
   console.error(`llama-server log: ${logPath}`);
 
-  const child = spawn("llama-server", [
+  const args = [
     "-m", modelPath,
     "-a", modelId,
     "--host", LLAMA_SERVER_HOST,
-    "--port", LLAMA_SERVER_PORT,
+    "--port", runtime.port,
     "-c", "65536",
-    "--reasoning", "off",
+    "--reasoning", runtime.reasoning,
     "--no-warmup",
-  ], {
+  ];
+  if (runtime.reasoningBudget !== undefined) {
+    args.push("--reasoning-budget", String(runtime.reasoningBudget));
+  }
+
+  const child = spawn("llama-server", args, {
     detached: true,
     stdio: ["ignore", out.fd, err.fd],
   });
 
   child.unref();
-  if (child.pid) await writeFile(pidPath(), String(child.pid));
+  if (child.pid) await writeFile(pidPath(runtime), String(child.pid));
   await out.close();
   await err.close();
 }
 
-async function stopManagedServer(baseUrl: string): Promise<void> {
-  const pid = await managedServerPid();
+async function stopManagedServer(runtime: ModelRuntime): Promise<void> {
+  const pid = await managedServerPid(runtime);
   if (!pid) {
-    const runningModel = await runningServerModel(baseUrl);
+    const runningModel = await runningServerModel(runtime.baseUrl);
     throw new Error(`A llama-server is already running with ${runningModel ?? "another model"}.
 Stop it before switching models, or use STUPIFY_LLAMA_SERVER_URL for that server.`);
   }
 
-  console.error("Restarting local model server for selected model.");
+  console.error(`Restarting local ${runtime.profile} model server for selected model.`);
   try {
     process.kill(pid, "SIGTERM");
   } catch {
-    await rm(pidPath(), { force: true });
+    await rm(pidPath(runtime), { force: true });
     return;
   }
 
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
-    if (!(await runningServerModel(baseUrl))) {
-      await rm(pidPath(), { force: true });
+    if (!(await runningServerModel(runtime.baseUrl))) {
+      await rm(pidPath(runtime), { force: true });
       return;
     }
     await sleep(250);
@@ -138,17 +178,18 @@ Stop it before switching models, or use STUPIFY_LLAMA_SERVER_URL for that server
   throw new Error("Timed out while stopping existing llama-server.");
 }
 
-async function managedServerPid(): Promise<number | null> {
+async function managedServerPid(runtime: ModelRuntime): Promise<number | null> {
   try {
-    const value = Number((await readFile(pidPath(), "utf8")).trim());
+    const value = Number((await readFile(pidPath(runtime), "utf8")).trim());
     return Number.isInteger(value) && value > 0 ? value : null;
   } catch {
     return null;
   }
 }
 
-function pidPath(): string {
-  return path.join(cacheDir(), "llama-server.pid");
+function pidPath(runtime: ModelRuntime): string {
+  const filename = runtime.profile === "scout" ? "llama-server.pid" : `llama-server-${runtime.profile}.pid`;
+  return path.join(cacheDir(), filename);
 }
 
 async function waitForServer(baseUrl: string, modelId: ModelId): Promise<void> {

@@ -1,7 +1,8 @@
 import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.ts";
-import type { Command, ModelId } from "./types.ts";
+import type { Command, Engine, ModelId } from "./types.ts";
 
 const DEFAULT_SINCE = "2 weeks ago";
+const DEFAULT_MAX_CANDIDATES = 25;
 type InputMode =
   | Readonly<{ kind: "since"; since: string }>
   | Readonly<{ kind: "stdin" }>
@@ -17,6 +18,9 @@ export function parseCommand(argv: readonly string[]): Command {
     checkIds: readonly string[] | null;
     json: boolean;
     model: ModelId;
+    engine: Engine;
+    debugSem: boolean;
+    maxCandidates: number;
   }>;
 
   const initialState: ParseState = {
@@ -25,10 +29,21 @@ export function parseCommand(argv: readonly string[]): Command {
     checkIds: null,
     json: false,
     model: DEFAULT_MODEL_ID,
+    engine: "raw-diff",
+    debugSem: false,
+    maxCandidates: DEFAULT_MAX_CANDIDATES,
   };
 
   const finalState = parseFrom(0, initialState);
-  return { ...finalState.inputMode, checkIds: finalState.checkIds, json: finalState.json, model: finalState.model };
+  return {
+    ...finalState.inputMode,
+    checkIds: finalState.checkIds,
+    json: finalState.json,
+    model: finalState.model,
+    engine: finalState.engine,
+    debugSem: finalState.debugSem,
+    maxCandidates: finalState.maxCandidates,
+  };
 
   function parseFrom(index: number, state: ParseState): ParseState {
     if (index >= argv.length) return state;
@@ -37,6 +52,7 @@ export function parseCommand(argv: readonly string[]): Command {
 
     if (arg === "--stdin") return parseFrom(index + 1, setInputMode(state, { kind: "stdin" }));
     if (arg === "--json") return parseFrom(index + 1, { ...state, json: true });
+    if (arg === "--debug-sem") return parseFrom(index + 1, { ...state, debugSem: true });
 
     if (arg === "--since") {
       const value = argv[index + 1];
@@ -71,6 +87,21 @@ export function parseCommand(argv: readonly string[]): Command {
       return parseFrom(index + 2, { ...state, model: value });
     }
 
+    if (arg === "--engine") {
+      const value = argv[index + 1];
+      if (!value || !isEngine(value)) throw new Error("--engine must be raw-diff or sem.");
+      return parseFrom(index + 2, { ...state, engine: value });
+    }
+
+    if (arg === "--max-candidates") {
+      const value = argv[index + 1];
+      const maxCandidates = Number(value);
+      if (!Number.isInteger(maxCandidates) || maxCandidates < 1) {
+        throw new Error("--max-candidates requires a positive integer.");
+      }
+      return parseFrom(index + 2, { ...state, maxCandidates });
+    }
+
     throw new Error(`Unknown option: ${arg}`);
   }
 
@@ -90,4 +121,8 @@ function isHelp(value: string): boolean {
 
 function isModelId(value: string): value is ModelId {
   return value in MODEL_REGISTRY;
+}
+
+function isEngine(value: string): value is Engine {
+  return value === "raw-diff" || value === "sem";
 }

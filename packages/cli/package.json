@@ -42,5 +42,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "smoke": "bun run build && node ./dist/stupify.js --help"
   },
-  "dependencies": {}
+  "dependencies": {
+    "@ataraxy-labs/sem": "^0.3.24"
+  }
 }

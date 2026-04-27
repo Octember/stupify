@@ -13,12 +13,23 @@ export function checkId(value: string): CheckId {
   return value as CheckId;
 }
 
+export type Engine = "raw-diff" | "sem";
+
+type AnalyzeOptions = Readonly<{
+  checkIds: readonly string[] | null;
+  json: boolean;
+  model: ModelId;
+  engine: Engine;
+  debugSem: boolean;
+  maxCandidates: number;
+}>;
+
 export type Command =
   | Readonly<{ kind: "help" }>
-  | Readonly<{ kind: "since"; since: string; checkIds: readonly string[] | null; json: boolean; model: ModelId }>
-  | Readonly<{ kind: "stdin"; checkIds: readonly string[] | null; json: boolean; model: ModelId }>
-  | Readonly<{ kind: "commit"; commit: string; checkIds: readonly string[] | null; json: boolean; model: ModelId }>
-  | Readonly<{ kind: "commits"; count: number; checkIds: readonly string[] | null; json: boolean; model: ModelId }>;
+  | (Readonly<{ kind: "since"; since: string }> & AnalyzeOptions)
+  | (Readonly<{ kind: "stdin" }> & AnalyzeOptions)
+  | (Readonly<{ kind: "commit"; commit: string }> & AnalyzeOptions)
+  | (Readonly<{ kind: "commits"; count: number }> & AnalyzeOptions);
 
 export type AnalyzeCommand = Exclude<Command, Readonly<{ kind: "help" }>>;
 
@@ -67,6 +78,14 @@ export type NetDiff = Readonly<{
   stats: NetDiffStats;
 }>;
 
+export type SourceRange = Readonly<{
+  id: SourceId;
+  label: string;
+  base: string;
+  target: string;
+  stats: NetDiffStats;
+}>;
+
 export type DiffHunk = Readonly<{
   pointer: string;
   batchId: string;
@@ -88,7 +107,51 @@ export type CandidateContext = Readonly<{
   text: string;
 }>;
 
+export type SemChange = Readonly<{
+  entityId: string;
+  entityName: string;
+  entityType: string;
+  filePath: string;
+  changeType: string;
+  beforeContent: string | null;
+  afterContent: string | null;
+}>;
+
+export type SemChangeSummary = Readonly<{
+  added: number;
+  deleted: number;
+  modified: number;
+  moved: number;
+  renamed: number;
+  fileCount: number;
+  total: number;
+}>;
+
+export type SemChangeSet = Readonly<{
+  id: SourceId;
+  label: string;
+  base: string;
+  target: string;
+  contextCwd: string;
+  cleanup: () => Promise<void>;
+  changes: readonly SemChange[];
+  summary: SemChangeSummary;
+}>;
+
+export type SemCandidate = Readonly<{
+  sourceId: SourceId;
+  entityId: string;
+  checkIds: readonly CheckId[];
+}>;
+
+export type SemContext = Readonly<{
+  entityId: string;
+  entityName: string;
+  text: string;
+}>;
+
 export type AnalysisRun = Readonly<{
+  engine: Engine;
   mode: AnalyzeCommand["kind"];
   modelId: ModelId;
   checkIds: readonly CheckId[];
@@ -96,6 +159,7 @@ export type AnalysisRun = Readonly<{
   label: string;
   stats: NetDiffStats;
   batchesScanned: number;
+  entitiesScanned: number;
   candidateCount: number;
   auditedCandidateCount: number;
   scoutModelCalls: number;
@@ -108,6 +172,14 @@ export type AnalysisRun = Readonly<{
     total: number;
   }>;
   warnings: readonly string[];
+  semTrace?: readonly SemTraceEvent[];
+}>;
+
+export type SemTraceEvent = Readonly<{
+  name: string;
+  ms: number;
+  count?: number;
+  detail?: string;
 }>;
 
 export type AnalysisReport = Readonly<{
