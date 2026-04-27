@@ -3,6 +3,7 @@ import type { Command, Engine, ModelId } from "./types.ts";
 
 const DEFAULT_SINCE = "2 weeks ago";
 const DEFAULT_MAX_CANDIDATES = 25;
+const DEFAULT_AUDIT_BATCH_SIZE = 25;
 type InputMode =
   | Readonly<{ kind: "since"; since: string }>
   | Readonly<{ kind: "stdin" }>
@@ -21,6 +22,7 @@ export function parseCommand(argv: readonly string[]): Command {
     engine: Engine;
     debugSem: boolean;
     maxCandidates: number;
+    auditBatchSize: number;
   }>;
 
   const initialState: ParseState = {
@@ -32,6 +34,7 @@ export function parseCommand(argv: readonly string[]): Command {
     engine: "raw-diff",
     debugSem: false,
     maxCandidates: DEFAULT_MAX_CANDIDATES,
+    auditBatchSize: DEFAULT_AUDIT_BATCH_SIZE,
   };
 
   const finalState = parseFrom(0, initialState);
@@ -43,6 +46,7 @@ export function parseCommand(argv: readonly string[]): Command {
     engine: finalState.engine,
     debugSem: finalState.debugSem,
     maxCandidates: finalState.maxCandidates,
+    auditBatchSize: finalState.auditBatchSize,
   };
 
   function parseFrom(index: number, state: ParseState): ParseState {
@@ -100,6 +104,15 @@ export function parseCommand(argv: readonly string[]): Command {
         throw new Error("--max-candidates requires a positive integer.");
       }
       return parseFrom(index + 2, { ...state, maxCandidates });
+    }
+
+    if (arg === "--audit-batch-size") {
+      const value = argv[index + 1];
+      const auditBatchSize = Number(value);
+      if (!Number.isInteger(auditBatchSize) || auditBatchSize < 1) {
+        throw new Error("--audit-batch-size requires a positive integer.");
+      }
+      return parseFrom(index + 2, { ...state, auditBatchSize });
     }
 
     throw new Error(`Unknown option: ${arg}`);

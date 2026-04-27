@@ -1,4 +1,5 @@
 import { auditPrompt, scoutPrompt, semAuditPrompt, semScoutPrompt } from "./prompts.ts";
+import { cachedJson, fingerprint } from "./cache.ts";
 import {
   validateAuditResult,
   validateScoutResult,
@@ -9,11 +10,13 @@ import type { LocalModel } from "./model.ts";
 import type {
   CandidateContext,
   DiffBatch,
+  AuditReviewResult,
   FindingsResult,
   NetDiff,
   SemCandidate,
   SemChangeSet,
   SemContext,
+  SemContextPack,
   StupifyCheck,
 } from "./types.ts";
 
@@ -59,18 +62,70 @@ export async function auditSemContexts(
   model: LocalModel,
   changeSet: SemChangeSet,
   contexts: readonly SemContext[],
+  pack: SemContextPack,
   checks: readonly StupifyCheck[],
-): Promise<FindingsResult> {
-  if (contexts.length === 0) return { findings: [], summary: "No candidate entities found." };
+): Promise<AuditReviewResult> {
+  if (contexts.length === 0) {
+    return {
+      findings: [],
+      summary: "No candidate entities found.",
+      stats: { totalTargets: 0, finding: 0, clean: 0, uncertain: 0, invalid: 0 },
+    };
+  }
 
   const raw = await runJsonPrompt(
     model,
-    semAuditPrompt(contexts, checks, changeSet.label),
-    auditSchemaFromProofs(contexts.map((context) => context.entityId)),
-    3_000,
+    semAuditPrompt(contexts, pack, checks, changeSet.label),
+    semAuditSchema(contexts),
+    semAuditMaxTokens(contexts),
     0,
   );
   return validateSemAuditResult(raw, changeSet.id, checks, contexts);
+}
+
+function semAuditMaxTokens(contexts: readonly SemContext[]): number {
+  const targetCount = contexts.reduce((sum, context) => sum + context.checkIds.length, 0);
+  return Math.max(1_500, targetCount * 120);
+}
+
+function semAuditSchema(contexts: readonly SemContext[]): unknown {
+  const candidateIds = contexts.map((context) => context.candidateId);
+  const checkIds = [...new Set(contexts.flatMap((context) => context.checkIds))];
+  const findingItem = {
+    type: "object",
+    properties: {
+      candidateId: { type: "string", enum: candidateIds },
+      checkId: { type: "string", enum: checkIds },
+      why: { type: "string" },
+      proof: { type: "string" },
+    },
+    required: ["candidateId", "checkId", "why", "proof"],
+    additionalProperties: false,
+  };
+  const uncertainItem = {
+    type: "object",
+    properties: {
+      candidateId: { type: "string", enum: candidateIds },
+      checkId: { type: "string", enum: checkIds },
+      why: { type: "string" },
+    },
+    required: ["candidateId", "checkId", "why"],
+    additionalProperties: false,
+  };
+  return {
+    type: "object",
+    properties: {
+      findings: {
+        type: "array",
+        items: findingItem,
+      },
+      uncertain: {
+        type: "array",
+        items: uncertainItem,
+      },
+    },
+    additionalProperties: false,
+  };
 }
 
 function auditSchema(contexts: readonly CandidateContext[]): unknown {
@@ -147,6 +202,29 @@ function scoutSchema(batch: DiffBatch): unknown {
 }
 
 async function runJsonPrompt(
+  model: LocalModel,
+  prompt: string,
+  schema: unknown,
+  maxTokens: number,
+  temperature: number,
+): Promise<unknown> {
+  return cachedJson(
+    "model-json",
+    fingerprint({
+      version: 1,
+      modelId: model.id,
+      profile: model.profile,
+      prompt,
+      schema,
+      maxTokens,
+      temperature,
+    }),
+    () => runJsonPromptUncached(model, prompt, schema, maxTokens, temperature),
+    process.env.STUPIFY_DEBUG_CACHE === "1",
+  );
+}
+
+async function runJsonPromptUncached(
   model: LocalModel,
   prompt: string,
   schema: unknown,

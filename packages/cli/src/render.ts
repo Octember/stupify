@@ -20,11 +20,12 @@ export function renderReport(report: AnalysisReport, command: AnalyzeCommand): s
 Audit:
   ${report.run.auditedCandidateCount} candidates inspected
   ${report.result.findings.length} findings
+${renderAuditStats(report)}
 ${renderWarnings(report)}
 Findings:
 ${renderFindings(report)}
 Timing:
-  total_ms=${report.run.timingsMs.total} sem_ms=${report.run.timingsMs.diff} model_ms=${report.run.timingsMs.modelLoad} search_ms=${report.run.timingsMs.search} audit_ms=${report.run.timingsMs.audit}`;
+  total_ms=${report.run.timingsMs.total} entity_diff_ms=${report.run.timingsMs.diff} model_ms=${report.run.timingsMs.modelLoad} scout_ms=${report.run.timingsMs.search} context_audit_ms=${report.run.timingsMs.audit}`;
   }
 
   return `Search:
@@ -58,6 +59,8 @@ Options:
   --engine <engine>     raw-diff or sem. Default: raw-diff.
   --debug-sem           Print sem commands and stderr.
   --max-candidates <n>  Max semantic candidates for --engine sem. Default: 25.
+  --audit-batch-size <n>
+                         Semantic candidates per audit model call. Default: 25.
   --checks <ids>        Comma-separated check ids.
   --model <id>          gemma-4-e2b, gemma-4-e4b, gemma-4-26b-a4b, qwen3-4b-magicquant, qwen2.5-coder-1.5b, qwen2.5-coder-7b, or qwen2.5-coder-32b.
   --json                Print JSON only.
@@ -85,4 +88,10 @@ function renderWarnings(report: AnalysisReport): string {
   return `Warnings:
 ${report.run.warnings.map((warning) => `  ${warning}`).join("\n")}
 `;
+}
+
+function renderAuditStats(report: AnalysisReport): string {
+  const stats = report.run.auditStats;
+  if (!stats) return "";
+  return `  ${stats.totalTargets} targets reviewed: ${stats.finding} finding, ${stats.uncertain} uncertain, ${stats.clean} clean, ${stats.invalid} invalid`;
 }

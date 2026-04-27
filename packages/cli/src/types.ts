@@ -22,6 +22,7 @@ type AnalyzeOptions = Readonly<{
   engine: Engine;
   debugSem: boolean;
   maxCandidates: number;
+  auditBatchSize: number;
 }>;
 
 export type Command =
@@ -61,6 +62,18 @@ export type Finding = Readonly<{
 export type FindingsResult = Readonly<{
   findings: readonly Finding[];
   summary?: string;
+}>;
+
+export type AuditReviewStats = Readonly<{
+  totalTargets: number;
+  finding: number;
+  clean: number;
+  uncertain: number;
+  invalid: number;
+}>;
+
+export type AuditReviewResult = FindingsResult & Readonly<{
+  stats: AuditReviewStats;
 }>;
 
 export type NetDiffStats = Readonly<{
@@ -145,8 +158,19 @@ export type SemCandidate = Readonly<{
 }>;
 
 export type SemContext = Readonly<{
+  candidateId: string;
   entityId: string;
   entityName: string;
+  checkIds: readonly CheckId[];
+  filePath?: string;
+  text: string;
+}>;
+
+export type SemContextPack = Readonly<{
+  provider: "repomix";
+  filePaths: readonly string[];
+  totalCharacters: number;
+  totalTokens: number;
   text: string;
 }>;
 
@@ -172,10 +196,11 @@ export type AnalysisRun = Readonly<{
     total: number;
   }>;
   warnings: readonly string[];
-  semTrace?: readonly SemTraceEvent[];
+  auditStats?: AuditReviewStats;
+  traceEvents?: readonly TraceEvent[];
 }>;
 
-export type SemTraceEvent = Readonly<{
+export type TraceEvent = Readonly<{
   name: string;
   ms: number;
   count?: number;

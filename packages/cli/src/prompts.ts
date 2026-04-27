@@ -1,4 +1,4 @@
-import type { CandidateContext, DiffBatch, SemChangeSet, SemContext, StupifyCheck } from "./types.ts";
+import type { CandidateContext, DiffBatch, SemChangeSet, SemContext, SemContextPack, StupifyCheck } from "./types.ts";
 
 export function scoutPrompt(batch: DiffBatch, checks: readonly StupifyCheck[], sourceLabel: string): string {
   return `Pick diff hunks that match enabled checks.
@@ -81,35 +81,59 @@ ${changeSet.changes.map(formatSemChange).join("\n\n")}`;
 
 export function semAuditPrompt(
   contexts: readonly SemContext[],
+  pack: SemContextPack,
   checks: readonly StupifyCheck[],
   sourceLabel: string,
 ): string {
-  return `Audit candidate entity contexts against enabled checks.
+  return `You are Stupify's auditor.
+Audit candidate entities against enabled checks.
 Return JSON only:
 {
-  "findings": [{ "checkId": "check_id", "why": "one sentence", "proof": "exact entityId" }],
-  "summary": "one short sentence"
+  "findings": [
+    {
+      "candidateId": "string",
+      "checkId": "check_id",
+      "why": "one sentence",
+      "proof": "short pointer"
+    }
+  ],
+  "uncertain": [
+    {
+      "candidateId": "string",
+      "checkId": "check_id",
+      "why": "one sentence"
+    }
+  ]
 }
 
 Rules:
-- Use only checks listed below.
-- checkId must be a check ID, never an entityId.
-- proof must be one exact entityId from candidate contexts.
-- why describes the suspicious structure, not an identifier.
-- Do not describe an issue in summary unless it is also in findings.
-- Return every clear finding in the provided candidates.
-- If no findings, return { "findings": [], "summary": "No clear judgment-offload signal found." }.
+- Inspect every candidate/check target.
+- Emit a finding only when the candidate clearly matches the check.
+- Emit uncertain only when the candidate may match, but evidence is insufficient.
+- If a target is clean, emit nothing for it.
+- Omitted target means clean.
+- Do not output clean reviews.
+- Do not explain clean targets.
+- Do not write "no evidence" as a finding.
+- Do not put negative statements in findings.
+- Prefer omission over weak findings.
+- Use only provided candidateIds and checkIds.
+- Do not quote source code.
+- Use packed file context only as supporting evidence for these candidate entities.
 
-Allowed proof entity IDs:
-${contexts.map((context) => `- ${context.entityId}`).join("\n")}
+Candidate/check targets:
+${contexts.map(formatAuditTarget).join("\n")}
 
 ${formatFullChecks(checks)}
 
 SOURCE:
 ${sourceLabel}
 
-CANDIDATE ENTITY CONTEXTS:
-${contexts.map(formatSemContext).join("\n\n")}`;
+CANDIDATE ENTITY DELTAS:
+${contexts.map(formatSemContext).join("\n\n")}
+
+PACKED FILE CONTEXT (${pack.provider}, ${pack.filePaths.length} files, ${pack.totalTokens} tokens):
+${pack.text || "(none)"}`;
 }
 
 function formatCompactChecks(checks: readonly StupifyCheck[]): string {
@@ -148,10 +172,18 @@ PATH ${change.filePath}`;
 }
 
 function formatSemContext(context: SemContext): string {
-  return `ENTITY ${context.entityId}
+  return `CANDIDATE ${context.candidateId}
+ENTITY ${context.entityId}
 NAME ${context.entityName}
+CHECKS ${context.checkIds.join(", ")}
 CONTEXT:
 ${context.text}`;
+}
+
+function formatAuditTarget(context: SemContext): string {
+  return context.checkIds
+    .map((checkId) => `- candidateId=${context.candidateId} checkId=${checkId} entityId=${context.entityId}`)
+    .join("\n");
 }
 
 function shortenCode(value: string | null): string {

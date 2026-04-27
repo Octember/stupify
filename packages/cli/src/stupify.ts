@@ -20,22 +20,23 @@ import {
   netDiffSince,
 } from "./git.ts";
 import { firstRunModelBootstrap, loadLocalModel, type LocalModel } from "./model.ts";
+import { entityContextsFromChanges, repomixContextPack } from "./repomix-provider.ts";
 import { helpText, renderReport } from "./render.ts";
-import { semChangeSetForCommand, semContexts } from "./sem-provider.ts";
+import { semChangeSetForCommand } from "./sem-provider.ts";
 import { trace } from "./trace.ts";
 import type {
   AnalysisReport,
   AnalyzeCommand,
+  AuditReviewStats,
   FindingsResult,
   NetDiff,
   SemCandidate,
   SemChangeSet,
   SemContext,
-  SemTraceEvent,
+  TraceEvent,
 } from "./types.ts";
 
 const SEM_SCOUT_CHUNK_SIZE = 200;
-const SEM_AUDIT_CHUNK_SIZE = 5;
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
@@ -144,15 +145,15 @@ async function runSemEngine(
   startedAt: number,
 ): Promise<AnalysisReport> {
   const diffStartedAt = Date.now();
-  const changeSet = await trace.trace("sem.diff", () => semChangeSetForCommand(command));
+  const changeSet = await trace.trace("entity.diff", () => semChangeSetForCommand(command));
   const diffMs = Date.now() - diffStartedAt;
-  const semTrace: SemTraceEvent[] = [{
-    name: "sem.diff",
+  const traceEvents: TraceEvent[] = [{
+    name: "entity.diff",
     ms: diffMs,
     count: changeSet.summary.total,
     detail: `${changeSet.summary.fileCount} files`,
   }];
-  debugSemTrace(command, semTrace[0]);
+  debugSemTrace(command, traceEvents[0]);
 
   printSemRunPlan(
     command,
@@ -165,59 +166,55 @@ async function runSemEngine(
   const scoutModel = await loadLocalModel(modelPath, command.model, "scout");
   const auditModel = await loadLocalModel(modelPath, command.model, "audit");
   const modelMs = Date.now() - modelStartedAt;
-  semTrace.push({
+  traceEvents.push({
     name: "model.load",
     ms: modelMs,
     count: 2,
     detail: "scout+audit",
   });
-  debugSemTrace(command, semTrace[semTrace.length - 1]);
+  debugSemTrace(command, traceEvents[traceEvents.length - 1]);
 
   try {
     const searchStartedAt = Date.now();
     const candidateBatches = chunkSemChangeSet(changeSet);
     const candidates = candidateBatches.length === 0
       ? []
-      : await scoutSemBatches(scoutModel, candidateBatches, checks, command, semTrace);
+      : await scoutSemBatches(scoutModel, candidateBatches, checks, command, traceEvents);
     const searchMs = Date.now() - searchStartedAt;
-    semTrace.push({
-      name: "sem.scout.total",
+    traceEvents.push({
+      name: "scout.total",
       ms: searchMs,
       count: candidates.length,
       detail: `${candidateBatches.length} batches`,
     });
-    debugSemTrace(command, semTrace[semTrace.length - 1]);
+    debugSemTrace(command, traceEvents[traceEvents.length - 1]);
 
     const contextStartedAt = Date.now();
     const contexts = await trace.trace(
-      "sem.context",
-      () => semContexts(
-        changeSet.contextCwd,
-        candidates.map((candidate) => candidate.entityId),
-        changeSet.changes,
-        command.debugSem,
-      ),
+      "candidate.context.select",
+      () => Promise.resolve(entityContextsFromChanges(candidates, changeSet.changes)),
       { candidates: candidates.length },
     );
     const contextMs = Date.now() - contextStartedAt;
-    semTrace.push({
-      name: "sem.context.total",
+    traceEvents.push({
+      name: "context.select",
       ms: contextMs,
       count: contexts.length,
+      detail: `${new Set(contexts.map((context) => context.filePath).filter(Boolean)).size} files`,
     });
-    debugSemTrace(command, semTrace[semTrace.length - 1]);
+    debugSemTrace(command, traceEvents[traceEvents.length - 1]);
 
     const auditStartedAt = Date.now();
-    const auditBatches = chunkSemContexts(contexts);
-    const result = await auditSemContextBatches(auditModel, changeSet, auditBatches, checks, semTrace, command);
+    const auditBatches = chunkSemContexts(contexts, command.auditBatchSize);
+    const result = await auditSemContextBatches(auditModel, changeSet, auditBatches, checks, traceEvents, command);
     const auditMs = Date.now() - auditStartedAt;
-    semTrace.push({
-      name: "sem.audit.total",
+    traceEvents.push({
+      name: "audit.total",
       ms: auditMs,
       count: result.findings.length,
-      detail: `${auditBatches.length} batches`,
+      detail: `${auditBatches.length} batches targets=${result.stats.totalTargets} clean=${result.stats.clean} uncertain=${result.stats.uncertain} invalid=${result.stats.invalid}`,
     });
-    debugSemTrace(command, semTrace[semTrace.length - 1]);
+    debugSemTrace(command, traceEvents[traceEvents.length - 1]);
 
     return {
       run: {
@@ -236,7 +233,7 @@ async function runSemEngine(
         entitiesScanned: changeSet.summary.total,
         candidateCount: candidates.length,
         auditedCandidateCount: contexts.length,
-        scoutModelCalls: candidateBatches.length,
+        scoutModelCalls: traceEvents.filter((event) => event.name === "scout.batch").length,
         auditModelCalls: auditBatches.length,
         timingsMs: {
           diff: diffMs,
@@ -246,7 +243,8 @@ async function runSemEngine(
           total: Date.now() - startedAt,
         },
         warnings: [],
-        semTrace,
+        auditStats: result.stats,
+        traceEvents,
       },
       result,
     };
@@ -260,34 +258,56 @@ async function auditSemContextBatches(
   changeSet: SemChangeSet,
   batches: readonly (readonly SemContext[])[],
   checks: ReturnType<typeof enabledChecks>,
-  semTrace: SemTraceEvent[],
+  traceEvents: TraceEvent[],
   command: AnalyzeCommand,
-): Promise<FindingsResult> {
+): Promise<FindingsResult & { stats: AuditReviewStats }> {
   const findings = [];
   const summaries = [];
+  const stats = { totalTargets: 0, finding: 0, clean: 0, uncertain: 0, invalid: 0 };
   for (const [index, batch] of batches.entries()) {
+    const contextStartedAt = Date.now();
+    const pack = await trace.trace(
+      "candidate.context.pack",
+      () => repomixContextPack(changeSet.contextCwd, batch, changeSet.changes),
+      { candidates: batch.length },
+    );
+    const contextEvent = {
+      name: "context.pack",
+      ms: Date.now() - contextStartedAt,
+      count: pack.filePaths.length,
+      detail: `batch=${index + 1}/${batches.length} tokens=${pack.totalTokens} chars=${pack.totalCharacters}`,
+    };
+    traceEvents.push(contextEvent);
+    debugSemTrace(command, contextEvent);
+
     const startedAt = Date.now();
     const result = await trace.trace(
-      "audit.sem",
-      () => auditSemContexts(model, changeSet, batch, checks),
+      "candidate.audit",
+      () => auditSemContexts(model, changeSet, batch, pack, checks),
       { candidates: batch.length },
     );
     const event = {
-      name: "sem.audit.batch",
+      name: "audit.batch",
       ms: Date.now() - startedAt,
       count: result.findings.length,
-      detail: `batch=${index + 1}/${batches.length} candidates=${batch.length}`,
+      detail: `batch=${index + 1}/${batches.length} candidates=${batch.length} targets=${result.stats.totalTargets} clean=${result.stats.clean} uncertain=${result.stats.uncertain} invalid=${result.stats.invalid}`,
     };
-    semTrace.push(event);
+    traceEvents.push(event);
     debugSemTrace(command, event);
     findings.push(...result.findings);
     if (result.summary) summaries.push(result.summary);
+    stats.totalTargets += result.stats.totalTargets;
+    stats.finding += result.stats.finding;
+    stats.clean += result.stats.clean;
+    stats.uncertain += result.stats.uncertain;
+    stats.invalid += result.stats.invalid;
   }
   return {
     findings,
     summary: findings.length === 0
       ? "No clear judgment-offload signal found."
       : summaries.join(" "),
+    stats,
   };
 }
 
@@ -296,7 +316,7 @@ async function scoutSemBatches(
   batches: readonly SemChangeSet[],
   checks: ReturnType<typeof enabledChecks>,
   command: AnalyzeCommand,
-  semTrace: SemTraceEvent[],
+  traceEvents: TraceEvent[],
 ): Promise<readonly SemCandidate[]> {
   const candidates: SemCandidate[] = [];
   const seen = new Set<string>();
@@ -305,17 +325,17 @@ async function scoutSemBatches(
     const remaining: number = command.maxCandidates - candidates.length;
     const startedAt = Date.now();
     const batchCandidates: readonly SemCandidate[] = await trace.trace(
-      "search.sem",
+      "candidate.scout",
       () => scoutSemChanges(model, batch, checks, remaining),
       { entities: batch.changes.length },
     );
     const event = {
-      name: "sem.scout.batch",
+      name: "scout.batch",
       ms: Date.now() - startedAt,
       count: batchCandidates.length,
       detail: `batch=${index + 1}/${batches.length} entities=${batch.changes.length} remaining=${remaining}`,
     };
-    semTrace.push(event);
+    traceEvents.push(event);
     debugSemTrace(command, event);
     for (const candidate of batchCandidates) {
       if (seen.has(candidate.entityId)) continue;
@@ -327,7 +347,7 @@ async function scoutSemBatches(
   return candidates;
 }
 
-function debugSemTrace(command: AnalyzeCommand, event: SemTraceEvent): void {
+function debugSemTrace(command: AnalyzeCommand, event: TraceEvent): void {
   if (!command.debugSem) return;
   const parts = [`trace ${event.name}`, `${event.ms}ms`];
   if (event.count !== undefined) parts.push(`count=${event.count}`);
@@ -353,10 +373,13 @@ function chunkSemChangeSet(changeSet: SemChangeSet): readonly SemChangeSet[] {
   return chunks;
 }
 
-function chunkSemContexts(contexts: readonly SemContext[]): readonly (readonly SemContext[])[] {
+function chunkSemContexts(
+  contexts: readonly SemContext[],
+  auditBatchSize: number,
+): readonly (readonly SemContext[])[] {
   const chunks: SemContext[][] = [];
-  for (let index = 0; index < contexts.length; index += SEM_AUDIT_CHUNK_SIZE) {
-    chunks.push(contexts.slice(index, index + SEM_AUDIT_CHUNK_SIZE));
+  for (let index = 0; index < contexts.length; index += auditBatchSize) {
+    chunks.push(contexts.slice(index, index + auditBatchSize));
   }
   return chunks;
 }
@@ -385,7 +408,7 @@ function printSemRunPlan(
   console.error("🧙 stupify 🪄");
   console.error(`Window: ${changeSet.label}`);
   console.error(
-    `Sem: ${changeSet.summary.fileCount} files, ${changeSet.summary.total} changed entities`,
+    `Entities: ${changeSet.summary.fileCount} files, ${changeSet.summary.total} changed entities`,
   );
   console.error(`Model: ${MODEL_REGISTRY[command.model].name}`);
   console.error(`Checks: ${checkIds.join(", ")}`);

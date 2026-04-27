@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { cachedJson, fingerprint } from "./cache.ts";
 import { readDiffFromStdin } from "./diff.ts";
 import {
   sourceRangeForCommit,
@@ -15,13 +16,11 @@ import type {
   SemChange,
   SemChangeSet,
   SemChangeSummary,
-  SemContext,
   SourceRange,
 } from "./types.ts";
 import { sourceId } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
-const CONTEXT_BUDGET = 4_000;
 
 export async function semChangeSetForCommand(
   command: AnalyzeCommand,
@@ -29,44 +28,21 @@ export async function semChangeSetForCommand(
   if (command.kind === "stdin") return semChangeSetFromPatch(await readDiffFromStdin(), command.debugSem);
   if (command.kind === "commit") {
     const range = await sourceRangeForCommit(command.commit);
-    const raw = await runSem(["diff", "--commit", command.commit, "--format", "json"], command.debugSem);
+    const raw = await cachedSemDiff(
+      ["diff", "--commit", command.commit, "--format", "json"],
+      range,
+      command.debugSem,
+    );
     return withContextWorkspace(normalizeSemDiff(raw, range), command.debugSem);
   }
 
   const range = await semRangeForCommand(command);
-  const raw = await runSem(["diff", "--from", range.base, "--to", range.target, "--format", "json"], command.debugSem);
+  const raw = await cachedSemDiff(
+    ["diff", "--from", range.base, "--to", range.target, "--format", "json"],
+    range,
+    command.debugSem,
+  );
   return withContextWorkspace(normalizeSemDiff(raw, range), command.debugSem);
-}
-
-export async function semContexts(
-  cwd: string,
-  entityIds: readonly string[],
-  changes: readonly SemChange[],
-  debugSem: boolean,
-): Promise<readonly SemContext[]> {
-  const uniqueEntityIds = [...new Set(entityIds)];
-  const byEntityId = new Map(changes.map((change) => [change.entityId, change]));
-  const contexts: SemContext[] = [];
-  for (const entityId of uniqueEntityIds) {
-    const startedAt = Date.now();
-    try {
-      const raw = await runSem([
-        "context",
-        "--entity-id",
-        entityId,
-        "--budget",
-        String(CONTEXT_BUDGET),
-        "--json",
-      ], debugSem, cwd);
-      contexts.push(normalizeSemContext(raw, entityId));
-      if (debugSem) console.error(`trace sem.context.entity ${Date.now() - startedAt}ms entity=${entityId}`);
-    } catch {
-      const change = byEntityId.get(entityId);
-      if (change) contexts.push(contextFromChange(change));
-      if (debugSem) console.error(`trace sem.context.entity.fallback ${Date.now() - startedAt}ms entity=${entityId}`);
-    }
-  }
-  return contexts;
 }
 
 async function semRangeForCommand(command: AnalyzeCommand): Promise<SourceRange> {
@@ -78,7 +54,17 @@ async function semRangeForCommand(command: AnalyzeCommand): Promise<SourceRange>
 
 async function semChangeSetFromPatch(patch: string, debugSem: boolean): Promise<SemChangeSet> {
   if (!patch.trim()) throw new Error("No diff received on stdin.");
-  const raw = await runSemWithInput(["diff", "--patch", "--format", "json"], patch, debugSem);
+  const raw = await cachedJson(
+    "sem-diff",
+    fingerprint({
+      version: 1,
+      cwd: process.cwd(),
+      command: ["diff", "--patch", "--format", "json"],
+      patchHash: fingerprint(patch),
+    }),
+    () => runSemWithInput(["diff", "--patch", "--format", "json"], patch, debugSem),
+    debugSem,
+  );
   return {
     ...normalizeSemDiff(raw, {
     id: sourceId("stdin"),
@@ -90,6 +76,25 @@ async function semChangeSetFromPatch(patch: string, debugSem: boolean): Promise<
     contextCwd: process.cwd(),
     cleanup: async () => undefined,
   };
+}
+
+async function cachedSemDiff(
+  args: readonly string[],
+  range: SourceRange,
+  debugSem: boolean,
+): Promise<unknown> {
+  return cachedJson(
+    "sem-diff",
+    fingerprint({
+      version: 1,
+      cwd: process.cwd(),
+      args,
+      base: range.base,
+      target: range.target,
+    }),
+    () => runSem(args, debugSem),
+    debugSem,
+  );
 }
 
 async function withContextWorkspace(changeSet: SemChangeSet, debugSem: boolean): Promise<SemChangeSet> {
@@ -232,38 +237,6 @@ function normalizeSemSummary(value: unknown, changes: readonly SemChange[]): Sem
     renamed: numberValue(record.renamed) ?? countByChange(changes, "renamed"),
     fileCount: numberValue(record.fileCount) ?? new Set(changes.map((change) => change.filePath)).size,
     total: numberValue(record.total) ?? changes.length,
-  };
-}
-
-function normalizeSemContext(value: unknown, entityId: string): SemContext {
-  if (!value || typeof value !== "object") throw new Error(`sem returned invalid context JSON for ${entityId}.`);
-  const record = value as Record<string, unknown>;
-  const entries = Array.isArray(record.entries) ? record.entries : [];
-  return {
-    entityId: stringValue(record.entityId) || entityId,
-    entityName: stringValue(record.entity) || entityId,
-    text: JSON.stringify({
-      budget: numberValue(record.budget),
-      totalTokens: numberValue(record.total_tokens),
-      entries,
-    }, null, 2),
-  };
-}
-
-function contextFromChange(change: SemChange): SemContext {
-  return {
-    entityId: change.entityId,
-    entityName: change.entityName,
-    text: JSON.stringify({
-      fallback: "sem context could not resolve entity; using sem diff content",
-      entries: [{
-        role: "target",
-        file: change.filePath,
-        type: change.entityType,
-        name: change.entityName,
-        content: change.afterContent ?? change.beforeContent ?? "",
-      }],
-    }, null, 2),
   };
 }
 
