@@ -27,7 +27,7 @@ import { loadLocalModels, type LocalModel } from "./model.ts";
 import { emptyContextPack, entityContextsFromChanges, repomixContextPack } from "./repomix-provider.ts";
 import { helpText, renderReport } from "./render.ts";
 import { semChangeSetForCommand } from "./sem-provider.ts";
-import { trace } from "./trace.ts";
+import { createTracer, trace } from "./trace.ts";
 import type {
   AnalysisReport,
   AnalyzeCommand,
@@ -43,7 +43,6 @@ import type {
 } from "./types.ts";
 
 const SEM_SCOUT_CHUNK_SIZE = 200;
-
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
@@ -103,7 +102,7 @@ async function runRawDiffEngine(
         const { value: candidates } = await trace.trace(
           "search.batch",
           () => scoutBatch(scoutModel, batch, checks, diff.label),
-          { batch: batch.id },
+          { fields: { batch: batch.id } },
         );
         pointers.push(...candidates);
       }
@@ -116,7 +115,7 @@ async function runRawDiffEngine(
   const { value: result, ms: auditMs } = await trace.trace(
     "audit.candidates",
     () => auditCandidates(auditModel, diff, auditedContexts, checks),
-    { candidates: auditedContexts.length },
+    { fields: { candidates: auditedContexts.length } },
   );
 
   return {
@@ -136,6 +135,7 @@ async function runRawDiffEngine(
       auditedCandidateCount: auditedContexts.length,
       scoutModelCalls: batches.length,
       auditModelCalls: auditedContexts.length > 0 ? 1 : 0,
+      warnings: [],
       timingsMs: {
         diff: diffMs,
         modelLoad: modelMs,
@@ -143,7 +143,6 @@ async function runRawDiffEngine(
         audit: auditMs,
         total: Date.now() - startedAt,
       },
-      warnings: [],
       debugTargets: command.debugTargets ? [] : undefined,
     },
     result,
@@ -155,18 +154,22 @@ async function runSemEngine(
   checks: ReturnType<typeof enabledChecks>,
   startedAt: number,
 ): Promise<AnalysisReport> {
-  const { value: changeSet, ms: diffMs } = await trace.trace("entity.diff", () =>
-    semChangeSetForCommand(command),
-  );
-  const traceEvents: TraceEvent[] = [
-    {
-      name: "entity.diff",
-      ms: diffMs,
-      count: changeSet.summary.total,
-      detail: `${changeSet.summary.fileCount} files`,
+  const traceEvents: TraceEvent[] = [];
+  const t = createTracer({
+    onEvent: (event) => {
+      traceEvents.push(event);
+      debugSemTrace(command, event);
     },
-  ];
-  debugSemTrace(command, traceEvents[0]);
+  });
+
+  const { value: changeSet, ms: diffMs } = await t.trace(
+    "entity.diff",
+    () => semChangeSetForCommand(command),
+    {
+      count: (v) => v.summary.total,
+      detail: (v) => `${v.summary.fileCount} files`,
+    },
+  );
 
   printSemRunPlan(
     command,
@@ -174,22 +177,19 @@ async function runSemEngine(
     checks.map((check) => check.id),
   );
 
-  const { value: models, ms: modelMs } = await trace.trace(
+  const { value: models, ms: modelMs } = await t.trace(
     "model.load",
     () => loadLocalModels(command.model),
+    {
+      count: () => 2,
+      detail: () => "scout+audit",
+    },
   );
   const { scoutModel, auditModel } = models;
-  traceEvents.push({
-    name: "model.load",
-    ms: modelMs,
-    count: 2,
-    detail: "scout+audit",
-  });
-  debugSemTrace(command, traceEvents[traceEvents.length - 1]);
 
   try {
     const candidateBatches = chunkSemChangeSet(changeSet);
-    const { value: candidates, ms: searchMs } = await trace.trace(
+    const { value: candidates, ms: searchMs } = await t.trace(
       "scout.total",
       async () =>
         candidateBatches.length === 0
@@ -202,31 +202,26 @@ async function runSemEngine(
                 checks,
                 command,
                 traceEvents,
+                t,
               ),
+      {
+        count: (v) => v.length,
+        detail: () => `${command.scout} scout ${candidateBatches.length} batches`,
+      },
     );
-    traceEvents.push({
-      name: "scout.total",
-      ms: searchMs,
-      count: candidates.length,
-      detail: `${command.scout} scout ${candidateBatches.length} batches`,
-    });
-    debugSemTrace(command, traceEvents[traceEvents.length - 1]);
 
-    const { value: contexts, ms: contextMs } = await trace.trace(
+    const { value: contexts, ms: contextMs } = await t.trace(
       "context.select",
-      () => entityContextsFromChanges(candidates, changeSet.changes),
-      { candidates: candidates.length },
+      async () => entityContextsFromChanges(candidates, changeSet.changes),
+      {
+        fields: { candidates: candidates.length },
+        count: (v) => v.length,
+        detail: (v) => `${new Set(v.map((context) => context.filePath).filter(Boolean)).size} files`,
+      },
     );
-    traceEvents.push({
-      name: "context.select",
-      ms: contextMs,
-      count: contexts.length,
-      detail: `${new Set(contexts.map((context) => context.filePath).filter(Boolean)).size} files`,
-    });
-    debugSemTrace(command, traceEvents[traceEvents.length - 1]);
 
     const auditBatches = chunkSemContexts(contexts, command.auditBatchSize);
-    const { value: result, ms: auditMs } = await trace.trace(
+    const { value: result, ms: auditMs } = await t.trace(
       "audit.total",
       () =>
         findingsAuditBatches(
@@ -235,16 +230,15 @@ async function runSemEngine(
           auditBatches,
           checks,
           traceEvents,
+          t,
           command,
         ),
+      {
+        count: (v) => v.findings.length,
+        detail: (v) =>
+          `${auditBatches.length} batches targets=${v.stats.totalTargets} clean=${v.stats.clean} uncertain=${v.stats.uncertain} invalid=${v.stats.invalid}`,
+      },
     );
-    traceEvents.push({
-      name: "audit.total",
-      ms: auditMs,
-      count: result.findings.length,
-      detail: `${result.auditModelCalls} calls targets=${result.stats.totalTargets} clean=${result.stats.clean} uncertain=${result.stats.uncertain} invalid=${result.stats.invalid}`,
-    });
-    debugSemTrace(command, traceEvents[traceEvents.length - 1]);
 
     return {
       run: {
@@ -293,6 +287,7 @@ async function findingsAuditBatches(
   batches: readonly (readonly SemContext[])[],
   checks: ReturnType<typeof enabledChecks>,
   traceEvents: TraceEvent[],
+  t: ReturnType<typeof createTracer>,
   command: AnalyzeCommand,
 ): Promise<FindingsResult & { stats: AuditReviewStats; auditModelCalls: number }> {
   const findings = [];
@@ -343,7 +338,7 @@ async function findingsAuditBatch(
       command.auditContext === "none"
         ? Promise.resolve(emptyContextPack())
         : repomixContextPack(changeSet.contextCwd, batch, changeSet.changes),
-    { candidates: batch.length },
+    { fields: { candidates: batch.length } },
   );
   const request = findingsAuditRequest(changeSet, batch, pack, checks, command.auditPrompt);
   const inputTokens = await countPromptTokens(model, request.prompt);
@@ -397,7 +392,7 @@ async function findingsAuditBatch(
   const { value: result, ms: auditMs } = await trace.trace(
     "audit.batch",
     () => limiter.run(() => runFindingsAudit(model, changeSet, batch, pack, checks, request)),
-    { candidates: batch.length },
+    { fields: { candidates: batch.length } },
   );
   const event = {
     name: "audit.batch",
@@ -480,6 +475,7 @@ async function scoutSemBatches(
   checks: ReturnType<typeof enabledChecks>,
   command: AnalyzeCommand,
   traceEvents: TraceEvent[],
+  t: ReturnType<typeof createTracer>,
 ): Promise<readonly SemCandidate[]> {
   const candidates: SemCandidate[] = [];
   const seen = new Set<string>();
@@ -487,20 +483,17 @@ async function scoutSemBatches(
   const maxTargetsPerCheck = 6;
   for (const [index, batch] of batches.entries()) {
     if (candidates.length >= command.maxCandidates) break;
-    const remaining = command.maxCandidates - candidates.length;
-    const { value: batchCandidates, ms } = await trace.trace(
+    const remaining: number = command.maxCandidates - candidates.length;
+    const { value: batchCandidates } = await t.trace(
       "scout.batch",
-      () => scoutSemChanges(model, batch, checks, remaining),
-      { entities: batch.changes.length },
+      async () => scoutSemChanges(model, batch, checks, remaining),
+      {
+        fields: { entities: batch.changes.length },
+        count: (v) => v.length,
+        detail: (v) =>
+          `batch=${index + 1}/${batches.length} entities=${batch.changes.length} remaining=${remaining}`,
+      },
     );
-    const event = {
-      name: "scout.batch",
-      ms,
-      count: batchCandidates.length,
-      detail: `batch=${index + 1}/${batches.length} entities=${batch.changes.length} remaining=${remaining}`,
-    };
-    traceEvents.push(event);
-    debugSemTrace(command, event);
     for (const candidate of batchCandidates) {
       const key = `${candidate.entityId}\u0000${candidate.checkId}`;
       if (seen.has(key)) continue;
@@ -553,11 +546,11 @@ function chunkSemChangeSet(changeSet: SemChangeSet): readonly SemChangeSet[] {
 
 function chunkSemContexts(
   contexts: readonly SemContext[],
-  auditBatchSize: number,
+  chunkSize: number,
 ): readonly (readonly SemContext[])[] {
   const chunks: SemContext[][] = [];
-  for (let index = 0; index < contexts.length; index += auditBatchSize) {
-    chunks.push(contexts.slice(index, index + auditBatchSize));
+  for (let index = 0; index < contexts.length; index += chunkSize) {
+    chunks.push(contexts.slice(index, index + chunkSize));
   }
   return chunks;
 }
@@ -586,7 +579,7 @@ function printSemRunPlan(
   console.error("🧙 stupify 🪄");
   console.error(`Window: ${changeSet.label}`);
   console.error(
-    `Entities: ${changeSet.summary.fileCount} files, ${changeSet.summary.total} changed entities`,
+    `Sem: ${changeSet.summary.fileCount} files, ${changeSet.summary.total} changed entities`,
   );
   console.error(`Model: ${MODEL_REGISTRY[command.model].name}`);
   console.error(`Checks: ${checkIds.join(", ")}`);

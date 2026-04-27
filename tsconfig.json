@@ -1,8 +1,10 @@
 {
   "include": [
-    "**/*",
-    "**/.server/**/*",
-    "**/.client/**/*",
+    "app/**/*",
+    "workers/**/*",
+    "vite.config.ts",
+    "react-router.config.ts",
+    "worker-configuration.d.ts",
     ".react-router/types/**/*"
   ],
   "compilerOptions": {
