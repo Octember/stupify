@@ -64,46 +64,70 @@ export function allHunks(batches: readonly DiffBatch[]): readonly DiffHunk[] {
 }
 
 function parseHunks(diff: string): readonly ParsedHunk[] {
-  const hunks: ParsedHunk[] = [];
-  const lines = diff.split(/\r?\n/);
-  let filePath = "unknown";
-  let fileIndex = 0;
-  let hunkIndex = 0;
-  let fileHeader: string[] = [];
-  let hunkLines: string[] | null = null;
+  type ParseState = Readonly<{
+    hunks: readonly ParsedHunk[];
+    filePath: string;
+    fileIndex: number;
+    hunkIndex: number;
+    fileHeader: readonly string[];
+    hunkLines: readonly string[] | null;
+  }>;
 
-  for (const line of lines) {
+  const lines = diff.split(/\r?\n/);
+
+  const initialState: ParseState = {
+    hunks: [],
+    filePath: "unknown",
+    fileIndex: 0,
+    hunkIndex: 0,
+    fileHeader: [],
+    hunkLines: null,
+  };
+
+  const finalState = lines.reduce<ParseState>((state, line) => {
     const fileMatch = /^diff --git a\/.+ b\/(.+)$/.exec(line);
     if (fileMatch) {
-      flushHunk();
-      fileIndex += 1;
-      hunkIndex = 0;
-      filePath = fileMatch[1];
-      fileHeader = [line];
-      continue;
+      const flushed = flush(state);
+      return {
+        ...flushed,
+        fileIndex: flushed.fileIndex + 1,
+        hunkIndex: 0,
+        filePath: fileMatch[1],
+        fileHeader: [line],
+        hunkLines: null,
+      };
     }
 
     if (line.startsWith("@@ ")) {
-      flushHunk();
-      hunkIndex += 1;
-      hunkLines = [...fileHeader, line];
-      continue;
+      const flushed = flush(state);
+      return {
+        ...flushed,
+        hunkIndex: flushed.hunkIndex + 1,
+        hunkLines: [...flushed.fileHeader, line],
+      };
     }
 
-    if (hunkLines) hunkLines.push(line);
-    else if (fileHeader.length > 0) fileHeader.push(line);
-  }
+    if (state.hunkLines) return { ...state, hunkLines: [...state.hunkLines, line] };
+    if (state.fileHeader.length > 0) return { ...state, fileHeader: [...state.fileHeader, line] };
+    return state;
+  }, initialState);
 
-  flushHunk();
-  return hunks;
+  return flush(finalState).hunks;
 
-  function flushHunk(): void {
-    if (!hunkLines) return;
-    const fileId = `file-${pad(fileIndex)}`;
-    const hunkId = `hunk-${pad(hunkIndex)}`;
-    const text = hunkLines.join("\n").trimEnd();
-    hunks.push({ fileId, hunkId, filePath, text, lineCount: countLines(text) });
-    hunkLines = null;
+  function flush(state: ParseState): ParseState {
+    if (!state.hunkLines) return state;
+    const fileId = `file-${pad(state.fileIndex)}`;
+    const hunkId = `hunk-${pad(state.hunkIndex)}`;
+    const text = state.hunkLines.join("\n").trimEnd();
+    const nextHunk: ParsedHunk = {
+      fileId,
+      hunkId,
+      filePath: state.filePath,
+      text,
+      lineCount: countLines(text),
+    };
+
+    return { ...state, hunks: [...state.hunks, nextHunk], hunkLines: null };
   }
 }
 
@@ -113,17 +137,17 @@ function splitLargeHunk(
 ): readonly ParsedHunk[] {
   if (hunk.lineCount <= linesPerBatch) return [hunk];
   const lines = hunk.text.split(/\r?\n/);
-  const chunks: ParsedHunk[] = [];
-  for (let index = 0; index < lines.length; index += linesPerBatch) {
-    const text = lines.slice(index, index + linesPerBatch).join("\n");
-    chunks.push({
+  const chunkCount = Math.ceil(lines.length / linesPerBatch);
+  return Array.from({ length: chunkCount }, (_, chunkIndex) => {
+    const start = chunkIndex * linesPerBatch;
+    const text = lines.slice(start, start + linesPerBatch).join("\n");
+    return {
       ...hunk,
-      hunkId: `${hunk.hunkId}-part-${pad(chunks.length + 1)}`,
+      hunkId: `${hunk.hunkId}-part-${pad(chunkIndex + 1)}`,
       text,
       lineCount: countLines(text),
-    });
-  }
-  return chunks;
+    };
+  });
 }
 
 function toDiffHunk(hunk: ParsedHunk, batchNumber: number): DiffHunk {
