@@ -201,7 +201,6 @@ async function runSemEngine(
                 candidateBatches,
                 checks,
                 command,
-                traceEvents,
                 t,
               ),
       {
@@ -474,7 +473,6 @@ async function scoutSemBatches(
   batches: readonly SemChangeSet[],
   checks: ReturnType<typeof enabledChecks>,
   command: AnalyzeCommand,
-  traceEvents: TraceEvent[],
   t: ReturnType<typeof createTracer>,
 ): Promise<readonly SemCandidate[]> {
   const candidates: SemCandidate[] = [];
