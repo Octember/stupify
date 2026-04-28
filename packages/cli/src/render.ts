@@ -67,7 +67,7 @@ Options:
   --commits <count>    Search the net diff across the last N non-merge commits.
   --stdin              Read a git diff from stdin.
   --debug-sem          Print sem commands and stderr.
-  --max-candidates <n> Max semantic search targets. Default: 10.
+  --max-candidates <n> Max semantic search targets. Default: 50.
   --max-search-input-tokens <n>
                         Max search input tokens before skipping. Default: 12000.
   --checks <ids>       Comma-separated pattern ids.
