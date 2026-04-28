@@ -90,7 +90,7 @@ test("renders matches as slop report fields", () => {
     }],
   };
 
-  const output = renderSearchRun(run, command);
+  const output = stripAnsi(renderSearchRun(run, command));
 
   assert.match(output, /AI SLOP DETECTED/);
   assert.match(output, /================/);
