@@ -67,3 +67,34 @@ test("search JSON includes skip stats without human text", () => {
   assert.equal(parsed.stats.modelCalls, 0);
   assert.deepEqual(parsed.matches, []);
 });
+
+test("renders matches as slop report fields", () => {
+  const run: SearchRunJson = {
+    schemaVersion: "search.v1",
+    mode: "search",
+    source: "staged",
+    model: { id: "gemma-4-e2b" },
+    patterns: [checkId("duplicated_schema")],
+    stats: {
+      elapsedMs: 123,
+      modelCalls: 1,
+      committers: ["Noah Lindner <noah@example.com>"],
+    },
+    matches: [{
+      targetId: "t001",
+      patternId: checkId("duplicated_schema"),
+      checkWhy: "Duplicated shapes drift.",
+      reason: "Payload repeats the same fields.",
+      proof: "src/foo.ts::type::FooPayload",
+    }],
+  };
+
+  const output = renderSearchRun(run, command);
+
+  assert.match(output, /AI SLOP DETECTED/);
+  assert.match(output, /who: Noah Lindner <noah@example\.com>/);
+  assert.match(output, /what: duplicated_schema - Payload repeats the same fields\./);
+  assert.match(output, /when: staged changes/);
+  assert.match(output, /where: src\/foo\.ts::type::FooPayload/);
+  assert.match(output, /why: Duplicated shapes drift\./);
+});
