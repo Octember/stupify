@@ -35,7 +35,7 @@ test("renders oversized staged search as skipped, not clean", () => {
     matches: [],
   };
 
-  const output = renderSearchRun(run, command);
+  const output = stripAnsi(renderSearchRun(run, command));
 
   assert.match(output, /too large for precise local search/);
   assert.match(output, /skipped the search/);
@@ -106,6 +106,10 @@ test("renders matches as slop report fields", () => {
   assert.doesNotMatch(output, /what:/);
   assert.doesNotMatch(output, /where:/);
 });
+
+function stripAnsi(value: string): string {
+  return value.replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, "");
+}
 
 test("renders since windows as short human labels", () => {
   const run: SearchRunJson = {
