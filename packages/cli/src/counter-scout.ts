@@ -60,13 +60,15 @@ export function runSignalCounters(
 }
 
 function reasonForCheck(checkId: CheckId, change: SemChange): string | null {
+  if (!isSearchableSourceChange(change)) return null;
+
   const haystack = `${change.entityName}\n${change.entityType}\n${change.filePath}\n${change.afterContent ?? ""}`.toLowerCase();
   const changed = change.changeType === "added" || change.changeType === "modified";
   if (!changed) return null;
 
   switch (checkId as string) {
     case "duplicated_schema":
-      return isSchemaish(change, haystack) ? "schemaish_type_or_payload" : null;
+      return isDuplicatedSchemaCandidate(change) ? "local_schemaish_copy" : null;
     case "unnecessary_complexity":
       return /\b(helper|wrapper|service|provider|manager|factory|adapter|resolver|coordinator)\b/i.test(change.entityName)
         ? "new_abstraction_name"
@@ -84,11 +86,11 @@ function reasonForCheck(checkId: CheckId, change: SemChange): string | null {
         ? "large_changed_chunk"
         : null;
     case "over_commenting":
-      return commentLines(change.afterContent) > commentLines(change.beforeContent) + 3
+      return overCommentingSignal(change)
         ? "comment_lines_increased"
         : null;
     case "lint_bypass":
-      return /(eslint-disable|biome-ignore|@ts-ignore|@ts-expect-error|\bas unknown as\b|\bany\b)/i.test(change.afterContent ?? "")
+      return lintBypassSignal(change.afterContent ?? "")
         ? "lint_or_type_bypass_text"
         : null;
     case "inconsistent_patterns":
@@ -96,7 +98,7 @@ function reasonForCheck(checkId: CheckId, change: SemChange): string | null {
         ? "pattern_abstraction_name"
         : null;
     case "reinvented_utils":
-      return /^(format|parse|normalize|group|sort|filter|find|has|get|set|is|resolve|clamp|slug)/i.test(change.entityName)
+      return reinventedUtilitySignal(change)
         ? "generic_utility_name"
         : null;
     case "operator_style_mismatch":
@@ -108,12 +110,66 @@ function reasonForCheck(checkId: CheckId, change: SemChange): string | null {
   }
 }
 
-function isSchemaish(change: SemChange, haystack: string): boolean {
-  if (/^(interface|type|class)$/i.test(change.entityType)) return true;
-  return /\b(payload|dto|schema|response|request|input|output|result|context|asset|job|node|edge|generation)\b/i.test(haystack);
+function isDuplicatedSchemaCandidate(change: SemChange): boolean {
+  if (!/^(interface|type)$/i.test(change.entityType)) return false;
+  if (/^(public|external|internal|payment|.+client$)/i.test(change.entityName)) return false;
+  return /\b(local|payload|schema)\b/i.test(words(change.entityName));
+}
+
+function overCommentingSignal(change: SemChange): boolean {
+  const before = commentLines(change.beforeContent);
+  const after = commentLines(change.afterContent);
+  if (after <= before + 3) return false;
+  const comments = commentText(change.afterContent);
+  if (/\b(because|why|constraint|provider|external|api|quirk|edge case|timezone|utc|ledger|finance|reconciliation|rejects|mirrors|keep this)\b/i.test(comments)) {
+    return false;
+  }
+  return true;
+}
+
+function lintBypassSignal(value: string): boolean {
+  return value.split(/\r?\n/).some((line) => {
+    const trimmed = line.trim();
+    const comment = /^(\/\/|\/\*|\*)/.test(trimmed);
+    if (comment && /@ts-ignore\s*$/i.test(trimmed)) return true;
+    if (comment && /@ts-expect-error\s*$/i.test(trimmed)) return true;
+    if (comment && /(eslint-disable|biome-ignore)/i.test(trimmed) && !/\s--\s*\S/.test(trimmed)) return true;
+    return /\bas unknown as\b|\bas any\b|:\s*any\b/i.test(trimmed);
+  });
+}
+
+function reinventedUtilitySignal(change: SemChange): boolean {
+  const name = change.entityName;
+  if (!/^(clamp|debounce|throttle|slug|slugify|sort|shuffle|memoize|pick|omit|uniq)/i.test(name)) return false;
+  const content = change.afterContent ?? "";
+  if (/currency|invoice|refund|subscription|tier|domain/i.test(`${name}\n${content}`)) return false;
+  return true;
+}
+
+function isSearchableSourceChange(change: SemChange): boolean {
+  const filePath = change.filePath.toLowerCase();
+  if (/(^|\/)(bun|package-lock|pnpm-lock|yarn)\.lock$/.test(filePath)) return false;
+  if (/(^|\/)(dist|build|coverage|generated|vendor|fixtures?|snapshots?)(\/|$)/.test(filePath)) return false;
+  if (/\.(md|mdx|txt|json|jsonc|ya?ml|toml|lock|csv|svg|png|jpe?g|gif|webp)$/i.test(filePath)) return false;
+  if (/\.(test|spec|fixture)\.[cm]?[jt]sx?$/i.test(filePath)) return false;
+  return /\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$/i.test(filePath);
 }
 
 function commentLines(value: string | null): number {
   if (!value) return 0;
   return value.split(/\r?\n/).filter((line) => /^\s*(\/\/|\/\*|\*|#)/.test(line)).length;
+}
+
+function commentText(value: string | null): string {
+  if (!value) return "";
+  return value
+    .split(/\r?\n/)
+    .filter((line) => /^\s*(\/\/|\/\*|\*|#)/.test(line))
+    .join("\n");
+}
+
+function words(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ");
 }

@@ -5,18 +5,32 @@ export const defaultChecks: readonly StupifyCheck[] = [
     id: checkId("duplicated_schema"),
     name: "Duplicated schema",
     question: "Did the change duplicate an existing type, schema, payload, or DTO shape?",
+    why: "Duplicated shapes make it easier for AI-assisted changes to drift away from the real source of truth.",
     lookFor: [
       "local shape mirrors existing fields and maps them one-for-one",
       "new response, payload, schema, or DTO adds no filtering, renaming, validation, or versioning",
     ],
     ignoreWhen: [
       "test fixture, mock, or intentional external contract",
+      "public API DTO filters, omits, protects, renames, or versions fields",
     ],
+    hookMode: "warn",
+    searchPrompt: "Find only local/private payload or schema shapes that clearly copy another local shape one-for-one without creating a boundary. Do not match ordinary Input/Output/Request/Response types by name alone, public DTOs, external contracts, client types, or types that omit/protect private fields.",
+    searchExamples: {
+      match: [
+        "LocalUserPayload repeats User fields and maps id/email/displayName one-for-one.",
+      ],
+      nonMatch: [
+        "PublicWebhookDto omits privateNotes from InternalJob.",
+        "A client type describes an external dependency boundary.",
+      ],
+    },
   },
   {
     id: checkId("unnecessary_complexity"),
     name: "Unnecessary complexity",
     question: "Did the change add structure without buying clarity?",
+    why: "Extra indirection can hide simple decisions and make the code feel more designed than understood.",
     lookFor: [
       "helper, wrapper, service, layer, or extra file around simple logic without reuse",
     ],
@@ -57,6 +71,7 @@ Prefer no match over a weak match.`,
     id: checkId("fake_precision_windowing"),
     name: "Fake precision windowing",
     question: "Did the change add fake precision around model context?",
+    why: "Precise-looking bookkeeping can create confidence without improving the actual behavior.",
     lookFor: [
       "precise-looking counts, budgets, ratios, reports, or batching fields without useful behavior",
     ],
@@ -69,6 +84,7 @@ Prefer no match over a weak match.`,
     id: checkId("coauthored_slop"),
     name: "Coauthored slop",
     question: "Does author metadata contain co-author text?",
+    why: "Careless metadata is a cheap signal that the change may not have been reviewed with intent.",
     lookFor: [
       "author signal contains coauhtoried, coauthored, or co-authored text",
     ],
@@ -80,6 +96,7 @@ Prefer no match over a weak match.`,
     id: checkId("mega_file"),
     name: "Mega file",
     question: "Is a touched non-config file over 1000 LOC?",
+    why: "Large files make judgment harder by concentrating unrelated decisions in one place.",
     lookFor: [
       "touched non-config source file over 1000 LOC",
     ],
@@ -91,12 +108,14 @@ Prefer no match over a weak match.`,
     id: checkId("over_commenting"),
     name: "Over commenting",
     question: "Did the change add noisy comments?",
+    why: "Narrative comments can make routine code look deliberate without clarifying the underlying tradeoff.",
     lookFor: [
       "comments restate obvious code or narrate simple logic",
     ],
     ignoreWhen: [
       "comment explains intent, constraint, workaround, or public API behavior",
     ],
+    hookMode: "warn",
     searchPrompt: "Find staged changes where comments appear to substitute for judgment rather than clarify it.",
     searchExamples: {
       match: [
@@ -109,6 +128,7 @@ Prefer no match over a weak match.`,
         "Comments document an external API quirk.",
         "Comments clarify a surprising edge case.",
         "Comments are sparse and specific.",
+        "Comments explain provider, finance, reconciliation, timezone, or ledger behavior.",
       ],
     },
   },
@@ -116,6 +136,7 @@ Prefer no match over a weak match.`,
     id: checkId("lint_bypass"),
     name: "Lint bypass",
     question: "Did the change bypass lint or type rules?",
+    why: "Unexplained suppressions remove useful feedback exactly where a change needs more scrutiny.",
     lookFor: [
       "adds suppressions, any, broad casts, or weakens lint/typecheck config",
     ],
@@ -124,11 +145,22 @@ Prefer no match over a weak match.`,
       "type-level test",
       "generated file convention",
     ],
+    hookMode: "warn",
+    searchPrompt: "Find only broad lint/type bypasses that hide useful feedback. Match bare @ts-ignore, bare @ts-expect-error, broad casts, any, or eslint/biome suppressions without a concrete inline reason. Do not match targeted suppressions that include a reason for a known framework, test, mock, or external-library limitation.",
+    searchExamples: {
+      match: [
+        "A bare // @ts-ignore hides property access on unknown input.",
+      ],
+      nonMatch: [
+        "// @ts-expect-error explains a known external library typing gap.",
+      ],
+    },
   },
   {
     id: checkId("inconsistent_patterns"),
     name: "Inconsistent patterns",
     question: "Does the change clash with nearby patterns?",
+    why: "Pattern drift can signal that a change followed generic suggestions instead of local codebase judgment.",
     lookFor: [
       "same job uses different naming, errors, state, imports, or layout than nearby files",
     ],
@@ -141,18 +173,32 @@ Prefer no match over a weak match.`,
     id: checkId("reinvented_utils"),
     name: "Reinvented utils",
     question: "Did the change recreate an existing utility?",
+    why: "Generic helper reinvention can be a sign that the change optimized for plausible code over local reuse.",
     lookFor: [
       "new helper duplicates local utility or standard library behavior",
     ],
     ignoreWhen: [
       "existing utility has wrong contract",
       "new helper is clearer as a tiny private expression",
+      "helper is domain-specific or used by multiple local call sites",
     ],
+    hookMode: "warn",
+    searchPrompt: "Find only tiny generic utility functions that recreate common helpers such as clamp, debounce, throttle, slugify, sort, pick, omit, uniq, or shuffle without domain-specific behavior. Do not match group/resolve/parse/format helpers, domain formatting, feature constants, or helpers with multiple obvious call sites.",
+    searchExamples: {
+      match: [
+        "clampValue returns min, max, or value.",
+      ],
+      nonMatch: [
+        "formatCurrencyHelper is used by invoice and refund labels.",
+        "Subscription tier constants encode domain configuration.",
+      ],
+    },
   },
   {
     id: checkId("operator_style_mismatch"),
     name: "Operator style mismatch",
     question: "Does the change read unlike the surrounding code?",
+    why: "Style mismatch can reveal generic generated code that was not reconciled with nearby conventions.",
     lookFor: [
       "generic or template-like names, abstractions, comments, or control flow clash with local style",
     ],

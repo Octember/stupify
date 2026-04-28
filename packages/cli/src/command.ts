@@ -1,27 +1,24 @@
 import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.ts";
-import type { AuditContextMode, AuditPromptName, Command, Engine, HookAction, ModelId, ScoutMode } from "./types.ts";
+import type { Command, HookAction, ModelId, SearchSource } from "./types.ts";
 
 const DEFAULT_SINCE = "2 weeks ago";
 const DEFAULT_MAX_CANDIDATES = 10;
-const DEFAULT_SCOUT_MODE: ScoutMode = "counter";
-const DEFAULT_AUDIT_CONTEXT: AuditContextMode = "repomix";
-const DEFAULT_AUDIT_PROMPT: AuditPromptName = "high_bar";
-const DEFAULT_AUDIT_BATCH_SIZE = 25;
-const DEFAULT_MAX_AUDIT_INPUT_TOKENS = 20_000;
-const DEFAULT_AUDIT_CONCURRENCY = 2;
 const DEFAULT_MAX_SEARCH_INPUT_TOKENS = 12_000;
+
 type InputMode =
-  | Readonly<{ kind: "since"; since: string }>
-  | Readonly<{ kind: "stdin" }>
-  | Readonly<{ kind: "commit"; commit: string }>
-  | Readonly<{ kind: "commits"; count: number }>;
+  | Readonly<{ kind: "since"; since: string; source: "since" }>
+  | Readonly<{ kind: "stdin"; source: "stdin" }>
+  | Readonly<{ kind: "commit"; commit: string; source: "commit" }>
+  | Readonly<{ kind: "commits"; count: number; source: "commits" }>
+  | Readonly<{ kind: "staged"; source: "staged" }>;
 
 export function parseCommand(argv: readonly string[]): Command {
   if (argv.length === 1 && isHelp(argv[0])) return { kind: "help" };
-  if (argv[0] === "experiment") {
-    const configPath = argv[1];
-    if (!configPath || argv.length > 2) throw new Error("Usage: stupify experiment <config.json>");
-    return { kind: "experiment", configPath };
+  if (argv[0] === "bench") {
+    if (argv[1] !== "search" || !argv[2] || argv.length > 3) {
+      throw new Error("Usage: stupify bench search <config.json>");
+    }
+    return { kind: "bench-search", configPath: argv[2] };
   }
   if (argv[0] === "hook") {
     const action = argv[1];
@@ -30,77 +27,49 @@ export function parseCommand(argv: readonly string[]): Command {
     }
     return { kind: "hook", action };
   }
+  if (argv[0] === "doctor") {
+    if (argv.length > 1) throw new Error("Usage: stupify doctor");
+    return { kind: "doctor" };
+  }
 
   type ParseState = Readonly<{
     inputMode: InputMode;
     explicitInputMode: boolean;
-    cliMode: "audit" | "search";
-    staged: boolean;
     checkIds: readonly string[] | null;
     json: boolean;
     model: ModelId;
-    engine: Engine;
-    scout: ScoutMode;
-    auditContext: AuditContextMode;
-    auditPrompt: AuditPromptName;
     debugSem: boolean;
-    debugTargets: boolean;
     maxCandidates: number;
-    auditBatchSize: number;
-    maxAuditInputTokens: number;
-    auditConcurrency: number;
     maxSearchInputTokens: number;
+    searchProfilePath: string | null;
+    includeCounterReasonInPrompt: boolean;
   }>;
 
   const initialState: ParseState = {
-    inputMode: { kind: "since", since: DEFAULT_SINCE },
+    inputMode: { kind: "since", since: DEFAULT_SINCE, source: "since" },
     explicitInputMode: false,
-    cliMode: "audit",
-    staged: false,
     checkIds: null,
     json: false,
     model: DEFAULT_MODEL_ID,
-    engine: "raw-diff",
-    scout: DEFAULT_SCOUT_MODE,
-    auditContext: DEFAULT_AUDIT_CONTEXT,
-    auditPrompt: DEFAULT_AUDIT_PROMPT,
     debugSem: false,
-    debugTargets: false,
     maxCandidates: DEFAULT_MAX_CANDIDATES,
-    auditBatchSize: DEFAULT_AUDIT_BATCH_SIZE,
-    maxAuditInputTokens: DEFAULT_MAX_AUDIT_INPUT_TOKENS,
-    auditConcurrency: DEFAULT_AUDIT_CONCURRENCY,
     maxSearchInputTokens: DEFAULT_MAX_SEARCH_INPUT_TOKENS,
+    searchProfilePath: null,
+    includeCounterReasonInPrompt: false,
   };
 
   const finalState = parseFrom(0, initialState);
-  if (finalState.cliMode === "search" || finalState.staged) {
-    if (!finalState.staged) throw new Error("--mode search currently requires --staged.");
-    return {
-      kind: "staged",
-      mode: "search",
-      source: "staged",
-      checkIds: finalState.checkIds,
-      json: finalState.json,
-      model: finalState.model,
-      maxSearchInputTokens: finalState.maxSearchInputTokens,
-    };
-  }
   return {
     ...finalState.inputMode,
+    mode: "search",
     checkIds: finalState.checkIds,
     json: finalState.json,
     model: finalState.model,
-    engine: finalState.engine,
-    scout: finalState.scout,
-    auditContext: finalState.auditContext,
-    auditPrompt: finalState.auditPrompt,
     debugSem: finalState.debugSem,
-    debugTargets: finalState.debugTargets,
     maxCandidates: finalState.maxCandidates,
-    auditBatchSize: finalState.auditBatchSize,
-    maxAuditInputTokens: finalState.maxAuditInputTokens,
-    auditConcurrency: finalState.auditConcurrency,
+    maxSearchInputTokens: finalState.maxSearchInputTokens,
+    searchProfilePath: finalState.searchProfilePath,
+    includeCounterReasonInPrompt: finalState.includeCounterReasonInPrompt,
   };
 
   function parseFrom(index: number, state: ParseState): ParseState {
@@ -108,29 +77,42 @@ export function parseCommand(argv: readonly string[]): Command {
 
     const arg = argv[index];
 
-    if (arg === "--stdin") return parseFrom(index + 1, setInputMode(state, { kind: "stdin" }));
-    if (arg === "--staged") return parseFrom(index + 1, setStagedMode(state));
+    if (arg === "--mode") {
+      const value = argv[index + 1];
+      if (value !== "search") throw new Error("--mode only supports search.");
+      return parseFrom(index + 2, state);
+    }
+    if (arg === "--staged") return parseFrom(index + 1, setInputMode(state, { kind: "staged", source: "staged" }));
+    if (arg === "--stdin") return parseFrom(index + 1, setInputMode(state, { kind: "stdin", source: "stdin" }));
     if (arg === "--json") return parseFrom(index + 1, { ...state, json: true });
     if (arg === "--debug-sem") return parseFrom(index + 1, { ...state, debugSem: true });
-    if (arg === "--debug-targets") return parseFrom(index + 1, { ...state, debugTargets: true });
+    if (arg === "--include-counter-reason-in-prompt") {
+      return parseFrom(index + 1, { ...state, includeCounterReasonInPrompt: true });
+    }
+
+    if (arg === "--search-profile") {
+      const value = argv[index + 1];
+      if (!value || value.startsWith("-")) throw new Error("--search-profile requires a JSON profile path.");
+      return parseFrom(index + 2, { ...state, searchProfilePath: value });
+    }
 
     if (arg === "--since") {
       const value = argv[index + 1];
       if (!value || value.startsWith("-")) throw new Error("--since requires a git date, such as \"2 weeks ago\".");
-      return parseFrom(index + 2, setInputMode(state, { kind: "since", since: value }));
+      return parseFrom(index + 2, setInputMode(state, { kind: "since", since: value, source: "since" }));
     }
 
     if (arg === "--commit") {
       const value = argv[index + 1];
       if (!value || !isSafeCommitArg(value)) throw new Error("Invalid commit.");
-      return parseFrom(index + 2, setInputMode(state, { kind: "commit", commit: value }));
+      return parseFrom(index + 2, setInputMode(state, { kind: "commit", commit: value, source: "commit" }));
     }
 
     if (arg === "--commits") {
       const value = argv[index + 1];
       const count = Number(value);
       if (!Number.isInteger(count) || count < 1) throw new Error("--commits requires a positive integer.");
-      return parseFrom(index + 2, setInputMode(state, { kind: "commits", count }));
+      return parseFrom(index + 2, setInputMode(state, { kind: "commits", count, source: "commits" }));
     }
 
     if (arg === "--checks") {
@@ -147,36 +129,6 @@ export function parseCommand(argv: readonly string[]): Command {
       return parseFrom(index + 2, { ...state, model: value });
     }
 
-    if (arg === "--mode") {
-      const value = argv[index + 1];
-      if (value !== "search") throw new Error("--mode currently supports search.");
-      return parseFrom(index + 2, { ...state, cliMode: "search" });
-    }
-
-    if (arg === "--engine") {
-      const value = argv[index + 1];
-      if (!value || !isEngine(value)) throw new Error("--engine must be raw-diff or sem.");
-      return parseFrom(index + 2, { ...state, engine: value });
-    }
-
-    if (arg === "--scout") {
-      const value = argv[index + 1];
-      if (!value || !isScoutMode(value)) throw new Error("--scout must be counter or llm.");
-      return parseFrom(index + 2, { ...state, scout: value });
-    }
-
-    if (arg === "--audit-context") {
-      const value = argv[index + 1];
-      if (!value || !isAuditContextMode(value)) throw new Error("--audit-context must be none or repomix.");
-      return parseFrom(index + 2, { ...state, auditContext: value });
-    }
-
-    if (arg === "--audit-prompt") {
-      const value = argv[index + 1];
-      if (!value || !isAuditPromptName(value)) throw new Error("--audit-prompt must be strict or high_bar.");
-      return parseFrom(index + 2, { ...state, auditPrompt: value });
-    }
-
     if (arg === "--max-candidates") {
       const value = argv[index + 1];
       const maxCandidates = Number(value);
@@ -184,33 +136,6 @@ export function parseCommand(argv: readonly string[]): Command {
         throw new Error("--max-candidates requires a positive integer.");
       }
       return parseFrom(index + 2, { ...state, maxCandidates });
-    }
-
-    if (arg === "--audit-batch-size") {
-      const value = argv[index + 1];
-      const auditBatchSize = Number(value);
-      if (!Number.isInteger(auditBatchSize) || auditBatchSize < 1) {
-        throw new Error("--audit-batch-size requires a positive integer.");
-      }
-      return parseFrom(index + 2, { ...state, auditBatchSize });
-    }
-
-    if (arg === "--max-audit-input-tokens") {
-      const value = argv[index + 1];
-      const maxAuditInputTokens = Number(value);
-      if (!Number.isInteger(maxAuditInputTokens) || maxAuditInputTokens < 1) {
-        throw new Error("--max-audit-input-tokens requires a positive integer.");
-      }
-      return parseFrom(index + 2, { ...state, maxAuditInputTokens });
-    }
-
-    if (arg === "--audit-concurrency") {
-      const value = argv[index + 1];
-      const auditConcurrency = Number(value);
-      if (!Number.isInteger(auditConcurrency) || auditConcurrency < 1) {
-        throw new Error("--audit-concurrency requires a positive integer.");
-      }
-      return parseFrom(index + 2, { ...state, auditConcurrency });
     }
 
     if (arg === "--max-search-input-tokens") {
@@ -229,11 +154,6 @@ export function parseCommand(argv: readonly string[]): Command {
     if (state.explicitInputMode) throw new Error("Choose only one input mode: --since, --stdin, --commit, --commits, or --staged.");
     return { ...state, inputMode: next, explicitInputMode: true };
   }
-
-  function setStagedMode(state: ParseState): ParseState {
-    if (state.explicitInputMode) throw new Error("Choose only one input mode: --since, --stdin, --commit, --commits, or --staged.");
-    return { ...state, cliMode: "search", staged: true, explicitInputMode: true };
-  }
 }
 
 function isSafeCommitArg(value: string): boolean {
@@ -246,22 +166,6 @@ function isHelp(value: string): boolean {
 
 function isModelId(value: string): value is ModelId {
   return value in MODEL_REGISTRY;
-}
-
-function isEngine(value: string): value is Engine {
-  return value === "raw-diff" || value === "sem";
-}
-
-function isScoutMode(value: string): value is ScoutMode {
-  return value === "counter" || value === "llm";
-}
-
-function isAuditContextMode(value: string): value is AuditContextMode {
-  return value === "none" || value === "repomix";
-}
-
-function isAuditPromptName(value: string): value is AuditPromptName {
-  return value === "strict" || value === "high_bar";
 }
 
 function isHookAction(value: string): value is HookAction {

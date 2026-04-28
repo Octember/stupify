@@ -1,0 +1,14 @@
+{
+  "id": "sem_only_c5_precise",
+  "context": "sem",
+  "maxCandidates": 5,
+  "maxSearchInputTokens": 12000,
+  "includeCounterReasonInPrompt": true,
+  "patterns": {
+    "unnecessary_complexity": { "enabled": true },
+    "over_commenting": { "enabled": true },
+    "lint_bypass": { "enabled": true },
+    "duplicated_schema": { "enabled": true },
+    "reinvented_utils": { "enabled": true }
+  }
+}

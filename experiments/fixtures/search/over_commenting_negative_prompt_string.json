@@ -1,0 +1,9 @@
+{
+  "id": "over_commenting_negative_prompt_string",
+  "description": "Comment-like text appears inside a prompt string and should not be treated as source comments.",
+  "checks": ["over_commenting"],
+  "expected": [
+    { "patternId": "over_commenting", "shouldMatch": false }
+  ],
+  "stagedPatch": "diff --git a/src/prompt.ts b/src/prompt.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/prompt.ts\n@@ -0,0 +1,14 @@\n+export const reviewPrompt = `\n+// Explain the decision.\n+// List any tradeoffs.\n+// Mention edge cases.\n+// Return JSON only.\n+`;\n+\n+export function promptFor(name: string) {\n+  return reviewPrompt.replace(\"decision\", name);\n+}\n"
+}
