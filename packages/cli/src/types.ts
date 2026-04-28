@@ -198,6 +198,7 @@ export type SearchMatch = Readonly<{
   checkWhy?: string;
   reason: string;
   proof: string;
+  snapshot?: string;
 }>;
 
 export type SearchRunJson = Readonly<{
