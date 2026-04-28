@@ -186,7 +186,7 @@ function renderMatchGroup(group: MatchGroup, run: SearchRunJson): string {
 }
 
 function matchHeadline(match: SearchRunJson["matches"][number], run: SearchRunJson, index: number): string {
-  return `${index + 1}. ${format.label(patternLabel(match))}: ${headlineArgs(match)} -- ${blameLabel(run)}`;
+  return `${index + 1}. ${format.label(patternLabel(match))}: ${headlineArgs(match)} -- ${matchBlameLabel(match, run)}`;
 }
 
 function patternLabel(match: SearchRunJson["matches"][number]): string {
@@ -201,7 +201,15 @@ function headlineArgs(match: SearchRunJson["matches"][number]): string {
   return codeLabel(match.targetId);
 }
 
-function blameLabel(run: SearchRunJson): string {
+function matchBlameLabel(match: SearchRunJson["matches"][number], run: SearchRunJson): string {
+  return match.blame ? blameSummaryLabel(match.blame) : runLevelBlameLabel(run);
+}
+
+function blameSummaryLabel(blame: NonNullable<SearchRunJson["matches"][number]["blame"]>): string {
+  return `${blame.author} (${blame.subject})`;
+}
+
+function runLevelBlameLabel(run: SearchRunJson): string {
   const author = committerLabel(run);
   const subject = firstHumanSubject(run.stats.commitSubjects ?? []);
   return subject ? `${author} (${subject})` : author;

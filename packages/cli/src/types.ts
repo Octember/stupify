@@ -78,6 +78,12 @@ export type StagedDiff = Readonly<{
   stats: NetDiffStats;
 }>;
 
+export type BlameSummary = Readonly<{
+  commit: string;
+  author: string;
+  subject: string;
+}>;
+
 export type NetDiff = Readonly<{
   id: SourceId;
   label: string;
@@ -202,6 +208,10 @@ export type SearchMatch = Readonly<{
   reason: string;
   proof: string;
   snapshot?: string;
+  filePath?: string;
+  entityName?: string;
+  entityKind?: string;
+  blame?: BlameSummary;
 }>;
 
 export type SearchRunJson = Readonly<{

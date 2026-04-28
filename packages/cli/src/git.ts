@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { sourceId, type NetDiff, type NetDiffStats, type SourceRange, type StagedDiff } from "./types.ts";
+import { sourceId, type BlameSummary, type NetDiff, type NetDiffStats, type SourceRange, type StagedDiff } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -104,6 +104,27 @@ export async function gitUserLabel(): Promise<string> {
   ]);
   if (name && email) return `${name} <${email}>`;
   return name || email || "working tree";
+}
+
+export async function blameEntity(input: Readonly<{
+  filePath: string;
+  entityName: string;
+  rev: string;
+}>): Promise<BlameSummary | null> {
+  try {
+    const { stdout } = await execFileAsync("git", [
+      "blame",
+      "--line-porcelain",
+      "-L",
+      `:${input.entityName}`,
+      input.rev,
+      "--",
+      input.filePath,
+    ], { maxBuffer: 16 * 1024 * 1024 });
+    return summarizeBlame(stdout);
+  } catch {
+    return null;
+  }
 }
 
 async function netDiff(base: string, target: string, label: string, id?: NetDiff["id"]): Promise<NetDiff> {
@@ -316,4 +337,44 @@ async function commitMessage(commit: string): Promise<string> {
 
 function firstLine(value: string): string {
   return value.trim().split(/\r?\n/, 1)[0]?.trim() ?? "";
+}
+
+function summarizeBlame(output: string): BlameSummary | null {
+  const entries = new Map<string, { commit: string; author: string; subject: string; count: number }>();
+  let currentCommit = "";
+  let currentAuthor = "";
+  let currentSubject = "";
+  for (const line of output.split(/\r?\n/)) {
+    const header = /^([0-9a-f]{40})\s+/.exec(line);
+    if (header?.[1]) {
+      currentCommit = header[1];
+      currentAuthor = "";
+      currentSubject = "";
+      continue;
+    }
+    if (line.startsWith("author ")) {
+      currentAuthor = line.slice("author ".length).trim();
+      continue;
+    }
+    if (line.startsWith("summary ")) {
+      currentSubject = line.slice("summary ".length).trim();
+      continue;
+    }
+    if (!line.startsWith("\t") || !currentCommit) continue;
+    const previous = entries.get(currentCommit);
+    entries.set(currentCommit, {
+      commit: currentCommit,
+      author: currentAuthor || previous?.author || "unknown author",
+      subject: currentSubject || previous?.subject || currentCommit.slice(0, 7),
+      count: (previous?.count ?? 0) + 1,
+    });
+  }
+
+  const [best] = [...entries.values()].sort((a, b) => b.count - a.count);
+  if (!best) return null;
+  return {
+    commit: best.commit.slice(0, 7),
+    author: best.author,
+    subject: best.subject,
+  };
 }

@@ -7,6 +7,7 @@ import { searchChecks } from "./checks.ts";
 import { parseCommand } from "./command.ts";
 import { counterScoutPlan } from "./counter-scout.ts";
 import { renderDoctorToUi, runDoctor } from "./doctor.ts";
+import { blameEntity } from "./git.ts";
 import { renderHookResultToUi, runHookCommand } from "./hooks.ts";
 import { firstRunModelBootstrap, loadLocalModel } from "./model.ts";
 import { entityContextsFromChanges, emptyContextPack, repomixContextPack, repomixSearchConfig } from "./repomix-provider.ts";
@@ -288,7 +289,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
       modelCalls += 1;
       matches.push(...withCheckWhy(value, checks));
     }
-    const uniqueMatches = dedupeMatches(matches);
+    const uniqueMatches = await withEntityBlame(dedupeMatches(matches), changeSet.target, command);
 
     return {
       schemaVersion: "search.v1",
@@ -339,6 +340,24 @@ function withCheckWhy(matches: readonly SearchMatch[], checks: readonly StupifyC
     ...match,
     patternName: checksById.get(match.patternId)?.name,
     checkWhy: checksById.get(match.patternId)?.why,
+  }));
+}
+
+async function withEntityBlame(
+  matches: readonly SearchMatch[],
+  targetRev: string,
+  command: SearchCommand,
+): Promise<readonly SearchMatch[]> {
+  if (command.kind === "staged" || command.kind === "stdin") return matches;
+
+  return Promise.all(matches.map(async (match) => {
+    if (!match.filePath || !match.entityName) return match;
+    const blame = await blameEntity({
+      filePath: match.filePath,
+      entityName: match.entityName,
+      rev: targetRev,
+    });
+    return blame ? { ...match, blame } : match;
   }));
 }
 

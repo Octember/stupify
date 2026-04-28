@@ -91,6 +91,11 @@ test("renders matches as slop report fields", () => {
       reason: "FooPayload repeats fields from `ItemType`.",
       proof: "src/foo.ts::type::FooPayload",
       snapshot: "type FooPayload = { id: string };",
+      blame: {
+        commit: "abc1234",
+        author: "Ada Lovelace",
+        subject: "tighten payload drag types",
+      },
     }],
   };
 
@@ -104,7 +109,7 @@ test("renders matches as slop report fields", () => {
   assert.doesNotMatch(output, /GitHub/);
   assert.match(output, /Duplicated Schema 1/);
   assert.match(output, /src\/foo\.ts/);
-  assert.match(output, /1\. Duplicated Schema: `ItemType` -> `FooPayload` -- Noah Lindner \(fix: timeline drag payload\)/);
+  assert.match(output, /1\. Duplicated Schema: `ItemType` -> `FooPayload` -- Ada Lovelace \(tighten payload drag types\)/);
   assert.match(output, /FooPayload repeats fields from `ItemType`\./);
   assert.match(output, /```\ntype FooPayload = \{ id: string \};\n```/);
   assert.match(output, /::type::FooPayload · commit: fix: timeline drag payload/);

@@ -107,6 +107,9 @@ function uncheckedSearchMatches(value: unknown, contexts: readonly SemContext[])
       reason: match.reason ?? "",
       proof: sourcePointer(context),
       snapshot: sourceSnapshot(context),
+      filePath: context.filePath,
+      entityName: context.entityName,
+      entityKind: context.entityKind,
     }];
   });
 }
