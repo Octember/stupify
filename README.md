@@ -11,6 +11,10 @@ dumber.
 Current goal: turn recent local changes into compact search evidence and use a
 local model to warn on concrete judgment-offload matches.
 
+## License
+
+Stupify is released under the [MIT License](LICENSE).
+
 ## CLI
 
 Current local smoke test:
@@ -97,3 +101,8 @@ bun run deploy
 
 `bun run deploy` builds the app and publishes the Worker configured in
 `wrangler.jsonc`.
+
+## Releasing
+
+The CLI publishes from GitHub Releases through npm Trusted Publishing. See
+[docs/releasing.md](docs/releasing.md).

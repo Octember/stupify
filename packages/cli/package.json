@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/Octember/stupif.ai.git",
+    "url": "git+https://github.com/Octember/stupif.ai.git",
     "directory": "packages/cli"
   },
   "homepage": "https://stupif.ai",
@@ -23,16 +23,18 @@
     "local-first",
     "code-review"
   ],
-  "license": "UNLICENSED",
+  "license": "MIT",
   "engines": {
     "node": ">=20"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "provenance": true
   },
   "files": [
     "dist",
     "src",
+    "LICENSE",
     "README.md",
     "package.json"
   ],
