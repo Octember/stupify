@@ -1,7 +1,5 @@
 import { performance } from "node:perf_hooks";
 
-import type { TraceEvent } from "./types.ts";
-
 export type TraceFields = Record<string, string | number | boolean | null | undefined>;
 
 export type Tracer = {
@@ -99,13 +97,6 @@ export function createTracer(options?: CreateTracerOptions): Tracer {
 }
 
 export const trace: Tracer = createTracer();
-
-export function countTraceEvents(
-  events: readonly TraceEvent[],
-  name: TraceEvent["name"],
-): number {
-  return events.filter((event) => event.name === name).length;
-}
 
 function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return typeof value === "object" && value !== null && "then" in value;

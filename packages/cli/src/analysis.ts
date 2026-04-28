@@ -1,95 +1,36 @@
-import { auditPrompt, findingsAuditPrompt, scoutPrompt, semScoutPrompt } from "./prompts.ts";
 import { cachedJson, fingerprint } from "./cache.ts";
 import type { LocalModel } from "./model.ts";
-import type {
-  CandidateContext,
-  CheckId,
-  DiffBatch,
-  AuditPromptName,
-  AuditReviewResult,
-  Finding,
-  FindingsResult,
-  NetDiff,
-  SemCandidate,
-  SemChangeSet,
-  SemContext,
-  SemContextPack,
-  SourceId,
-  StupifyCheck,
-} from "./types.ts";
+import { searchPrompt } from "./prompts.ts";
+import type { SearchMatch, SemChangeSet, SemContext, SemContextPack, StupifyCheck } from "./types.ts";
 
-export async function scoutBatch(
+export async function runSearch(
   model: LocalModel,
-  batch: DiffBatch,
-  checks: readonly StupifyCheck[],
-  sourceLabel: string,
-): Promise<readonly string[]> {
-  const raw = await runJsonPrompt(model, scoutPrompt(batch, checks, sourceLabel), scoutSchema(batch), 0);
-  return uncheckedCandidates(raw);
+  request: SearchRequest,
+): Promise<readonly SearchMatch[]> {
+  const raw = await runJsonPrompt(model, request.prompt, request.schema, 0);
+  return uncheckedSearchMatches(raw, request.contexts);
 }
 
-export async function auditCandidates(
-  model: LocalModel,
-  diff: NetDiff,
-  contexts: readonly CandidateContext[],
-  checks: readonly StupifyCheck[],
-): Promise<FindingsResult> {
-  if (contexts.length === 0) return { findings: [], summary: "No candidate regions found." };
+export type SearchRequest = Readonly<{
+  prompt: string;
+  schema: unknown;
+  contexts: readonly SemContext[];
+}>;
 
-  const raw = await runJsonPrompt(model, auditPrompt(contexts, checks, diff.label), auditSchema(contexts), 0);
-  return uncheckedRawAuditResult(raw, diff.id);
-}
-
-export async function scoutSemChanges(
-  model: LocalModel,
-  changeSet: SemChangeSet,
-  checks: readonly StupifyCheck[],
-  maxCandidates: number,
-): Promise<readonly SemCandidate[]> {
-  const raw = await runJsonPrompt(
-    model,
-    semScoutPrompt(changeSet, checks, maxCandidates),
-    semScoutSchema(changeSet, checks, maxCandidates),
-    0,
-  );
-  return uncheckedSemCandidates(raw, changeSet.id);
-}
-
-export async function runFindingsAudit(
-  model: LocalModel,
-  changeSet: SemChangeSet,
-  contexts: readonly SemContext[],
-  pack: SemContextPack,
-  checks: readonly StupifyCheck[],
-  request = findingsAuditRequest(changeSet, contexts, pack, checks),
-): Promise<AuditReviewResult> {
-  if (contexts.length === 0) {
-    return {
-      findings: [],
-      summary: "No candidate entities found.",
-      stats: { totalTargets: 0, finding: 0, clean: 0, uncertain: 0, invalid: 0 },
-    };
-  }
-
-  const raw = await runJsonPrompt(
-    model,
-    request.prompt,
-    request.schema,
-    0,
-  );
-  return uncheckedFindingsAuditResult(raw, changeSet.id, contexts);
-}
-
-export function findingsAuditRequest(
-  changeSet: SemChangeSet,
-  contexts: readonly SemContext[],
-  pack: SemContextPack,
-  checks: readonly StupifyCheck[],
-  promptName: AuditPromptName = "strict",
-): Readonly<{ prompt: string; schema: unknown }> {
+export function searchRequest(input: Readonly<{
+  changeSet: SemChangeSet;
+  contexts: readonly SemContext[];
+  pack: SemContextPack;
+  patterns: readonly StupifyCheck[];
+  includeCounterReasonInPrompt?: boolean;
+}>): SearchRequest {
   return {
-    prompt: findingsAuditPrompt(contexts, pack, checks, changeSet.label, promptName),
-    schema: findingsAuditSchema(contexts),
+    prompt: searchPrompt({
+      ...input,
+      includeCounterReason: input.includeCounterReasonInPrompt ?? false,
+    }),
+    schema: searchSchema(input.contexts),
+    contexts: input.contexts,
   };
 }
 
@@ -119,214 +60,58 @@ export async function countPromptTokens(model: LocalModel, prompt: string): Prom
   return cached.count;
 }
 
-function findingsAuditSchema(contexts: readonly SemContext[]): unknown {
-  const targetIds = contexts.map((context) => context.targetId);
-  const findingItem = {
-    type: "object",
-    properties: {
-      targetId: { type: "string", enum: targetIds },
-      why: { type: "string" },
-      proof: { type: "string" },
-    },
-    required: ["targetId", "why", "proof"],
-    additionalProperties: false,
-  };
-  const uncertainItem = {
-    type: "object",
-    properties: {
-      targetId: { type: "string", enum: targetIds },
-      why: { type: "string" },
-    },
-    required: ["targetId", "why"],
-    additionalProperties: false,
-  };
+function searchSchema(contexts: readonly SemContext[]): unknown {
   return {
     type: "object",
     properties: {
-      findings: {
+      matches: {
         type: "array",
-        items: findingItem,
-      },
-      uncertain: {
-        type: "array",
-        items: uncertainItem,
-      },
-    },
-    additionalProperties: false,
-  };
-}
-
-function auditSchema(contexts: readonly CandidateContext[]): unknown {
-  return auditSchemaFromProofs(contexts.map((context) => context.pointer));
-}
-
-function auditSchemaFromProofs(proofs: readonly string[]): unknown {
-  return {
-    type: "object",
-    properties: {
-      findings: {
-        type: "array",
+        maxItems: 5,
         items: {
           type: "object",
           properties: {
-            checkId: { type: "string" },
-            why: { type: "string" },
-            proof: { type: "string", enum: proofs },
-          },
-          required: ["checkId", "why", "proof"],
-          additionalProperties: false,
-        },
-      },
-      summary: { type: "string" },
-    },
-    required: ["findings", "summary"],
-    additionalProperties: false,
-  };
-}
-
-function semScoutSchema(
-  changeSet: SemChangeSet,
-  checks: readonly StupifyCheck[],
-  maxCandidates: number,
-): unknown {
-  return {
-    type: "object",
-    properties: {
-      targets: {
-        type: "array",
-        maxItems: maxCandidates,
-        items: {
-          type: "object",
-          properties: {
-            entityId: { type: "string", enum: changeSet.changes.map((change) => change.entityId) },
-            checkId: { type: "string", enum: checks.map((check) => check.id) },
+            targetId: { type: "string", enum: contexts.map((context) => context.targetId) },
             reason: { type: "string" },
+            proof: { type: "string" },
           },
-          required: ["entityId", "checkId", "reason"],
+          required: ["targetId", "reason", "proof"],
           additionalProperties: false,
         },
       },
     },
-    required: ["targets"],
+    required: ["matches"],
     additionalProperties: false,
   };
 }
 
-function scoutSchema(batch: DiffBatch): unknown {
-  return {
-    type: "object",
-    properties: {
-      candidates: {
-        type: "array",
-        maxItems: 3,
-        items: { type: "string", enum: batch.hunks.map((hunk) => hunk.pointer) },
-      },
-    },
-    required: ["candidates"],
-    additionalProperties: false,
-  };
-}
-
-type RawScoutOutput = Readonly<{ candidates?: readonly string[] }>;
-type RawAuditOutput = Readonly<{
-  findings?: readonly RawFinding[];
-  summary?: string;
+type RawSearchOutput = Readonly<{
+  matches?: readonly RawSearchMatch[];
 }>;
-type RawSemScoutOutput = Readonly<{
-  targets?: readonly RawSemCandidate[];
-  candidates?: readonly RawSemCandidate[];
-}>;
-type RawSemCandidate = Readonly<{
+type RawSearchMatch = Readonly<{
   targetId?: string;
-  entityId?: string;
-  checkId?: string;
-  checkIds?: readonly string[];
   reason?: string;
-}>;
-type RawFinding = Readonly<{
-  checkId?: string;
-  why?: string;
   proof?: string;
 }>;
-type RawFindingReview = RawFinding & Readonly<{ targetId?: string }>;
-type RawFindingsAuditOutput = Readonly<{
-  findings?: readonly RawFindingReview[];
-  uncertain?: readonly RawFindingReview[];
-}>;
 
-function uncheckedCandidates(value: unknown): readonly string[] {
-  return [...((value as RawScoutOutput).candidates ?? [])];
-}
-
-function uncheckedRawAuditResult(value: unknown, sourceId: SourceId): FindingsResult {
-  const output = value as RawAuditOutput;
-  const findings = (output.findings ?? []).map((finding): Finding => ({
-    sourceId,
-    checkId: (finding.checkId ?? "") as CheckId,
-    why: finding.why ?? "",
-    proof: finding.proof ?? "",
-  }));
-  return { findings, summary: output.summary ?? defaultSummary(findings.length) };
-}
-
-function uncheckedSemCandidates(value: unknown, sourceId: SourceId): readonly SemCandidate[] {
-  const output = value as RawSemScoutOutput;
-  const rawTargets = output.targets ?? output.candidates ?? [];
-  return rawTargets.flatMap((candidate) => {
-    if (candidate.checkId) {
-      return [{
-        sourceId,
-        targetId: candidate.targetId ?? "",
-        entityId: candidate.entityId ?? "",
-        checkId: candidate.checkId as CheckId,
-        reason: candidate.reason ?? "",
-      }];
-    }
-    return (candidate.checkIds ?? []).map((checkId) => ({
-      sourceId,
-      targetId: candidate.targetId ?? "",
-      entityId: candidate.entityId ?? "",
-      checkId: checkId as CheckId,
-      reason: candidate.reason ?? "",
-    }));
+function uncheckedSearchMatches(value: unknown, contexts: readonly SemContext[]): readonly SearchMatch[] {
+  const output = value as RawSearchOutput;
+  const contextsByTargetId = new Map(contexts.map((context) => [context.targetId, context]));
+  return (output.matches ?? []).flatMap((match): readonly SearchMatch[] => {
+    const targetId = match.targetId ?? "";
+    const context = contextsByTargetId.get(targetId);
+    if (!context) return [];
+    return [{
+      targetId,
+      patternId: context.checkId,
+      reason: match.reason ?? "",
+      proof: sourcePointer(context),
+    }];
   });
 }
 
-function uncheckedFindingsAuditResult(
-  value: unknown,
-  sourceId: SourceId,
-  contexts: readonly SemContext[],
-): AuditReviewResult {
-  const output = value as RawFindingsAuditOutput;
-  const targetsById = new Map(contexts.map((context) => [context.targetId, context]));
-  const findings = (output.findings ?? []).map((finding): Finding => {
-    const target = targetsById.get(finding.targetId ?? "");
-    return {
-      sourceId,
-      checkId: (target?.checkId ?? "") as CheckId,
-      why: finding.why ?? "",
-      proof: finding.proof ?? "",
-    };
-  });
-  const uncertain = output.uncertain?.length ?? 0;
-  const totalTargets = contexts.length;
-  return {
-    findings,
-    summary: defaultSummary(findings.length),
-    stats: {
-      totalTargets,
-      finding: findings.length,
-      clean: Math.max(0, totalTargets - findings.length - uncertain),
-      uncertain,
-      invalid: 0,
-    },
-  };
-}
-
-function defaultSummary(findingCount: number): string {
-  return findingCount === 0
-    ? "No clear judgment-offload signal found."
-    : `${findingCount} finding review${findingCount === 1 ? "" : "s"} accepted.`;
+function sourcePointer(context: SemContext): string {
+  const file = context.filePath ?? "(unknown)";
+  return `${file}::${context.entityKind || "entity"}::${context.entityName || context.entityId}`;
 }
 
 async function runJsonPrompt(

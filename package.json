@@ -20,9 +20,7 @@
     "typecheck": "wrangler types && react-router typegen && tsc -p tsconfig.json && tsc -p packages/cli/tsconfig.json",
     "typecheck:web": "wrangler types && react-router typegen && tsc -p tsconfig.json",
     "typecheck:cli": "tsc -p packages/cli/tsconfig.json",
-    "smoke:cli": "bun run build:cli && node packages/cli/dist/stupify.js --help",
-    "experiment:bevyl": "bun run build:cli && BEVYL_REPO=${BEVYL_REPO:-$HOME/dev/bevyl/bevyl-app} node packages/cli/dist/stupify.js experiment experiments/bevyl-last-week.json",
-    "experiment:bevyl:checks": "bun run build:cli && BEVYL_REPO=${BEVYL_REPO:-$HOME/dev/bevyl/bevyl-app} node packages/cli/dist/stupify.js experiment experiments/bevyl-per-check.json"
+    "smoke:cli": "bun run build:cli && node packages/cli/dist/stupify.js --help"
   },
   "dependencies": {
     "@react-router/node": "7.14.0",

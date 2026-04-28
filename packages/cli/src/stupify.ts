@@ -1,39 +1,26 @@
 #!/usr/bin/env node
 
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { auditCandidates, scoutBatch, scoutSemChanges } from "./analysis.ts";
-import { batchDiff } from "./batcher.ts";
-import { candidateContexts } from "./candidate-context.ts";
-import { enabledChecks } from "./checks.ts";
+import { countPromptTokens, runSearch, searchRequest, type SearchRequest } from "./analysis.ts";
+import { searchChecks } from "./checks.ts";
 import { parseCommand } from "./command.ts";
-import { MODEL_REGISTRY } from "./constants.ts";
 import { counterScoutTargets } from "./counter-scout.ts";
-import { readDiffFromStdin } from "./diff.ts";
-import { runExperiment } from "./experiment.ts";
+import { runDoctor } from "./doctor.ts";
+import { runHookCommand } from "./hooks.ts";
+import { firstRunModelBootstrap, loadLocalModel } from "./model.ts";
+import { entityContextsFromChanges, emptyContextPack, repomixContextPack, repomixSearchConfig } from "./repomix-provider.ts";
+import { helpText, renderSearchRun } from "./render.ts";
 import {
-  netDiffForCommit,
-  netDiffForRecentCommits,
-  netDiffFromStdin,
-  netDiffSince,
-} from "./git.ts";
-import { loadLocalModels, type LocalModel } from "./model.ts";
-import { entityContextsFromChanges } from "./repomix-provider.ts";
-import { helpText, renderReport } from "./render.ts";
-import { FindingsAuditSession, debugSemTrace } from "./sem-findings-audit.ts";
+  effectiveMaxCandidates,
+  effectiveMaxSearchInputTokens,
+  effectiveRepomixConfig,
+  effectiveSearchChecks,
+  loadSearchProfile,
+} from "./search-profile.ts";
 import { semChangeSetForCommand } from "./sem-provider.ts";
-import { countTraceEvents, createTracer, trace } from "./trace.ts";
-import type {
-  AnalysisReport,
-  AnalyzeCommand,
-  DebugTarget,
-  NetDiff,
-  SemCandidate,
-  SemChangeSet,
-  SemContext,
-  TraceEvent,
-} from "./types.ts";
-
-const SEM_SCOUT_CHUNK_SIZE = 200;
+import { createTracer } from "./trace.ts";
+import type { SearchCommand, SearchMatch, SearchProfile, SearchRunJson, SemContext, SemContextPack, StupifyCheck } from "./types.ts";
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
@@ -43,19 +30,23 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       console.log(helpText());
       return 0;
     }
-    if (command.kind === "experiment") {
-      const outputDir = await runExperiment(command.configPath);
-      console.log(`Experiment results written to ${outputDir}`);
+    if (command.kind === "hook") {
+      console.log(await runHookCommand(command.action));
+      return 0;
+    }
+    if (command.kind === "doctor") {
+      const result = await runDoctor();
+      console.log(result.text);
+      return result.exitCode;
+    }
+    if (command.kind === "bench-search") {
+      const { runSearchBench } = await import("./search-bench.ts");
+      console.log(await runSearchBench(command.configPath));
       return 0;
     }
 
-    const checks = enabledChecks(command.checkIds);
-    const report =
-      command.engine === "sem"
-        ? await runSemEngine(command, checks, startedAt)
-        : await runRawDiffEngine(command, checks, startedAt);
-
-    console.log(renderReport(report, command));
+    const run = await runSearchCommand(command, startedAt);
+    console.log(renderSearchRun(run, command));
     return 0;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
@@ -63,96 +54,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
-async function runRawDiffEngine(
-  command: AnalyzeCommand,
-  checks: ReturnType<typeof enabledChecks>,
-  startedAt: number,
-): Promise<AnalysisReport> {
-  const { value: diff, ms: diffMs } = await trace.trace("net.diff", () =>
-    netDiffForCommand(command),
-  );
-
-  printRunPlan(
-    command,
-    diff,
-    checks.map((check) => check.id),
-  );
-
-  const { value: models, ms: modelMs } = await trace.trace(
-    "model.load",
-    () => loadLocalModels(command.model),
-  );
-  const { scoutModel, auditModel } = models;
-
-  const batches = batchDiff(diff.text);
-  const { value: candidatePointers, ms: searchMs } = await trace.trace(
-    "search.total",
-    async () => {
-      const pointers: string[] = [];
-      for (const batch of batches) {
-        const { value: candidates } = await trace.trace(
-          "search.batch",
-          () => scoutBatch(scoutModel, batch, checks, diff.label),
-          { fields: { batch: batch.id } },
-        );
-        pointers.push(...candidates);
-      }
-      return pointers;
-    },
-  );
-
-  const contexts = candidateContexts(batches, candidatePointers);
-  const { value: result, ms: auditMs } = await trace.trace(
-    "audit.candidates",
-    () => auditCandidates(auditModel, diff, contexts, checks),
-    { fields: { candidates: contexts.length } },
-  );
-
-  return {
-    run: {
-      mode: command.kind,
-      engine: command.engine,
-      auditContext: command.auditContext,
-      auditPrompt: command.auditPrompt,
-      modelId: command.model,
-      checkIds: checks.map((check) => check.id),
-      sourceId: diff.id,
-      label: diff.label,
-      stats: diff.stats,
-      batchesScanned: batches.length,
-      candidateCount: new Set(candidatePointers).size,
-      entitiesScanned: 0,
-      auditedCandidateCount: contexts.length,
-      scoutModelCalls: batches.length,
-      auditModelCalls: contexts.length > 0 ? 1 : 0,
-      warnings: [],
-      timingsMs: {
-        diff: diffMs,
-        modelLoad: modelMs,
-        search: searchMs,
-        audit: auditMs,
-        total: Date.now() - startedAt,
-      },
-      debugTargets: command.debugTargets ? [] : undefined,
-    },
-    result,
-  };
-}
-
-async function runSemEngine(
-  command: AnalyzeCommand,
-  checks: ReturnType<typeof enabledChecks>,
-  startedAt: number,
-): Promise<AnalysisReport> {
-  const traceEvents: TraceEvent[] = [];
+export async function runSearchCommand(command: SearchCommand, startedAt: number): Promise<SearchRunJson> {
   const t = createTracer({
+    writeLine: () => undefined,
     onEvent: (event) => {
-      traceEvents.push(event);
-      debugSemTrace(command, event);
+      if (command.json) return;
+      console.error(formatStep(event.name, event.ms, event.count, event.detail));
     },
   });
 
-  const { value: changeSet, ms: diffMs } = await t.trace(
+  const profile = await loadSearchProfile(command.searchProfilePath);
+  const checks = profile ? effectiveSearchChecks(command.checkIds, profile) : searchChecks(command.checkIds);
+  const patternIds = checks.map((check) => check.id);
+  const maxCandidates = effectiveMaxCandidates(command.maxCandidates, profile);
+  const maxSearchInputTokens = effectiveMaxSearchInputTokens(command.maxSearchInputTokens, profile);
+  printRunPlan(command, patternIds);
+  const { value: changeSet } = await t.trace(
     "entity.diff",
     () => semChangeSetForCommand(command),
     {
@@ -161,254 +78,389 @@ async function runSemEngine(
     },
   );
 
-  printSemRunPlan(
-    command,
-    changeSet,
-    checks.map((check) => check.id),
-  );
-
-  const { value: models, ms: modelMs } = await t.trace(
-    "model.load",
-    () => loadLocalModels(command.model),
-    {
-      count: () => 2,
-      detail: () => "scout+audit",
-    },
-  );
-  const { scoutModel, auditModel } = models;
-
   try {
-    const candidateBatches = chunkSemChangeSet(changeSet);
-    const { value: candidates, ms: searchMs } = await t.trace(
-      "scout.total",
-      async () =>
-        candidateBatches.length === 0
-          ? []
-          : command.scout === "counter"
-            ? counterScoutTargets(changeSet, checks, command.maxCandidates)
-            : scoutSemBatches(
-                scoutModel,
-                candidateBatches,
-                checks,
-                command,
-                t,
-              ),
-      {
-        count: (v) => v.length,
-        detail: () => `${command.scout} scout ${candidateBatches.length} batches`,
-      },
-    );
+    const candidates = counterScoutTargets(changeSet, checks, maxCandidates);
+    const contexts = entityContextsFromChanges(candidates, changeSet.changes);
+    const targetsByPattern = countTargetsByPattern(contexts);
+    const targetsPreview = previewTargets(contexts);
+    if (contexts.length === 0) {
+      return {
+        schemaVersion: "search.v1",
+        mode: "search",
+        source: command.source,
+        model: { id: command.model },
+        patterns: patternIds,
+        stats: {
+          elapsedMs: Date.now() - startedAt,
+          modelCalls: 0,
+          skipped: true,
+          skipReason: "no_candidates",
+          filesChanged: changeSet.summary.fileCount,
+          entitiesScanned: changeSet.summary.total,
+          candidates: 0,
+          searchTargets: 0,
+          repomixFiles: 0,
+          repomixTokens: 0,
+          profileId: profile?.id,
+          targetsByPattern,
+          targetsPreview,
+        },
+        matches: [],
+      };
+    }
 
-    const { value: contexts, ms: contextMs } = await t.trace(
-      "context.select",
-      async () => entityContextsFromChanges(candidates, changeSet.changes),
-      {
-        fields: { candidates: candidates.length },
-        count: (v) => v.length,
-        detail: (v) => `${new Set(v.map((context) => context.filePath).filter(Boolean)).size} files`,
-      },
-    );
-
-    const auditBatches = chunkSemContexts(contexts, command.auditBatchSize);
-    const findingsAudit = new FindingsAuditSession({
-      model: auditModel,
-      changeSet,
-      checks,
+    const baseRepomixConfig = effectiveRepomixConfig(repomixSearchConfig(), profile);
+    const initialPack = profile?.context === "sem"
+      ? emptyContextPack()
+      : await t.trace(
+        "context.pack",
+        () => repomixContextPack(changeSet.contextCwd, contexts, changeSet.changes, baseRepomixConfig),
+        {
+          count: (v) => v.filePaths.length,
+          detail: (v) => `${v.totalTokens} tokens`,
+        },
+      ).then((result) => result.value);
+    const packedFiles = new Set(initialPack.filePaths);
+    const searchContexts = profile?.context === "sem"
+      ? contexts
+      : contexts.filter((context) => context.filePath && packedFiles.has(context.filePath));
+    if (searchContexts.length === 0) {
+      return {
+        schemaVersion: "search.v1",
+        mode: "search",
+        source: command.source,
+        model: { id: command.model },
+        patterns: patternIds,
+        stats: {
+          elapsedMs: Date.now() - startedAt,
+          modelCalls: 0,
+          skipped: true,
+          skipReason: "no_candidates",
+          filesChanged: changeSet.summary.fileCount,
+          entitiesScanned: changeSet.summary.total,
+          candidates: contexts.length,
+          searchTargets: 0,
+          repomixFiles: initialPack.filePaths.length,
+          repomixTokens: initialPack.totalTokens,
+          repomixConfig: initialPack.config,
+          profileId: profile?.id,
+          targetsByPattern,
+          targetsPreview,
+        },
+        matches: [],
+      };
+    }
+    const pack = profile?.context === "sem" || searchContexts.length === contexts.length
+      ? initialPack
+      : await repomixContextPack(changeSet.contextCwd, searchContexts, changeSet.changes, baseRepomixConfig);
+    const batches = await buildSearchBatches({
       command,
-      t,
-      traceEvents,
+      changeSet,
+      contexts: searchContexts,
+      initialPack: pack,
+      checks,
+      profile,
+      includeCounterReasonInPrompt: command.includeCounterReasonInPrompt,
+      maxSearchInputTokens,
+      baseRepomixConfig,
     });
-    const { value: result, ms: auditMs } = await t.trace(
-      "audit.total",
-      () => findingsAudit.runBatches(auditBatches),
-      {
-        count: (v) => v.findings.length,
-        detail: (v) =>
-          `${auditBatches.length} batches targets=${v.stats.totalTargets} clean=${v.stats.clean} uncertain=${v.stats.uncertain} invalid=${v.stats.invalid}`,
-      },
-    );
+
+    if (batches.batches.length === 0) {
+      return {
+        schemaVersion: "search.v1",
+        mode: "search",
+        source: command.source,
+        model: { id: command.model },
+        patterns: patternIds,
+        stats: {
+          elapsedMs: Date.now() - startedAt,
+          modelCalls: 0,
+          inputTokens: batches.estimatedInputTokens,
+          inputTokenCap: maxSearchInputTokens,
+          skipped: true,
+          skipReason: "input_too_large",
+          filesChanged: changeSet.summary.fileCount,
+          entitiesScanned: changeSet.summary.total,
+          candidates: contexts.length,
+          searchTargets: searchContexts.length,
+          repomixFiles: pack.filePaths.length,
+          repomixTokens: pack.totalTokens,
+          repomixConfig: pack.config,
+          searchBatches: 0,
+          skippedTargets: batches.skippedTargets,
+          profileId: profile?.id,
+          targetsByPattern: countTargetsByPattern(searchContexts),
+          targetsPreview: previewTargets(searchContexts),
+        },
+        matches: [],
+      };
+    }
+
+    if (batches.wasSplit && !command.json) {
+      console.error(`Search input is large; queued ${batches.batches.length} smaller search batches.`);
+      if (batches.skippedTargets > 0) {
+        console.error(`Skipped ${batches.skippedTargets} oversized targets that could not fit alone.`);
+      }
+    }
+
+    const modelPath = await firstRunModelBootstrap(command.model);
+    const model = await loadLocalModel(modelPath, command.model, "scout");
+    const matches = [];
+    let modelCalls = 0;
+    let inputTokens = 0;
+    let exactSkippedTargets = batches.skippedTargets;
+    for (const batch of batches.batches) {
+      const batchInputTokens = await countPromptTokens(model, batch.request.prompt);
+      inputTokens += batchInputTokens;
+      if (batchInputTokens > maxSearchInputTokens) {
+        exactSkippedTargets += batch.contexts.length;
+        if (!command.json) {
+          console.error(`Skipped ${batch.contexts.length} targets after exact token count exceeded the limit.`);
+        }
+        continue;
+      }
+      const { value } = await t.trace(
+        "search.model",
+        () => runSearch(model, batch.request),
+        { count: (v) => v.length },
+      );
+      modelCalls += 1;
+      matches.push(...withCheckWhy(value, checks));
+    }
+    const uniqueMatches = dedupeMatches(matches);
 
     return {
-      run: {
-        mode: command.kind,
-        engine: command.engine,
-        auditContext: command.auditContext,
-        auditPrompt: command.auditPrompt,
-        modelId: command.model,
-        checkIds: checks.map((check) => check.id),
-        sourceId: changeSet.id,
-        label: changeSet.label,
-        stats: {
-          filesChanged: changeSet.summary.fileCount,
-          additions: changeSet.summary.added,
-          deletions: changeSet.summary.deleted,
-        },
-        batchesScanned: 0,
+      schemaVersion: "search.v1",
+      mode: "search",
+      source: command.source,
+      model: { id: command.model },
+      patterns: patternIds,
+      stats: {
+        elapsedMs: Date.now() - startedAt,
+        modelCalls,
+        inputTokens,
+        inputTokenCap: maxSearchInputTokens,
+        filesChanged: changeSet.summary.fileCount,
         entitiesScanned: changeSet.summary.total,
-        candidateCount: candidates.length,
-        targetsByCheck: countTargetsByCheck(candidates),
-        auditedCandidateCount: contexts.length,
-        scoutModelCalls: countTraceEvents(traceEvents, "scout.batch"),
-        auditModelCalls: result.auditModelCalls,
-        timingsMs: {
-          diff: diffMs,
-          modelLoad: modelMs,
-          search: searchMs,
-          audit: auditMs + contextMs,
-          total: Date.now() - startedAt,
-        },
-        warnings: [],
-        auditStats: result.stats,
-        debugTargets: command.debugTargets ? debugTargetsFromContexts(contexts, changeSet.label) : undefined,
-        traceEvents,
+        candidates: contexts.length,
+        searchTargets: searchContexts.length,
+        repomixFiles: pack.filePaths.length,
+        repomixTokens: pack.totalTokens,
+        repomixConfig: pack.config,
+        searchBatches: batches.batches.length,
+        skippedTargets: exactSkippedTargets,
+        profileId: profile?.id,
+        targetsByPattern: countTargetsByPattern(searchContexts),
+        targetsPreview: previewTargets(searchContexts),
       },
-      result,
+      matches: uniqueMatches,
     };
   } finally {
     await changeSet.cleanup();
   }
 }
 
-function countTargetsByCheck(candidates: readonly SemCandidate[]): Record<string, number> {
-  const counts: Record<string, number> = {};
-  for (const candidate of candidates) {
-    counts[candidate.checkId] = (counts[candidate.checkId] ?? 0) + 1;
-  }
-  return counts;
+function dedupeMatches<T extends { targetId: string; patternId: string; proof: string }>(matches: readonly T[]): readonly T[] {
+  const seen = new Set<string>();
+  return matches.filter((match) => {
+    const key = `${match.patternId}\n${match.proof.trim()}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
-function debugTargetsFromContexts(
-  contexts: readonly SemContext[],
-  sourceLabel: string,
-): readonly DebugTarget[] {
-  return contexts.map((context) => ({
-    targetId: context.targetId,
-    checkId: context.checkId,
-    entityId: context.entityId,
-    entityKind: context.entityKind,
-    changeKind: context.changeKind,
-    scoutReason: context.reason,
-    sourceLabel,
+function withCheckWhy(matches: readonly SearchMatch[], checks: readonly StupifyCheck[]): readonly SearchMatch[] {
+  const checksById = new Map(checks.map((check) => [check.id, check]));
+  return matches.map((match) => ({
+    ...match,
+    checkWhy: checksById.get(match.patternId)?.why,
   }));
 }
 
-async function scoutSemBatches(
-  model: LocalModel,
-  batches: readonly SemChangeSet[],
-  checks: ReturnType<typeof enabledChecks>,
-  command: AnalyzeCommand,
-  t: ReturnType<typeof createTracer>,
-): Promise<readonly SemCandidate[]> {
-  const candidates: SemCandidate[] = [];
-  const seen = new Set<string>();
-  const targetsByCheck = new Map<string, number>();
-  const maxTargetsPerCheck = 6;
-  for (const [index, batch] of batches.entries()) {
-    if (candidates.length >= command.maxCandidates) break;
-    const remaining: number = command.maxCandidates - candidates.length;
-    const { value: batchCandidates } = await t.trace(
-      "scout.batch",
-      async () => scoutSemChanges(model, batch, checks, remaining),
-      {
-        fields: { entities: batch.changes.length },
-        count: (v) => v.length,
-        detail: (v) =>
-          `batch=${index + 1}/${batches.length} entities=${batch.changes.length} remaining=${remaining}`,
-      },
-    );
-    for (const candidate of batchCandidates) {
-      const key = `${candidate.entityId}\u0000${candidate.checkId}`;
-      if (seen.has(key)) continue;
-      const checkCount = targetsByCheck.get(candidate.checkId) ?? 0;
-      if (checkCount >= maxTargetsPerCheck) continue;
-      seen.add(key);
-      targetsByCheck.set(candidate.checkId, checkCount + 1);
-      candidates.push({
-        ...candidate,
-        targetId: `t${String(candidates.length + 1).padStart(3, "0")}`,
-      });
-      if (candidates.length >= command.maxCandidates) break;
+type SearchBatch = Readonly<{
+  contexts: readonly SemContext[];
+  pack: SemContextPack;
+  request: SearchRequest;
+  estimatedInputTokens: number;
+}>;
+
+async function buildSearchBatches(input: Readonly<{
+  command: SearchCommand;
+  changeSet: Parameters<typeof searchRequest>[0]["changeSet"];
+  contexts: readonly SemContext[];
+  initialPack: SemContextPack;
+  checks: readonly StupifyCheck[];
+  profile: SearchProfile | null;
+  includeCounterReasonInPrompt: boolean;
+  maxSearchInputTokens: number;
+  baseRepomixConfig: Parameters<typeof repomixContextPack>[3];
+}>): Promise<Readonly<{
+  batches: readonly SearchBatch[];
+  estimatedInputTokens: number;
+  skippedTargets: number;
+  wasSplit: boolean;
+}>> {
+  const first = makeSearchBatch(input, input.contexts, input.initialPack);
+  if (first.estimatedInputTokens <= input.maxSearchInputTokens) {
+    return {
+      batches: [first],
+      estimatedInputTokens: first.estimatedInputTokens,
+      skippedTargets: 0,
+      wasSplit: false,
+    };
+  }
+
+  const batches: SearchBatch[] = [];
+  let skippedTargets = 0;
+  let currentContexts: readonly SemContext[] = [];
+  let currentBatch: SearchBatch | null = null;
+
+  for (const context of input.contexts) {
+    const candidateContexts = [...currentContexts, context];
+    const candidateBatch = await makeSearchBatchWithPack(input, candidateContexts);
+    if (candidateBatch.estimatedInputTokens <= input.maxSearchInputTokens) {
+      currentContexts = candidateContexts;
+      currentBatch = candidateBatch;
+      continue;
+    }
+
+    if (currentBatch) {
+      batches.push(currentBatch);
+      currentContexts = [];
+      currentBatch = null;
+    }
+
+    const singleBatch = candidateContexts.length === 1
+      ? candidateBatch
+      : await makeSearchBatchWithPack(input, [context]);
+    if (singleBatch.estimatedInputTokens <= input.maxSearchInputTokens) {
+      currentContexts = [context];
+      currentBatch = singleBatch;
+    } else {
+      skippedTargets += 1;
     }
   }
-  return candidates;
+
+  if (currentBatch) batches.push(currentBatch);
+
+  return {
+    batches,
+    estimatedInputTokens: first.estimatedInputTokens,
+    skippedTargets,
+    wasSplit: true,
+  };
 }
 
-function chunkBySize<T>(items: readonly T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size) as T[]);
-  }
-  return chunks;
-}
-
-function chunkSemChangeSet(changeSet: SemChangeSet): readonly SemChangeSet[] {
-  return chunkBySize(changeSet.changes, SEM_SCOUT_CHUNK_SIZE).map((changes, index) => ({
-    ...changeSet,
-    label: `${changeSet.label} batch ${index + 1}`,
-    changes,
-    summary: {
-      ...changeSet.summary,
-      fileCount: new Set(changes.map((change) => change.filePath)).size,
-      total: changes.length,
-    },
-  }));
-}
-
-function chunkSemContexts(
+function makeSearchBatch(
+  input: Readonly<{
+    changeSet: Parameters<typeof searchRequest>[0]["changeSet"];
+    checks: readonly StupifyCheck[];
+    profile: SearchProfile | null;
+    includeCounterReasonInPrompt: boolean;
+  }>,
   contexts: readonly SemContext[],
-  chunkSize: number,
-): readonly (readonly SemContext[])[] {
-  return chunkBySize(contexts, chunkSize);
+  pack: SemContextPack,
+): SearchBatch {
+  const request = buildSearchRequest(
+    input.changeSet,
+    contexts,
+    pack,
+    input.checks,
+    input.profile,
+    input.includeCounterReasonInPrompt,
+  );
+  return {
+    contexts,
+    pack,
+    request,
+    estimatedInputTokens: estimatePromptTokens(request.prompt),
+  };
+}
+
+async function makeSearchBatchWithPack(
+  input: Readonly<{
+    command: SearchCommand;
+    changeSet: Parameters<typeof searchRequest>[0]["changeSet"];
+    checks: readonly StupifyCheck[];
+    profile: SearchProfile | null;
+    includeCounterReasonInPrompt: boolean;
+    baseRepomixConfig: Parameters<typeof repomixContextPack>[3];
+  }>,
+  contexts: readonly SemContext[],
+): Promise<SearchBatch> {
+  const pack = input.profile?.context === "sem"
+    ? emptyContextPack()
+    : await repomixContextPack(input.changeSet.contextCwd, contexts, input.changeSet.changes, input.baseRepomixConfig);
+  return makeSearchBatch(input, contexts, pack);
+}
+
+function buildSearchRequest(
+  changeSet: Parameters<typeof searchRequest>[0]["changeSet"],
+  contexts: Parameters<typeof searchRequest>[0]["contexts"],
+  pack: SemContextPack,
+  patterns: readonly StupifyCheck[],
+  profile: SearchProfile | null,
+  includeCounterReasonInPrompt: boolean,
+) {
+  return searchRequest({
+    changeSet,
+    contexts,
+    pack,
+    patterns,
+    includeCounterReasonInPrompt: profile?.includeCounterReasonInPrompt ?? includeCounterReasonInPrompt,
+  });
 }
 
 function printRunPlan(
-  command: AnalyzeCommand,
-  diff: NetDiff,
-  checkIds: readonly string[],
-): void {
-  printRunPlanShared(
-    command,
-    diff.label,
-    `Diff: ${diff.stats.filesChanged} files changed, ${diff.stats.additions} added, ${diff.stats.deletions} deleted`,
-    checkIds,
-  );
-}
-
-function printSemRunPlan(
-  command: AnalyzeCommand,
-  changeSet: SemChangeSet,
-  checkIds: readonly string[],
-): void {
-  printRunPlanShared(
-    command,
-    changeSet.label,
-    `Sem: ${changeSet.summary.fileCount} files, ${changeSet.summary.total} changed entities`,
-    checkIds,
-  );
-}
-
-function printRunPlanShared(
-  command: AnalyzeCommand,
-  windowLabel: string,
-  detailLine: string,
-  checkIds: readonly string[],
+  command: SearchCommand,
+  patternIds: readonly string[],
 ): void {
   if (command.json) return;
   console.error("🧙 stupify 🪄");
-  console.error(`Window: ${windowLabel}`);
-  console.error(detailLine);
-  console.error(`Model: ${MODEL_REGISTRY[command.model].name}`);
-  console.error(`Checks: ${checkIds.join(", ")}`);
+  console.error(`Search: ${sourceLabel(command)}`);
+  console.error(`Patterns: ${patternIds.join(", ")}`);
 }
 
-async function netDiffForCommand(command: AnalyzeCommand): Promise<NetDiff> {
-  if (command.kind === "since") return netDiffSince(command.since);
-  if (command.kind === "stdin")
-    return netDiffFromStdin(await readDiffFromStdin());
-  if (command.kind === "commit") return netDiffForCommit(command.commit);
-  return netDiffForRecentCommits(command.count);
+function formatStep(name: string, ms: number, count?: number, detail?: string): string {
+  if (name === "entity.diff") return `Diff: ${detail ?? "changed files"}, ${count ?? 0} changed entities (${ms}ms)`;
+  if (name === "context.pack") return `Context: ${count ?? 0} files, ${detail ?? "0 tokens"} (${ms}ms)`;
+  if (name === "search.model") return `Model: ${count ?? 0} matches (${ms}ms)`;
+  return `${name}: ${ms}ms`;
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+function sourceLabel(command: SearchCommand): string {
+  if (command.kind === "since") return `since ${command.since}`;
+  if (command.kind === "commit") return `commit ${command.commit}`;
+  if (command.kind === "commits") return `last ${command.count} commits`;
+  if (command.kind === "staged") return "staged changes";
+  return "stdin diff";
+}
+
+function estimatePromptTokens(prompt: string): number {
+  return Math.ceil(prompt.length / 3);
+}
+
+function countTargetsByPattern(contexts: readonly SemContext[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const context of contexts) counts[context.checkId] = (counts[context.checkId] ?? 0) + 1;
+  return counts;
+}
+
+function previewTargets(contexts: readonly SemContext[]) {
+  return contexts.map((context) => ({
+    targetId: context.targetId,
+    patternId: context.checkId,
+    entityKind: context.entityKind || undefined,
+    sourceKind: context.filePath ? pathKind(context.filePath) : undefined,
+  }));
+}
+
+function pathKind(filePath: string): string {
+  const ext = filePath.split(".").pop();
+  return ext && ext !== filePath ? ext : "unknown";
+}
+
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   process.exitCode = await main();
 }

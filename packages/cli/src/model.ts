@@ -24,14 +24,22 @@ import type { ModelId } from "./types.ts";
 const execFileAsync = promisify(execFile);
 const LLAMA_SERVER_HOST = "127.0.0.1";
 
-export type ModelProfile = "scout" | "audit";
+export type ModelProfile = "scout";
 
 type ModelRuntime = Readonly<{
   profile: ModelProfile;
   baseUrl: string;
   port: string;
+  contextSize: number;
   reasoning: "on" | "off" | "auto";
   reasoningBudget?: number;
+  gpuLayers?: number;
+  batchSize?: number;
+  ubatchSize?: number;
+  parallel?: number;
+  threads?: number;
+  threadsBatch?: number;
+  flashAttention?: boolean;
 }>;
 
 export type LocalModel = Readonly<{
@@ -40,13 +48,6 @@ export type LocalModel = Readonly<{
   baseUrl: string;
   profile: ModelProfile;
 }>;
-
-export async function loadLocalModels(modelId: ModelId) {
-  const modelPath = await firstRunModelBootstrap(modelId);
-  const scoutModel = await loadLocalModel(modelPath, modelId, "scout");
-  const auditModel = await loadLocalModel(modelPath, modelId, "audit");
-  return { scoutModel, auditModel };
-}
 
 export async function firstRunModelBootstrap(
   modelId: ModelId,
@@ -84,7 +85,7 @@ export async function loadLocalModel(
     if (runningModel !== modelId) await stopManagedServer(runtime);
     if (runningModel === modelId) {
       console.error(
-        `Using already-loaded local ${profile} model: ${selectedModel.name}`,
+        `Using local model: ${selectedModel.name}`,
       );
       return {
         id: modelId,
@@ -107,18 +108,6 @@ export async function loadLocalModel(
 }
 
 function modelRuntime(profile: ModelProfile): ModelRuntime {
-  if (profile === "audit") {
-    const baseUrl =
-      process.env.STUPIFY_AUDIT_LLAMA_SERVER_URL ?? "http://127.0.0.1:8092";
-    return {
-      profile,
-      baseUrl,
-      port: new URL(baseUrl).port || "8092",
-      reasoning: "on",
-      reasoningBudget: 4_096,
-    };
-  }
-
   const baseUrl =
     process.env.STUPIFY_SCOUT_LLAMA_SERVER_URL ??
     process.env.STUPIFY_LLAMA_SERVER_URL ??
@@ -127,7 +116,15 @@ function modelRuntime(profile: ModelProfile): ModelRuntime {
     profile,
     baseUrl,
     port: new URL(baseUrl).port || "8091",
+    contextSize: envInteger("STUPIFY_LLAMA_CONTEXT") ?? 65_536,
     reasoning: "off",
+    gpuLayers: envInteger("STUPIFY_LLAMA_GPU_LAYERS") ?? 999,
+    batchSize: envInteger("STUPIFY_LLAMA_BATCH") ?? 2_048,
+    ubatchSize: envInteger("STUPIFY_LLAMA_UBATCH") ?? 512,
+    parallel: envInteger("STUPIFY_LLAMA_PARALLEL") ?? 2,
+    threads: envInteger("STUPIFY_LLAMA_THREADS"),
+    threadsBatch: envInteger("STUPIFY_LLAMA_THREADS_BATCH"),
+    flashAttention: envBoolean("STUPIFY_LLAMA_FLASH_ATTN"),
   };
 }
 
@@ -169,7 +166,7 @@ async function startLlamaServer(
   const out = await open(logPath, "a");
   const err = await open(logPath, "a");
 
-  console.error(`Starting local ${runtime.profile} model server: ${modelName}`);
+  console.error(`Starting local model server: ${modelName}`);
   console.error(`llama-server log: ${logPath}`);
 
   const args = [
@@ -182,11 +179,18 @@ async function startLlamaServer(
     "--port",
     runtime.port,
     "-c",
-    "65536",
+    String(runtime.contextSize),
     "--reasoning",
     runtime.reasoning,
     "--no-warmup",
   ];
+  if (runtime.gpuLayers !== undefined) args.push("-ngl", String(runtime.gpuLayers));
+  if (runtime.batchSize !== undefined) args.push("-b", String(runtime.batchSize));
+  if (runtime.ubatchSize !== undefined) args.push("-ub", String(runtime.ubatchSize));
+  if (runtime.parallel !== undefined) args.push("-np", String(runtime.parallel));
+  if (runtime.threads !== undefined) args.push("-t", String(runtime.threads));
+  if (runtime.threadsBatch !== undefined) args.push("-tb", String(runtime.threadsBatch));
+  if (runtime.flashAttention !== undefined) args.push("-fa", runtime.flashAttention ? "on" : "off");
   if (runtime.reasoningBudget !== undefined) {
     args.push("--reasoning-budget", String(runtime.reasoningBudget));
   }
@@ -211,7 +215,7 @@ Stop it before switching models, or use STUPIFY_LLAMA_SERVER_URL for that server
   }
 
   console.error(
-    `Restarting local ${runtime.profile} model server for selected model.`,
+    "Restarting local model server for selected model.",
   );
   try {
     process.kill(pid, "SIGTERM");
@@ -242,11 +246,20 @@ async function managedServerPid(runtime: ModelRuntime): Promise<number | null> {
 }
 
 function pidPath(runtime: ModelRuntime): string {
-  const filename =
-    runtime.profile === "scout"
-      ? "llama-server.pid"
-      : `llama-server-${runtime.profile}.pid`;
-  return path.join(cacheDir(), filename);
+  return path.join(cacheDir(), "llama-server.pid");
+}
+
+function envInteger(name: string, fallback?: number): number | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const value = Number(raw);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function envBoolean(name: string): boolean | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return undefined;
+  return /^(1|true|yes|on)$/i.test(raw);
 }
 
 async function waitForServer(baseUrl: string, modelId: ModelId): Promise<void> {

@@ -1,0 +1,9 @@
+{
+  "id": "lint_bypass_negative_reasoned_eslint_disable",
+  "description": "A targeted eslint suppression includes a concrete inline reason.",
+  "checks": ["lint_bypass"],
+  "expected": [
+    { "patternId": "lint_bypass", "shouldMatch": false }
+  ],
+  "stagedPatch": "diff --git a/src/component.tsx b/src/component.tsx\nnew file mode 100644\n--- /dev/null\n+++ b/src/component.tsx\n@@ -0,0 +1,13 @@\n+export function OrderedList({ items }: { items: string[] }) {\n+  const rows: string[] = [];\n+  /* eslint-disable-next-line no-restricted-syntax -- the UI must preserve the server-provided order. */\n+  for (const item of items) {\n+    rows.push(item);\n+  }\n+  return <ol>{rows.map((item) => <li key={item}>{item}</li>)}</ol>;\n+}\n"
+}

@@ -10,9 +10,10 @@ import {
   sourceRangeForCommit,
   sourceRangeForRecentCommits,
   sourceRangeSince,
+  stagedDiff,
 } from "./git.ts";
 import type {
-  AnalyzeCommand,
+  SearchCommand,
   SemChange,
   SemChangeSet,
   SemChangeSummary,
@@ -23,9 +24,14 @@ import { sourceId } from "./types.ts";
 const execFileAsync = promisify(execFile);
 
 export async function semChangeSetForCommand(
-  command: AnalyzeCommand,
+  command: SearchCommand,
 ): Promise<SemChangeSet> {
   if (command.kind === "stdin") return semChangeSetFromPatch(await readDiffFromStdin(), command.debugSem);
+  if (command.kind === "staged") {
+    const diff = await stagedDiff();
+    if (!diff.text.trim()) return emptyChangeSet("staged", diff.stats);
+    return semChangeSetFromPatch(diff.text, command.debugSem, "staged");
+  }
   if (command.kind === "commit") {
     const range = await sourceRangeForCommit(command.commit);
     const raw = await cachedSemDiff(
@@ -45,14 +51,35 @@ export async function semChangeSetForCommand(
   return withContextWorkspace(normalizeSemDiff(raw, range), command.debugSem);
 }
 
-async function semRangeForCommand(command: AnalyzeCommand): Promise<SourceRange> {
+function emptyChangeSet(label: string, stats: SourceRange["stats"]): SemChangeSet {
+  return {
+    id: sourceId(label),
+    label,
+    base: label,
+    target: label,
+    contextCwd: process.cwd(),
+    cleanup: async () => undefined,
+    changes: [],
+    summary: {
+      added: stats.additions,
+      deleted: stats.deletions,
+      modified: 0,
+      moved: 0,
+      renamed: 0,
+      fileCount: stats.filesChanged,
+      total: 0,
+    },
+  };
+}
+
+async function semRangeForCommand(command: SearchCommand): Promise<SourceRange> {
   if (command.kind === "since") return sourceRangeSince(command.since);
   if (command.kind === "commit") return sourceRangeForCommit(command.commit);
   if (command.kind === "commits") return sourceRangeForRecentCommits(command.count);
-  throw new Error("sem engine cannot resolve stdin as a git range.");
+  throw new Error("sem cannot resolve stdin as a git range.");
 }
 
-async function semChangeSetFromPatch(patch: string, debugSem: boolean): Promise<SemChangeSet> {
+async function semChangeSetFromPatch(patch: string, debugSem: boolean, label = "stdin"): Promise<SemChangeSet> {
   if (!patch.trim()) throw new Error("No diff received on stdin.");
   const raw = await cachedJson(
     "sem-diff",
@@ -66,10 +93,10 @@ async function semChangeSetFromPatch(patch: string, debugSem: boolean): Promise<
   );
   return {
     ...normalizeSemDiff(raw, {
-    id: sourceId("stdin"),
-    label: "stdin",
-    base: "stdin",
-    target: "stdin",
+    id: sourceId(label),
+    label,
+    base: label,
+    target: label,
     stats: { filesChanged: 0, additions: 0, deletions: 0 },
     }),
     contextCwd: process.cwd(),
