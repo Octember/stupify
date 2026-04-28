@@ -37,7 +37,7 @@ export function renderSearchRunToUi(run: SearchRunJson, command: SearchCommand, 
   ui.warn(format.warn(format.heading("AI SLOP DETECTED")));
   ui.note(matchSummaryText(run, command), "Summary");
   for (const group of groupMatchesByFile(run.matches)) {
-    ui.note(renderMatchGroup(group), group.filePath);
+    ui.note(renderMatchGroup(group, run), group.filePath);
   }
   ui.outro(summaryLine(run));
 }
@@ -66,7 +66,7 @@ ${format.success("No judgment-offload signals found.")}`;
 ${matchSummaryText(run, command)}
 
 ${groups.map((group) => `${format.heading(group.filePath)}
-${renderMatchGroup(group)}`).join("\n\n")}
+${renderMatchGroup(group, run)}`).join("\n\n")}
 ${format.muted(summaryLine(run))}`;
 }
 
@@ -154,8 +154,8 @@ function matchSummaryText(run: SearchRunJson, command: SearchCommand): string {
 
 function patternSummaryLine(run: SearchRunJson): string {
   const counts = new Map<string, number>();
-  for (const match of run.matches) counts.set(match.patternId, (counts.get(match.patternId) ?? 0) + 1);
-  return [...counts.entries()].map(([patternId, count]) => `${patternId} ${count}`).join(" · ");
+  for (const match of run.matches) counts.set(patternLabel(match), (counts.get(patternLabel(match)) ?? 0) + 1);
+  return [...counts.entries()].map(([patternName, count]) => `${patternName} ${count}`).join(" · ");
 }
 
 function groupMatchesByFile(matches: SearchRunJson["matches"]): readonly MatchGroup[] {
@@ -172,17 +172,78 @@ function groupMatchesByFile(matches: SearchRunJson["matches"]): readonly MatchGr
   }));
 }
 
-function renderMatchGroup(group: MatchGroup): string {
+function renderMatchGroup(group: MatchGroup, run: SearchRunJson): string {
   return group.matches.map((match, index) => {
     const lines = [
-      `${index + 1}. ${format.label(match.patternId)}`,
+      matchHeadline(match, run, index),
       match.reason,
       match.snapshot ? `\n\`\`\`\n${match.snapshot}\n\`\`\`` : null,
-      format.muted(proofDetail(match.proof)),
+      format.muted(`${proofDetail(match.proof)}${commitSubjectSuffix(run)}`),
       match.checkWhy ?? "This pattern may indicate judgment-offload.",
     ];
     return lines.filter(Boolean).join("\n");
   }).join("\n\n");
+}
+
+function matchHeadline(match: SearchRunJson["matches"][number], run: SearchRunJson, index: number): string {
+  return `${index + 1}. ${format.label(patternLabel(match))}: ${headlineArgs(match)} -- ${blameLabel(run)}`;
+}
+
+function patternLabel(match: SearchRunJson["matches"][number]): string {
+  return titleCase(match.patternName ?? match.patternId.replace(/_/g, " "));
+}
+
+function headlineArgs(match: SearchRunJson["matches"][number]): string {
+  const destination = entityNameFromProof(match.proof);
+  const source = firstBacktickedToken(match.reason) ?? firstLikelySource(match.reason, destination);
+  if (source && destination && source !== destination) return `${codeLabel(source)} -> ${codeLabel(destination)}`;
+  if (destination) return codeLabel(destination);
+  return codeLabel(match.targetId);
+}
+
+function blameLabel(run: SearchRunJson): string {
+  const author = committerLabel(run);
+  const subject = firstHumanSubject(run.stats.commitSubjects ?? []);
+  return subject ? `${author} (${subject})` : author;
+}
+
+function commitSubjectSuffix(run: SearchRunJson): string {
+  const subject = firstHumanSubject(run.stats.commitSubjects ?? []);
+  return subject ? ` · commit: ${subject}` : "";
+}
+
+function firstHumanSubject(subjects: readonly string[]): string | undefined {
+  return subjects.map((subject) => subject.trim()).find(Boolean);
+}
+
+function codeLabel(value: string): string {
+  return `\`${value}\``;
+}
+
+function titleCase(value: string): string {
+  return value.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
+function entityNameFromProof(proof: string): string | undefined {
+  const parts = proof.split("::");
+  return parts[2] || parts[1] || undefined;
+}
+
+function firstBacktickedToken(value: string): string | undefined {
+  const match = /`([^`]+)`/.exec(value);
+  return cleanToken(match?.[1]);
+}
+
+function firstLikelySource(value: string, destination?: string): string | undefined {
+  const tokens = [...value.matchAll(/\b[A-Z][A-Za-z0-9_]*(?:\[[^\]]+\])?\b/g)]
+    .map((match) => cleanToken(match[0]))
+    .filter((token): token is string => Boolean(token));
+  return tokens.find((token) => token !== destination && token !== "The");
+}
+
+function cleanToken(value: string | undefined): string | undefined {
+  const token = value?.trim().replace(/[.,;:]+$/, "");
+  return token || undefined;
 }
 
 function proofFilePath(proof: string): string {

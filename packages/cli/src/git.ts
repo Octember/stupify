@@ -124,11 +124,12 @@ async function netDiff(base: string, target: string, label: string, id?: NetDiff
 }
 
 async function sourceRange(base: string, target: string, label: string, id?: SourceRange["id"]): Promise<SourceRange> {
-  const [stats, shortBase, shortTarget, committers] = await Promise.all([
+  const [stats, shortBase, shortTarget, committers, commitSubjects] = await Promise.all([
     diffStats(base, target),
     shortCommit(base),
     shortCommit(target),
     committersForRange(base, target),
+    commitSubjectsForRange(base, target),
   ]);
   return {
     id: id ?? sourceId(`net:${shortBase}..${shortTarget}`),
@@ -136,6 +137,7 @@ async function sourceRange(base: string, target: string, label: string, id?: Sou
     base,
     target,
     committers,
+    commitSubjects,
     stats,
   };
 }
@@ -152,6 +154,17 @@ async function gitConfig(key: string): Promise<string> {
 async function committersForRange(base: string, target: string): Promise<readonly string[]> {
   try {
     const { stdout } = await execFileAsync("git", ["log", "--format=%cn <%ce>", `${base}..${target}`], {
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    return uniqueLines(stdout);
+  } catch {
+    return [];
+  }
+}
+
+async function commitSubjectsForRange(base: string, target: string): Promise<readonly string[]> {
+  try {
+    const { stdout } = await execFileAsync("git", ["log", "--format=%s", `${base}..${target}`], {
       maxBuffer: 4 * 1024 * 1024,
     });
     return uniqueLines(stdout);

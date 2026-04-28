@@ -93,6 +93,7 @@ export type SourceRange = Readonly<{
   base: string;
   target: string;
   committers?: readonly string[];
+  commitSubjects?: readonly string[];
   stats: NetDiffStats;
 }>;
 
@@ -122,6 +123,7 @@ export type SemChangeSet = Readonly<{
   base: string;
   target: string;
   committers?: readonly string[];
+  commitSubjects?: readonly string[];
   contextCwd: string;
   cleanup: () => Promise<void>;
   changes: readonly SemChange[];
@@ -195,6 +197,7 @@ export type SearchProfile = Readonly<{
 export type SearchMatch = Readonly<{
   targetId: string;
   patternId: CheckId;
+  patternName?: string;
   checkWhy?: string;
   reason: string;
   proof: string;
@@ -215,6 +218,7 @@ export type SearchRunJson = Readonly<{
     skipped?: boolean;
     skipReason?: "input_too_large" | "no_candidates";
     committers?: readonly string[];
+    commitSubjects?: readonly string[];
     filesChanged?: number;
     entitiesScanned?: number;
     candidates?: number;

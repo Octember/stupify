@@ -126,6 +126,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
           elapsedMs: Date.now() - startedAt,
           modelCalls: 0,
           committers: changeSet.committers,
+          commitSubjects: changeSet.commitSubjects,
           skipped: true,
           skipReason: "no_candidates",
           filesChanged: changeSet.summary.fileCount,
@@ -169,6 +170,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
           elapsedMs: Date.now() - startedAt,
           modelCalls: 0,
           committers: changeSet.committers,
+          commitSubjects: changeSet.commitSubjects,
           skipped: true,
           skipReason: "no_candidates",
           filesChanged: changeSet.summary.fileCount,
@@ -223,6 +225,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
           inputTokens: batches.estimatedInputTokens,
           inputTokenCap: maxSearchInputTokens,
           committers: changeSet.committers,
+          commitSubjects: changeSet.commitSubjects,
           skipped: true,
           skipReason: "input_too_large",
           filesChanged: changeSet.summary.fileCount,
@@ -299,6 +302,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
         inputTokens,
         inputTokenCap: maxSearchInputTokens,
         committers: changeSet.committers,
+        commitSubjects: changeSet.commitSubjects,
         filesChanged: changeSet.summary.fileCount,
         entitiesScanned: changeSet.summary.total,
         candidates: contexts.length,
@@ -333,6 +337,7 @@ function withCheckWhy(matches: readonly SearchMatch[], checks: readonly StupifyC
   const checksById = new Map(checks.map((check) => [check.id, check]));
   return matches.map((match) => ({
     ...match,
+    patternName: checksById.get(match.patternId)?.name,
     checkWhy: checksById.get(match.patternId)?.why,
   }));
 }

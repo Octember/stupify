@@ -81,12 +81,14 @@ test("renders matches as slop report fields", () => {
       elapsedMs: 123,
       modelCalls: 1,
       committers: ["Noah Lindner <noah@example.com>", "GitHub <noreply@github.com>"],
+      commitSubjects: ["fix: timeline drag payload"],
     },
     matches: [{
       targetId: "t001",
       patternId: checkId("duplicated_schema"),
+      patternName: "Duplicated schema",
       checkWhy: "Duplicated shapes drift.",
-      reason: "Payload repeats the same fields.",
+      reason: "FooPayload repeats fields from `ItemType`.",
       proof: "src/foo.ts::type::FooPayload",
       snapshot: "type FooPayload = { id: string };",
     }],
@@ -100,12 +102,12 @@ test("renders matches as slop report fields", () => {
   assert.match(output, /Noah Lindner · staged/);
   assert.match(output, /Warn-only\. Nothing blocked\./);
   assert.doesNotMatch(output, /GitHub/);
-  assert.match(output, /duplicated_schema 1/);
+  assert.match(output, /Duplicated Schema 1/);
   assert.match(output, /src\/foo\.ts/);
-  assert.match(output, /1\. duplicated_schema/);
-  assert.match(output, /Payload repeats the same fields\./);
+  assert.match(output, /1\. Duplicated Schema: `ItemType` -> `FooPayload` -- Noah Lindner \(fix: timeline drag payload\)/);
+  assert.match(output, /FooPayload repeats fields from `ItemType`\./);
   assert.match(output, /```\ntype FooPayload = \{ id: string \};\n```/);
-  assert.match(output, /::type::FooPayload/);
+  assert.match(output, /::type::FooPayload · commit: fix: timeline drag payload/);
   assert.match(output, /Duplicated shapes drift\./);
   assert.match(output, /1 signal\. Warn-only\. Nothing blocked\./);
   assert.doesNotMatch(output, /who:/);
