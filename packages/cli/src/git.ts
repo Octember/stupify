@@ -96,6 +96,15 @@ export async function gitPath(pathspec: string): Promise<string> {
   }
 }
 
+export async function gitUserLabel(): Promise<string> {
+  const [name, email] = await Promise.all([
+    gitConfig("user.name"),
+    gitConfig("user.email"),
+  ]);
+  if (name && email) return `${name} <${email}>`;
+  return name || email || "working tree";
+}
+
 async function netDiff(base: string, target: string, label: string, id?: NetDiff["id"]): Promise<NetDiff> {
   const [text, stats, shortBase, shortTarget] = await Promise.all([
     diff(base, target),
@@ -114,18 +123,52 @@ async function netDiff(base: string, target: string, label: string, id?: NetDiff
 }
 
 async function sourceRange(base: string, target: string, label: string, id?: SourceRange["id"]): Promise<SourceRange> {
-  const [stats, shortBase, shortTarget] = await Promise.all([
+  const [stats, shortBase, shortTarget, committers] = await Promise.all([
     diffStats(base, target),
     shortCommit(base),
     shortCommit(target),
+    committersForRange(base, target),
   ]);
   return {
     id: id ?? sourceId(`net:${shortBase}..${shortTarget}`),
     label,
     base,
     target,
+    committers,
     stats,
   };
+}
+
+async function gitConfig(key: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", ["config", "--get", key]);
+    return stdout.trim();
+  } catch {
+    return "";
+  }
+}
+
+async function committersForRange(base: string, target: string): Promise<readonly string[]> {
+  try {
+    const { stdout } = await execFileAsync("git", ["log", "--format=%cn <%ce>", `${base}..${target}`], {
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    return uniqueLines(stdout);
+  } catch {
+    return [];
+  }
+}
+
+function uniqueLines(value: string): readonly string[] {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const line of value.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    lines.push(trimmed);
+  }
+  return lines;
 }
 
 async function baseBefore(since: string): Promise<string> {

@@ -32,11 +32,13 @@ No judgment-offload signals found.`;
   }
 
   return `🧙 stupify 🪄
-Possible judgment-offload detected:
-${run.matches.map((match, index) => `${index + 1}. ${match.patternId}
-   Why: ${match.checkWhy ?? "This pattern may indicate judgment-offload."}
-   Match: ${match.reason}
-   Proof: ${match.proof}`).join("\n")}
+AI SLOP DETECTED
+${run.matches.map((match, index) => `${index + 1}.
+   who: ${committerLabel(run)}
+   what: ${match.patternId} - ${match.reason}
+   when: ${sourceLabel(command)}
+   where: ${match.proof}
+   why: ${match.checkWhy ?? "This pattern may indicate judgment-offload."}`).join("\n")}
 Search mode is warn-only.`;
 }
 
@@ -94,4 +96,19 @@ function sourceHint(command: SearchCommand): string {
   if (command.kind === "commit") return `--commit ${command.commit}`;
   if (command.kind === "commits") return `--commits ${command.count}`;
   return "--stdin";
+}
+
+function sourceLabel(command: SearchCommand): string {
+  if (command.kind === "staged") return "staged changes";
+  if (command.kind === "since") return `since ${command.since}`;
+  if (command.kind === "commit") return `commit ${command.commit}`;
+  if (command.kind === "commits") return `last ${command.count} commits`;
+  return "stdin diff";
+}
+
+function committerLabel(run: SearchRunJson): string {
+  const committers = (run.stats.committers ?? []).filter(Boolean);
+  if (committers.length === 0) return "unknown committer";
+  if (committers.length <= 3) return committers.join(", ");
+  return `${committers.slice(0, 3).join(", ")} +${committers.length - 3} more`;
 }

@@ -92,6 +92,7 @@ export type SourceRange = Readonly<{
   label: string;
   base: string;
   target: string;
+  committers?: readonly string[];
   stats: NetDiffStats;
 }>;
 
@@ -120,6 +121,7 @@ export type SemChangeSet = Readonly<{
   label: string;
   base: string;
   target: string;
+  committers?: readonly string[];
   contextCwd: string;
   cleanup: () => Promise<void>;
   changes: readonly SemChange[];
@@ -211,6 +213,7 @@ export type SearchRunJson = Readonly<{
     inputTokenCap?: number;
     skipped?: boolean;
     skipReason?: "input_too_large" | "no_candidates";
+    committers?: readonly string[];
     filesChanged?: number;
     entitiesScanned?: number;
     candidates?: number;

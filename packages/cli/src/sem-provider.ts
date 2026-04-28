@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { cachedJson, fingerprint } from "./cache.ts";
 import { readDiffFromStdin } from "./diff.ts";
 import {
+  gitUserLabel,
   sourceRangeForCommit,
   sourceRangeForRecentCommits,
   sourceRangeSince,
@@ -26,11 +27,12 @@ const execFileAsync = promisify(execFile);
 export async function semChangeSetForCommand(
   command: SearchCommand,
 ): Promise<SemChangeSet> {
-  if (command.kind === "stdin") return semChangeSetFromPatch(await readDiffFromStdin(), command.debugSem);
+  if (command.kind === "stdin") return semChangeSetFromPatch(await readDiffFromStdin(), command.debugSem, "stdin", ["stdin"]);
   if (command.kind === "staged") {
-    const diff = await stagedDiff();
-    if (!diff.text.trim()) return emptyChangeSet("staged", diff.stats);
-    return semChangeSetFromPatch(diff.text, command.debugSem, "staged");
+    const [diff, committer] = await Promise.all([stagedDiff(), gitUserLabel()]);
+    const committers = [committer];
+    if (!diff.text.trim()) return emptyChangeSet("staged", diff.stats, committers);
+    return semChangeSetFromPatch(diff.text, command.debugSem, "staged", committers);
   }
   if (command.kind === "commit") {
     const range = await sourceRangeForCommit(command.commit);
@@ -51,12 +53,17 @@ export async function semChangeSetForCommand(
   return withContextWorkspace(normalizeSemDiff(raw, range), command.debugSem);
 }
 
-function emptyChangeSet(label: string, stats: SourceRange["stats"]): SemChangeSet {
+function emptyChangeSet(
+  label: string,
+  stats: SourceRange["stats"],
+  committers?: readonly string[],
+): SemChangeSet {
   return {
     id: sourceId(label),
     label,
     base: label,
     target: label,
+    committers,
     contextCwd: process.cwd(),
     cleanup: async () => undefined,
     changes: [],
@@ -79,7 +86,12 @@ async function semRangeForCommand(command: SearchCommand): Promise<SourceRange> 
   throw new Error("sem cannot resolve stdin as a git range.");
 }
 
-async function semChangeSetFromPatch(patch: string, debugSem: boolean, label = "stdin"): Promise<SemChangeSet> {
+async function semChangeSetFromPatch(
+  patch: string,
+  debugSem: boolean,
+  label = "stdin",
+  committers?: readonly string[],
+): Promise<SemChangeSet> {
   if (!patch.trim()) throw new Error("No diff received on stdin.");
   const raw = await cachedJson(
     "sem-diff",
@@ -93,11 +105,12 @@ async function semChangeSetFromPatch(patch: string, debugSem: boolean, label = "
   );
   return {
     ...normalizeSemDiff(raw, {
-    id: sourceId(label),
-    label,
-    base: label,
-    target: label,
-    stats: { filesChanged: 0, additions: 0, deletions: 0 },
+      id: sourceId(label),
+      label,
+      base: label,
+      target: label,
+      committers,
+      stats: { filesChanged: 0, additions: 0, deletions: 0 },
     }),
     contextCwd: process.cwd(),
     cleanup: async () => undefined,
@@ -225,6 +238,7 @@ function normalizeSemDiff(value: unknown, range: SourceRange): SemChangeSet {
     label: range.label,
     base: range.base,
     target: range.target,
+    committers: range.committers,
     contextCwd: process.cwd(),
     cleanup: async () => undefined,
     changes,

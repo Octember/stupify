@@ -93,6 +93,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
         stats: {
           elapsedMs: Date.now() - startedAt,
           modelCalls: 0,
+          committers: changeSet.committers,
           skipped: true,
           skipReason: "no_candidates",
           filesChanged: changeSet.summary.fileCount,
@@ -134,6 +135,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
         stats: {
           elapsedMs: Date.now() - startedAt,
           modelCalls: 0,
+          committers: changeSet.committers,
           skipped: true,
           skipReason: "no_candidates",
           filesChanged: changeSet.summary.fileCount,
@@ -177,6 +179,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
           modelCalls: 0,
           inputTokens: batches.estimatedInputTokens,
           inputTokenCap: maxSearchInputTokens,
+          committers: changeSet.committers,
           skipped: true,
           skipReason: "input_too_large",
           filesChanged: changeSet.summary.fileCount,
@@ -240,6 +243,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
         modelCalls,
         inputTokens,
         inputTokenCap: maxSearchInputTokens,
+        committers: changeSet.committers,
         filesChanged: changeSet.summary.fileCount,
         entitiesScanned: changeSet.summary.total,
         candidates: contexts.length,
