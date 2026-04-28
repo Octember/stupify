@@ -1,5 +1,6 @@
 import { VERSION } from "./constants.ts";
 import type { AnalysisReport, AnalyzeCommand } from "./types.ts";
+import { format } from "./ui.ts";
 
 export function renderReport(report: AnalysisReport, command: AnalyzeCommand): string {
   if (command.json) {
@@ -14,31 +15,31 @@ export function renderReport(report: AnalysisReport, command: AnalyzeCommand): s
   }
 
   if (report.run.engine === "sem") {
-    return `Search:
+    return `${format.heading("Search:")}
   ${report.run.entitiesScanned} entities scanned
   ${report.run.candidateCount} candidate entities found
-Audit:
+${format.heading("Audit:")}
   ${report.run.auditedCandidateCount} candidates inspected
   ${report.result.findings.length} findings
 ${renderAuditStats(report)}
 ${renderWarnings(report)}
-Findings:
+${format.heading("Findings:")}
 ${renderFindings(report)}
-Timing:
-  total_ms=${report.run.timingsMs.total} entity_diff_ms=${report.run.timingsMs.diff} model_ms=${report.run.timingsMs.modelLoad} scout_ms=${report.run.timingsMs.search} context_audit_ms=${report.run.timingsMs.audit}`;
+${format.heading("Timing:")}
+  ${format.muted(`total_ms=${report.run.timingsMs.total} entity_diff_ms=${report.run.timingsMs.diff} model_ms=${report.run.timingsMs.modelLoad} scout_ms=${report.run.timingsMs.search} context_audit_ms=${report.run.timingsMs.audit}`)}`;
   }
 
-  return `Search:
+  return `${format.heading("Search:")}
   ${report.run.batchesScanned} batches scanned
   ${report.run.candidateCount} candidate regions found
-Audit:
+${format.heading("Audit:")}
   ${report.run.auditedCandidateCount} candidates inspected
   ${report.result.findings.length} findings
 ${renderWarnings(report)}
-Findings:
+${format.heading("Findings:")}
 ${renderFindings(report)}
-Timing:
-  total_ms=${report.run.timingsMs.total} diff_ms=${report.run.timingsMs.diff} model_ms=${report.run.timingsMs.modelLoad} search_ms=${report.run.timingsMs.search} audit_ms=${report.run.timingsMs.audit}`;
+${format.heading("Timing:")}
+  ${format.muted(`total_ms=${report.run.timingsMs.total} diff_ms=${report.run.timingsMs.diff} model_ms=${report.run.timingsMs.modelLoad} search_ms=${report.run.timingsMs.search} audit_ms=${report.run.timingsMs.audit}`)}`;
 }
 
 export function helpText(): string {
@@ -84,18 +85,18 @@ Not included:
 }
 
 function renderFindings(report: AnalysisReport): string {
-  if (report.result.findings.length === 0) return "  None.";
+  if (report.result.findings.length === 0) return `  ${format.success("None.")}`;
 
   return report.result.findings
-    .map((finding) => `- ${finding.checkId}
+    .map((finding) => `${format.warn("-")} ${format.label(finding.checkId)}
   ${finding.why}
-  Proof: ${finding.proof}`)
+  ${format.muted("Proof:")} ${finding.proof}`)
     .join("\n");
 }
 
 function renderWarnings(report: AnalysisReport): string {
   if (report.run.warnings.length === 0) return "";
-  return `Warnings:
+  return `${format.heading("Warnings:")}
 ${report.run.warnings.map((warning) => `  ${warning}`).join("\n")}
 `;
 }
