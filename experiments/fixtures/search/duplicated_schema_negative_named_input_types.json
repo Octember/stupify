@@ -1,0 +1,9 @@
+{
+  "id": "duplicated_schema_negative_named_input_types",
+  "description": "Ordinary input types should not be treated as duplicated schema by name alone.",
+  "checks": ["duplicated_schema"],
+  "expected": [
+    { "patternId": "duplicated_schema", "shouldMatch": false }
+  ],
+  "stagedPatch": "diff --git a/src/operation-types.ts b/src/operation-types.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/operation-types.ts\n@@ -0,0 +1,17 @@\n+export type CreateOperationInput = {\n+  projectId: string;\n+  userId: string;\n+  requestedAt: string;\n+};\n+\n+export type CreateOperationStepInput = {\n+  operationId: string;\n+  label: string;\n+  index: number;\n+};\n+\n+export function createOperation(input: CreateOperationInput) {\n+  return { ...input, status: \"queued\" as const };\n+}\n"
+}

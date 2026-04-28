@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { sourceId, type NetDiff, type NetDiffStats, type SourceRange } from "./types.ts";
+import { sourceId, type NetDiff, type NetDiffStats, type SourceRange, type StagedDiff } from "./types.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -60,6 +60,40 @@ export async function netDiffFromStdin(text: string): Promise<NetDiff> {
     text,
     stats: statsFromDiff(text),
   };
+}
+
+export async function stagedDiff(): Promise<StagedDiff> {
+  try {
+    const { stdout } = await execFileAsync("git", [
+      "diff",
+      "--cached",
+      "--no-ext-diff",
+      "--no-color",
+      "--unified=3",
+      "--",
+    ], { maxBuffer: 64 * 1024 * 1024 });
+    return { text: stdout, stats: statsFromDiff(stdout) };
+  } catch {
+    throw new Error("Could not read staged changes. Run stupify inside a git repository.");
+  }
+}
+
+export async function gitRoot(): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--show-toplevel"]);
+    return stdout.trim();
+  } catch {
+    throw new Error("Could not find a git repository.");
+  }
+}
+
+export async function gitPath(pathspec: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--git-path", pathspec]);
+    return stdout.trim();
+  } catch {
+    throw new Error(`Could not resolve git path: ${pathspec}`);
+  }
 }
 
 async function netDiff(base: string, target: string, label: string, id?: NetDiff["id"]): Promise<NetDiff> {

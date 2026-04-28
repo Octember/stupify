@@ -8,8 +8,8 @@ sound.**
 Local-only diagnostic tooling for checking whether AI is making developers
 dumber.
 
-Current goal: turn recent local changes into compact review evidence, use the
-local model to scout candidates, audit those candidates, and print findings.
+Current goal: turn recent local changes into compact search evidence and use a
+local model to warn on concrete judgment-offload matches.
 
 ## CLI
 
@@ -27,38 +27,31 @@ npx @stupify/cli --commit HEAD
 
 By default, `stupify` is equivalent to `stupify --since "2 weeks ago"`.
 Commit mode analyzes `<commit>^..commit` as a net diff.
-The default registry currently runs nine concise checks for duplicated schemas,
-unnecessary complexity, fake precision, noisy metadata, mega-files,
-over-commenting, lint bypasses, inconsistent patterns, and reinvented
-utilities. `operator_style_mismatch` remains available with `--checks`, but is
-not enabled by default because it is noisy in the sem audit path.
+The default search registry enables the checks that currently pass the local
+hook-safety bench: `duplicated_schema`, `unnecessary_complexity`,
+`over_commenting`, `lint_bypass`, and `reinvented_utils`. Other registry
+patterns remain available with `--checks`.
 
-Try semantic ingestion:
+The only analysis path is:
 
-```sh
-npx @stupify/cli --engine sem --commit HEAD
+```text
+sem diff -> counter scout -> Repomix context -> local search model
 ```
 
-The sem engine uses `sem diff` for entity-level changes, scouts candidate
-entity IDs, packs selected candidate files locally with Repomix, then audits the
-packed context. Findings-audit batches are split before local inference when
-the prompt exceeds the configured input-token cap, and audit model calls run
-with bounded local concurrency. Use `--scout counter` to replace the LLM scout
-with fast deterministic signal counters. Use `--scout llm` to compare against
-the older local model scout. Use `--audit-context none` to audit
-only sem entity deltas, or `--audit-prompt high_bar` to run the stricter audit
-framing.
+Search mode emits `matches`, not audit findings. If the local search input is
+too large, Stupify skips instead of reviewing truncated context.
 
-Run the local Bevyl ablation matrix:
+Install the warn-only pre-commit hook:
 
 ```sh
-BEVYL_REPO=/path/to/bevyl-app bun run experiment:bevyl
-BEVYL_REPO=/path/to/bevyl-app bun run experiment:bevyl:checks
+stupify hook install
 ```
 
-The experiment runner shells out to the existing CLI, writes JSON and
-manual-label markdown files under `experiments/results/`, and keeps all source
-context local.
+Check local setup:
+
+```sh
+stupify doctor
+```
 
 Analyze recent commits:
 
@@ -69,14 +62,14 @@ npx @stupify/cli --commits 20
 Recent-commits mode analyzes the selected range as one change. Findings are
 range-level for now, not per-commit blame.
 
-Lower-level pipe mode still exists:
+Pipe mode:
 
 ```sh
 git diff HEAD~1..HEAD | npx @stupify/cli --stdin
 ```
 
-This iteration intentionally does not compare baselines, upload data, call
-hosted LLM APIs, or scan the whole repo.
+This iteration intentionally does not run findings audit, validators, judges,
+baselines, upload data, call hosted LLM APIs, or scan the whole repo.
 
 ## Local Runtime
 
