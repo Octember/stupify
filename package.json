@@ -28,7 +28,7 @@
     "smoke:cli": "bun run build:cli && node packages/cli/dist/stupify.js --help"
   },
   "dependencies": {
-    "@react-router/node": "7.14.0",
+    "@react-router/node": "7.14.2",
     "@react-router/serve": "7.14.0",
     "isbot": "^5.1.36",
     "react": "^19.2.4",
