@@ -4,24 +4,24 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { cachedJson, fingerprint } from "./cache.ts";
-import { readDiffFromStdin } from "./diff.ts";
+import { cachedJson, fingerprint } from "../model/cache.ts";
+import { readDiffFromStdin } from "../git/diff.ts";
 import {
   gitUserLabel,
   sourceRangeForCommit,
   sourceRangeForRecentCommits,
   sourceRangeSince,
   stagedDiff,
-} from "./git.ts";
-import { diagnostic } from "./ui.ts";
+} from "../git/git.ts";
+import { diagnostic } from "../core/ui.ts";
 import type {
   SearchCommand,
   SemChange,
   SemChangeSet,
   SemChangeSummary,
   SourceRange,
-} from "./types.ts";
-import { sourceId } from "./types.ts";
+} from "../core/types.ts";
+import { sourceId } from "../core/types.ts";
 
 const execFileAsync = promisify(execFile);
 

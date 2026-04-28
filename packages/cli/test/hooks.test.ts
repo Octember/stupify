@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { hookSnippet, runHookCommand } from "../src/hooks.ts";
+import { hookSnippet, runHookCommand } from "../src/operator/hooks.ts";
 
 test("hook install creates, status detects, and uninstall removes the managed hook", async () => {
   await withTempGitRepo(async (repo) => {

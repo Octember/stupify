@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pack, setLogLevel } from "repomix";
-import type { RepomixSearchConfig, SemCandidate, SemChange, SemContext, SemContextPack } from "./types.ts";
+import type { RepomixSearchConfig, SemCandidate, SemChange, SemContext, SemContextPack } from "../core/types.ts";
 
 const MAX_PACK_FILE_SIZE_BYTES = 48 * 1024;
 const MAX_PACK_TOTAL_SIZE_BYTES = 256 * 1024;

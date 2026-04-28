@@ -1,6 +1,13 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { sourceId, type BlameSummary, type NetDiff, type NetDiffStats, type SourceRange, type StagedDiff } from "./types.ts";
+import {
+  sourceId,
+  type BlameSummary,
+  type NetDiff,
+  type NetDiffStats,
+  type SourceRange,
+  type StagedDiff,
+} from "../core/types.ts";
 
 const execFileAsync = promisify(execFile);
 

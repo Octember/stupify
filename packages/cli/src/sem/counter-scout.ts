@@ -1,5 +1,5 @@
-import type { AiSlopCheck, CheckId, SemCandidate, SemChange, SemChangeSet } from "./types.ts";
-import { checkAppliesToLanguage, searchImplForLanguage, sourceLanguageForPath } from "./source-languages.ts";
+import type { AiSlopCheck, CheckId, SemCandidate, SemChange, SemChangeSet } from "../core/types.ts";
+import { checkAppliesToLanguage, searchImplForLanguage, sourceLanguageForPath } from "../source-languages.ts";
 
 type Signal = Readonly<{
   checkId: CheckId;
