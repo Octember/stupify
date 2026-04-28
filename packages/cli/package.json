@@ -44,6 +44,8 @@
   },
   "dependencies": {
     "@ataraxy-labs/sem": "^0.3.24",
+    "@clack/prompts": "^1.2.0",
+    "picocolors": "^1.1.1",
     "repomix": "^1.14.0"
   }
 }
