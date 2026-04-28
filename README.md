@@ -58,13 +58,38 @@ The hook runs `stupify --staged` and exits 0.
 
 ```mermaid
 flowchart LR
-  Diff["Local git diff"] --> Sem["sem diff"]
-  Sem --> Scout["counter scout"]
-  Scout --> Context["Repomix context"]
-  Context --> Model["local llama-server model"]
-  Model --> Matches["search matches"]
+  subgraph Inputs["Local inputs"]
+    Commit["Commit, range, staged changes, or stdin diff"]
+    Repo["Working tree and git metadata"]
+  end
 
-  Privacy["No hosted LLM calls"] -.-> Model
+  subgraph Pipeline["Stupify CLI pipeline"]
+    Diff["Normalize a net git diff"]
+    Sem["sem diff extracts changed code entities"]
+    Scout["Counter scout picks suspicious target/check pairs"]
+    Context["Repomix packs only the needed local context"]
+    Prompt["Build a bounded search prompt"]
+  end
+
+  subgraph Runtime["Local model runtime"]
+    Server["llama-server on localhost"]
+    Model["Local GGUF model cache"]
+  end
+
+  subgraph Output["Output"]
+    Matches["Search matches with proof pointers"]
+    Skip["Skip oversized inputs instead of truncating context"]
+  end
+
+  Commit --> Diff
+  Repo --> Sem
+  Diff --> Sem --> Scout --> Context --> Prompt
+  Prompt --> Server
+  Model --> Server
+  Server --> Matches
+  Prompt --> Skip
+
+  Hosted["No hosted LLM calls, dashboards, or upload boundary"] -. "blocked by design" .-> Prompt
 ```
 
 Stupify emits search `matches`, not audit findings. If the local search input is
