@@ -28,6 +28,7 @@ import { emptyContextPack, entityContextsFromChanges, repomixContextPack } from 
 import { helpText, renderReport } from "./render.ts";
 import { semChangeSetForCommand } from "./sem-provider.ts";
 import { createTracer, trace } from "./trace.ts";
+import { createCliUi, type CliUi } from "./ui.ts";
 import type {
   AnalysisReport,
   AnalyzeCommand,
@@ -46,28 +47,30 @@ const SEM_SCOUT_CHUNK_SIZE = 200;
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
+  let ui = createCliUi();
   try {
     const command = parseCommand(argv);
     if (command.kind === "help") {
-      console.log(helpText());
+      ui.writeStdout(helpText());
       return 0;
     }
     if (command.kind === "experiment") {
       const outputDir = await runExperiment(command.configPath);
-      console.log(`Experiment results written to ${outputDir}`);
+      ui.success(`Experiment results written to ${outputDir}`);
       return 0;
     }
 
+    ui = createCliUi({ quiet: command.json });
     const checks = enabledChecks(command.checkIds);
     const report =
       command.engine === "sem"
-        ? await runSemEngine(command, checks, startedAt)
-        : await runRawDiffEngine(command, checks, startedAt);
+        ? await runSemEngine(command, checks, startedAt, ui)
+        : await runRawDiffEngine(command, checks, startedAt, ui);
 
-    console.log(renderReport(report, command));
+    ui.writeStdout(renderReport(report, command));
     return 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    ui.error(error instanceof Error ? error.message : String(error), { force: true });
     return 1;
   }
 }
@@ -76,6 +79,7 @@ async function runRawDiffEngine(
   command: AnalyzeCommand,
   checks: ReturnType<typeof enabledChecks>,
   startedAt: number,
+  ui: CliUi,
 ): Promise<AnalysisReport> {
   const { value: diff, ms: diffMs } = await trace.trace("net.diff", () =>
     netDiffForCommand(command),
@@ -85,11 +89,12 @@ async function runRawDiffEngine(
     command,
     diff,
     checks.map((check) => check.id),
+    ui,
   );
 
   const { value: models, ms: modelMs } = await trace.trace(
     "model.load",
-    () => loadLocalModels(command.model),
+    () => loadLocalModels(command.model, ui),
   );
   const { scoutModel, auditModel } = models;
 
@@ -153,12 +158,13 @@ async function runSemEngine(
   command: AnalyzeCommand,
   checks: ReturnType<typeof enabledChecks>,
   startedAt: number,
+  ui: CliUi,
 ): Promise<AnalysisReport> {
   const traceEvents: TraceEvent[] = [];
   const t = createTracer({
     onEvent: (event) => {
       traceEvents.push(event);
-      debugSemTrace(command, event);
+      debugSemTrace(command, event, ui);
     },
   });
 
@@ -175,11 +181,12 @@ async function runSemEngine(
     command,
     changeSet,
     checks.map((check) => check.id),
+    ui,
   );
 
   const { value: models, ms: modelMs } = await t.trace(
     "model.load",
-    () => loadLocalModels(command.model),
+    () => loadLocalModels(command.model, ui),
     {
       count: () => 2,
       detail: () => "scout+audit",
@@ -203,6 +210,7 @@ async function runSemEngine(
                 command,
                 traceEvents,
                 t,
+                ui,
               ),
       {
         count: (v) => v.length,
@@ -232,6 +240,7 @@ async function runSemEngine(
           traceEvents,
           t,
           command,
+          ui,
         ),
       {
         count: (v) => v.findings.length,
@@ -289,6 +298,7 @@ async function findingsAuditBatches(
   traceEvents: TraceEvent[],
   t: ReturnType<typeof createTracer>,
   command: AnalyzeCommand,
+  ui: CliUi,
 ): Promise<FindingsResult & { stats: AuditReviewStats; auditModelCalls: number }> {
   const findings = [];
   const stats = { totalTargets: 0, finding: 0, clean: 0, uncertain: 0, invalid: 0 };
@@ -303,6 +313,7 @@ async function findingsAuditBatches(
       command,
       limiter,
       `${index + 1}/${batches.length}`,
+      ui,
     );
     findings.push(...result.findings);
     stats.totalTargets += result.stats.totalTargets;
@@ -331,6 +342,7 @@ async function findingsAuditBatch(
   command: AnalyzeCommand,
   limiter: ConcurrencyLimiter,
   batchLabel: string,
+  ui: CliUi,
 ): Promise<AuditReviewResult> {
   const { value: pack, ms: contextMs } = await trace.trace(
     "context.pack",
@@ -349,7 +361,7 @@ async function findingsAuditBatch(
     detail: `batch=${batchLabel} input_tokens=${inputTokens} pack_tokens=${pack.totalTokens} chars=${pack.totalCharacters}`,
   };
   traceEvents.push(contextEvent);
-  debugSemTrace(command, contextEvent);
+  debugSemTrace(command, contextEvent, ui);
 
   if (inputTokens > command.maxAuditInputTokens) {
     if (batch.length <= 1) {
@@ -363,7 +375,7 @@ async function findingsAuditBatch(
       detail: `batch=${batchLabel} input_tokens=${inputTokens} max=${command.maxAuditInputTokens}`,
     };
     traceEvents.push(splitEvent);
-    debugSemTrace(command, splitEvent);
+    debugSemTrace(command, splitEvent, ui);
     const [left, right] = await Promise.all([
       findingsAuditBatch(
         model,
@@ -374,6 +386,7 @@ async function findingsAuditBatch(
         command,
         limiter,
         `${batchLabel}.1`,
+        ui,
       ),
       findingsAuditBatch(
         model,
@@ -384,6 +397,7 @@ async function findingsAuditBatch(
         command,
         limiter,
         `${batchLabel}.2`,
+        ui,
       ),
     ]);
     return combineAuditResults(left, right);
@@ -401,7 +415,7 @@ async function findingsAuditBatch(
     detail: `batch=${batchLabel} candidates=${batch.length} input_tokens=${inputTokens} targets=${result.stats.totalTargets} clean=${result.stats.clean} uncertain=${result.stats.uncertain} invalid=${result.stats.invalid}`,
   };
   traceEvents.push(event);
-  debugSemTrace(command, event);
+  debugSemTrace(command, event, ui);
   return result;
 }
 
@@ -476,6 +490,7 @@ async function scoutSemBatches(
   command: AnalyzeCommand,
   traceEvents: TraceEvent[],
   t: ReturnType<typeof createTracer>,
+  ui: CliUi,
 ): Promise<readonly SemCandidate[]> {
   const candidates: SemCandidate[] = [];
   const seen = new Set<string>();
@@ -511,12 +526,12 @@ async function scoutSemBatches(
   return candidates;
 }
 
-function debugSemTrace(command: AnalyzeCommand, event: TraceEvent): void {
+function debugSemTrace(command: AnalyzeCommand, event: TraceEvent, ui: CliUi): void {
   if (!command.debugSem) return;
   const parts = [`trace ${event.name}`, `${event.ms}ms`];
   if (event.count !== undefined) parts.push(`count=${event.count}`);
   if (event.detail) parts.push(event.detail);
-  console.error(parts.join(" "));
+  ui.debug(parts.join(" "));
 }
 
 function chunkSemChangeSet(changeSet: SemChangeSet): readonly SemChangeSet[] {
@@ -559,30 +574,38 @@ function printRunPlan(
   command: AnalyzeCommand,
   diff: NetDiff,
   checkIds: readonly string[],
+  ui: CliUi,
 ): void {
   if (command.json) return;
-  console.error("🧙 stupify 🪄");
-  console.error(`Window: ${diff.label}`);
-  console.error(
-    `Diff: ${diff.stats.filesChanged} files changed, ${diff.stats.additions} added, ${diff.stats.deletions} deleted`,
+  ui.intro("stupify");
+  ui.note(
+    [
+      `Window: ${diff.label}`,
+      `Diff: ${diff.stats.filesChanged} files changed, ${diff.stats.additions} added, ${diff.stats.deletions} deleted`,
+      `Model: ${MODEL_REGISTRY[command.model].name}`,
+      `Checks: ${checkIds.join(", ")}`,
+    ].join("\n"),
+    "Run",
   );
-  console.error(`Model: ${MODEL_REGISTRY[command.model].name}`);
-  console.error(`Checks: ${checkIds.join(", ")}`);
 }
 
 function printSemRunPlan(
   command: AnalyzeCommand,
   changeSet: SemChangeSet,
   checkIds: readonly string[],
+  ui: CliUi,
 ): void {
   if (command.json) return;
-  console.error("🧙 stupify 🪄");
-  console.error(`Window: ${changeSet.label}`);
-  console.error(
-    `Sem: ${changeSet.summary.fileCount} files, ${changeSet.summary.total} changed entities`,
+  ui.intro("stupify");
+  ui.note(
+    [
+      `Window: ${changeSet.label}`,
+      `Sem: ${changeSet.summary.fileCount} files, ${changeSet.summary.total} changed entities`,
+      `Model: ${MODEL_REGISTRY[command.model].name}`,
+      `Checks: ${checkIds.join(", ")}`,
+    ].join("\n"),
+    "Run",
   );
-  console.error(`Model: ${MODEL_REGISTRY[command.model].name}`);
-  console.error(`Checks: ${checkIds.join(", ")}`);
 }
 
 async function netDiffForCommand(command: AnalyzeCommand): Promise<NetDiff> {

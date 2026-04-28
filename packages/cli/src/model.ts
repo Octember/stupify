@@ -1,5 +1,4 @@
 import { execFile, spawn } from "node:child_process";
-import { createReadStream, createWriteStream } from "node:fs";
 import {
   mkdir,
   open,
@@ -10,16 +9,11 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir, platform } from "node:os";
-import {
-  stdin as input,
-  stderr as statusOutput,
-  stdout as output,
-} from "node:process";
-import { createInterface } from "node:readline/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { MODEL_REGISTRY } from "./constants.ts";
 import type { ModelId } from "./types.ts";
+import type { CliUi } from "./ui.ts";
 
 const execFileAsync = promisify(execFile);
 const LLAMA_SERVER_HOST = "127.0.0.1";
@@ -41,31 +35,32 @@ export type LocalModel = Readonly<{
   profile: ModelProfile;
 }>;
 
-export async function loadLocalModels(modelId: ModelId) {
-  const modelPath = await firstRunModelBootstrap(modelId);
-  const scoutModel = await loadLocalModel(modelPath, modelId, "scout");
-  const auditModel = await loadLocalModel(modelPath, modelId, "audit");
+export async function loadLocalModels(modelId: ModelId, ui: CliUi) {
+  const modelPath = await firstRunModelBootstrap(modelId, ui);
+  const scoutModel = await loadLocalModel(modelPath, modelId, "scout", ui);
+  const auditModel = await loadLocalModel(modelPath, modelId, "audit", ui);
   return { scoutModel, auditModel };
 }
 
 export async function firstRunModelBootstrap(
   modelId: ModelId,
+  ui: CliUi,
 ): Promise<string> {
   const selectedModel = MODEL_REGISTRY[modelId];
   const modelDir = path.join(cacheDir(), "models");
   const modelPath = path.join(modelDir, selectedModel.file);
   if (await exists(modelPath)) return modelPath;
 
-  console.error(`No local Stupify model found.
+  ui.note(`No local Stupify model found.
 Stupify runs locally.
 Download this model now?
 Model: ${selectedModel.name}
-Size: ${selectedModel.size}`);
+Size: ${selectedModel.size}`, "Setup", { force: true });
 
-  if (!(await confirm("Continue? y/N "))) throw new Error("Setup cancelled.");
+  if (!(await ui.confirm("Continue?"))) throw new Error("Setup cancelled.");
 
   await mkdir(modelDir, { recursive: true });
-  await downloadModel(modelPath, selectedModel.url);
+  await downloadModel(modelPath, selectedModel.url, ui);
   if (!(await exists(modelPath)))
     throw new Error("Model download failed: file was not created.");
   return modelPath;
@@ -74,18 +69,17 @@ Size: ${selectedModel.size}`);
 export async function loadLocalModel(
   modelPath: string,
   modelId: ModelId,
-  profile: ModelProfile = "scout",
+  profile: ModelProfile,
+  ui: CliUi,
 ): Promise<LocalModel> {
   const selectedModel = MODEL_REGISTRY[modelId];
   const runtime = modelRuntime(profile);
   const runningModel = await runningServerModel(runtime.baseUrl);
 
   if (runningModel) {
-    if (runningModel !== modelId) await stopManagedServer(runtime);
+    if (runningModel !== modelId) await stopManagedServer(runtime, ui);
     if (runningModel === modelId) {
-      console.error(
-        `Using already-loaded local ${profile} model: ${selectedModel.name}`,
-      );
+      ui.info(`Using already-loaded local ${profile} model: ${selectedModel.name}`);
       return {
         id: modelId,
         name: selectedModel.name,
@@ -96,8 +90,15 @@ export async function loadLocalModel(
   }
 
   await ensureLlamaServerBinary();
-  await startLlamaServer(modelPath, modelId, selectedModel.name, runtime);
-  await waitForServer(runtime.baseUrl, modelId);
+  await startLlamaServer(modelPath, modelId, selectedModel.name, runtime, ui);
+  const ready = ui.spinner(`Waiting for local ${profile} model`);
+  try {
+    await waitForServer(runtime.baseUrl, modelId);
+    ready.stop(`Local ${profile} model ready`);
+  } catch (error) {
+    ready.error(`Local ${profile} model failed to start`);
+    throw error;
+  }
   return {
     id: modelId,
     name: selectedModel.name,
@@ -162,6 +163,7 @@ async function startLlamaServer(
   modelId: ModelId,
   modelName: string,
   runtime: ModelRuntime,
+  ui: CliUi,
 ): Promise<void> {
   const logDir = path.join(cacheDir(), "logs");
   await mkdir(logDir, { recursive: true });
@@ -169,8 +171,8 @@ async function startLlamaServer(
   const out = await open(logPath, "a");
   const err = await open(logPath, "a");
 
-  console.error(`Starting local ${runtime.profile} model server: ${modelName}`);
-  console.error(`llama-server log: ${logPath}`);
+  ui.step(`Starting local ${runtime.profile} model server: ${modelName}`);
+  ui.info(`llama-server log: ${logPath}`);
 
   const args = [
     "-m",
@@ -202,7 +204,7 @@ async function startLlamaServer(
   await err.close();
 }
 
-async function stopManagedServer(runtime: ModelRuntime): Promise<void> {
+async function stopManagedServer(runtime: ModelRuntime, ui: CliUi): Promise<void> {
   const pid = await managedServerPid(runtime);
   if (!pid) {
     const runningModel = await runningServerModel(runtime.baseUrl);
@@ -210,9 +212,7 @@ async function stopManagedServer(runtime: ModelRuntime): Promise<void> {
 Stop it before switching models, or use STUPIFY_LLAMA_SERVER_URL for that server.`);
   }
 
-  console.error(
-    `Restarting local ${runtime.profile} model server for selected model.`,
-  );
+  ui.step(`Restarting local ${runtime.profile} model server for selected model.`);
   try {
     process.kill(pid, "SIGTERM");
   } catch {
@@ -266,11 +266,13 @@ function sleep(ms: number): Promise<void> {
 async function downloadModel(
   modelPath: string,
   modelUrl: string,
+  ui: CliUi,
 ): Promise<void> {
   const tempPath = `${modelPath}.download`;
   await rm(tempPath, { force: true });
 
-  console.error("Downloading model...");
+  const downloadSpinner = ui.spinner("Downloading model");
+  let downloadProgress: ReturnType<CliUi["progress"]> | null = null;
   try {
     const response = await fetch(modelUrl);
     if (!response.ok || !response.body)
@@ -279,8 +281,13 @@ async function downloadModel(
     const total = Number(response.headers.get("content-length") ?? 0);
     let received = 0;
     let lastPrint = 0;
+    let lastProgressBytes = 0;
     const reader = response.body.getReader();
     const file = await open(tempPath, "wx");
+    if (total > 0) {
+      downloadSpinner.clear();
+      downloadProgress = ui.progress("Downloading model", total);
+    }
 
     try {
       while (true) {
@@ -291,49 +298,36 @@ async function downloadModel(
         const now = Date.now();
         if (total > 0 && now - lastPrint > 500) {
           lastPrint = now;
-          statusOutput.write(
-            `\r${formatBytes(received)} / ${formatBytes(total)}`,
+          downloadProgress?.advance(
+            received - lastProgressBytes,
+            `${formatBytes(received)} / ${formatBytes(total)}`,
           );
+          lastProgressBytes = received;
         }
       }
     } finally {
       await file.close();
     }
 
-    if (total > 0)
-      statusOutput.write(
-        `\r${formatBytes(received)} / ${formatBytes(total)}\n`,
+    if (downloadProgress && received > lastProgressBytes) {
+      downloadProgress.advance(
+        received - lastProgressBytes,
+        `${formatBytes(received)} / ${formatBytes(total)}`,
       );
+    }
+    const activeProgress = downloadProgress ?? downloadSpinner;
+    activeProgress.stop(
+      total > 0
+        ? `Downloaded ${formatBytes(received)} / ${formatBytes(total)}`
+        : "Downloaded model",
+    );
     await rename(tempPath, modelPath);
   } catch (error) {
+    const activeProgress = downloadProgress ?? downloadSpinner;
+    activeProgress.error("Model download failed");
     await rm(tempPath, { force: true });
     throw error;
   }
-}
-
-async function confirm(question: string): Promise<boolean> {
-  const rl = createInterface(terminalIo());
-  try {
-    const answer = (await rl.question(question)).trim().toLowerCase();
-    return answer === "y" || answer === "yes";
-  } finally {
-    rl.close();
-  }
-}
-
-function terminalIo(): {
-  input: NodeJS.ReadableStream;
-  output: NodeJS.WritableStream;
-} {
-  if (input.isTTY) return { input, output };
-  if (platform() !== "win32")
-    return {
-      input: createReadStream("/dev/tty"),
-      output: createWriteStream("/dev/tty"),
-    };
-  throw new Error(
-    "No local Stupify model found. Run `stupify` once in an interactive terminal to set up the model.",
-  );
 }
 
 function cacheDir(): string {

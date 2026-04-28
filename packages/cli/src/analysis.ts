@@ -1,6 +1,7 @@
 import { auditPrompt, findingsAuditPrompt, scoutPrompt, semScoutPrompt } from "./prompts.ts";
 import { cachedJson, fingerprint } from "./cache.ts";
 import type { LocalModel } from "./model.ts";
+import { diagnostic, diagnosticError } from "./ui.ts";
 import type {
   CandidateContext,
   CheckId,
@@ -365,8 +366,8 @@ Your previous response was not valid JSON. Return the requested JSON object only
   const retryParsed = parseJson(retry);
   if (retryParsed.ok) return retryParsed.value;
 
-  console.error("Raw model output:");
-  console.error(retry);
+  diagnosticError("Raw model output:");
+  diagnostic(retry);
   throw new Error("Model returned invalid JSON.");
 }
 
