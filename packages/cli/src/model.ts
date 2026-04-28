@@ -245,7 +245,7 @@ async function managedServerPid(runtime: ModelRuntime): Promise<number | null> {
   }
 }
 
-function pidPath(runtime: ModelRuntime): string {
+function pidPath(_runtime: ModelRuntime): string {
   return path.join(cacheDir(), "llama-server.pid");
 }
 

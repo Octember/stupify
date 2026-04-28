@@ -1,8 +1,12 @@
 .DS_Store
 .env
+.env.*
+!.env.example
 node_modules/
 .wrangler/
 worker-configuration.d.ts
+*.tsbuildinfo
+coverage/
 
 # React Router
 /.react-router/

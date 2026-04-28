@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { countPromptTokens, runSearch, searchRequest, type SearchRequest } from "./analysis.ts";
 import { searchChecks } from "./checks.ts";
 import { parseCommand } from "./command.ts";
-import { counterScoutTargets } from "./counter-scout.ts";
+import { counterScoutPlan } from "./counter-scout.ts";
 import { runDoctor } from "./doctor.ts";
 import { runHookCommand } from "./hooks.ts";
 import { firstRunModelBootstrap, loadLocalModel } from "./model.ts";
@@ -21,6 +21,7 @@ import {
 import { semChangeSetForCommand } from "./sem-provider.ts";
 import { createTracer } from "./trace.ts";
 import { createCliUi, type CliUi } from "./ui.ts";
+import type { CounterScoutPlan } from "./counter-scout.ts";
 import type { SearchCommand, SearchMatch, SearchProfile, SearchRunJson, SemContext, SemContextPack, StupifyCheck } from "./types.ts";
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -82,7 +83,9 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
   );
 
   try {
-    const candidates = counterScoutTargets(changeSet, checks, maxCandidates);
+    const scoutPlan = counterScoutPlan(changeSet, checks, maxCandidates);
+    if (!command.json) ui.step(scoutPlanLine(scoutPlan, changeSet.summary.total));
+    const candidates = scoutPlan.targets;
     const contexts = entityContextsFromChanges(candidates, changeSet.changes);
     const targetsByPattern = countTargetsByPattern(contexts);
     const targetsPreview = previewTargets(contexts);
@@ -128,6 +131,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
     const searchContexts = profile?.context === "sem"
       ? contexts
       : contexts.filter((context) => context.filePath && packedFiles.has(context.filePath));
+    if (!command.json) ui.step(targetPlanLine(searchContexts, contexts.length, countTargetsByPattern(searchContexts)));
     if (searchContexts.length === 0) {
       return {
         schemaVersion: "search.v1",
@@ -203,10 +207,12 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
     }
 
     if (batches.wasSplit && !command.json) {
-      ui.warn(`Search input is large; queued ${batches.batches.length} smaller search batches.`);
+      ui.warn(`Search input is large; queued ${batches.batches.length} smaller batches for ${searchContexts.length} targets (${maxSearchInputTokens} token cap).`);
       if (batches.skippedTargets > 0) {
         ui.warn(`Skipped ${batches.skippedTargets} oversized targets that could not fit alone.`);
       }
+    } else if (!command.json) {
+      ui.step(`Search: ${searchContexts.length} targets in ${batches.batches.length} model batch (${maxSearchInputTokens} token cap)`);
     }
 
     const modelPath = await firstRunModelBootstrap(command.model, ui);
@@ -440,6 +446,35 @@ function formatStep(name: string, ms: number, count?: number, detail?: string): 
   if (name === "context.pack") return `Context: ${count ?? 0} files, ${detail ?? "0 tokens"} (${ms}ms)`;
   if (name === "search.model") return `Model: ${count ?? 0} matches (${ms}ms)`;
   return `${name}: ${ms}ms`;
+}
+
+function scoutPlanLine(plan: CounterScoutPlan, entitiesScanned: number): string {
+  if (plan.targets.length === 0) {
+    return `Scout: deterministic counters scanned ${entitiesScanned} entities; no target/check pairs selected`;
+  }
+
+  return [
+    `Scout: deterministic counters scanned ${entitiesScanned} entities`,
+    `${plan.totalSignals} counter signals`,
+    `selected ${plan.targets.length}/${plan.totalSignals} target/check pairs (cap ${plan.maxTargets}, not exhaustive)`,
+  ].join("; ");
+}
+
+function targetPlanLine(
+  searchContexts: readonly SemContext[],
+  selectedTargets: number,
+  targetsByPattern: Record<string, number>,
+): string {
+  const retained = searchContexts.length === selectedTargets
+    ? `${searchContexts.length} selected targets`
+    : `${searchContexts.length}/${selectedTargets} selected targets retained after context packing`;
+  return `Targets: model will inspect ${retained}; ${formatCounts(targetsByPattern)}`;
+}
+
+function formatCounts(counts: Record<string, number>): string {
+  const entries = Object.entries(counts).filter(([, count]) => count > 0);
+  if (entries.length === 0) return "no target/check pairs";
+  return entries.map(([id, count]) => `${id}=${count}`).join(", ");
 }
 
 function sourceLabel(command: SearchCommand): string {

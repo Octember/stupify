@@ -11,7 +11,10 @@
   ],
   "scripts": {
     "build": "react-router build",
+    "build:all": "bun run build && bun run build:cli",
+    "clean": "rm -rf build packages/cli/dist .react-router/types experiments/results",
     "cf-typegen": "wrangler types",
+    "check": "bun run typecheck && bun test packages/cli/test/*.test.ts && bun run smoke:cli",
     "deploy": "bun run build && wrangler deploy",
     "deploy:cloudflare": "bun run deploy",
     "dev": "react-router dev",
@@ -20,6 +23,7 @@
     "typecheck": "wrangler types && react-router typegen && tsc -p tsconfig.json && tsc -p packages/cli/tsconfig.json",
     "typecheck:web": "wrangler types && react-router typegen && tsc -p tsconfig.json",
     "typecheck:cli": "tsc -p packages/cli/tsconfig.json",
+    "test:cli": "bun test packages/cli/test/*.test.ts",
     "smoke:cli": "bun run build:cli && node packages/cli/dist/stupify.js --help"
   },
   "dependencies": {

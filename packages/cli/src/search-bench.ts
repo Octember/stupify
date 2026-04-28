@@ -99,7 +99,7 @@ export async function runSearchBench(configPath: string): Promise<string> {
     replayRuns.push(...runs);
   }
 
-  const leaderboard = summarize(profiles.map(({ profile }) => profile), fixtures.map(({ fixture }) => fixture), allRuns);
+  const leaderboard = summarize(profiles.map(({ profile }) => profile), allRuns);
   const perCheck = summarizeByCheck(allRuns);
   const summary: BenchSummary = {
     name: config.name,
@@ -333,6 +333,7 @@ function replayErrorRun(
 async function runCli(cwd: string, args: readonly string[]): Promise<SearchRunJson> {
   const startedAt = Date.now();
   const cliPath = process.argv[1];
+  if (!cliPath) throw new Error("Could not resolve current CLI entrypoint.");
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], {
     cwd,
     env: process.env,
@@ -434,7 +435,6 @@ function scoreSmokeRun(run: SearchBenchRun): number {
 
 function summarize(
   profiles: readonly SearchProfile[],
-  fixtures: readonly SearchFixture[],
   runs: readonly SearchBenchRun[],
 ): readonly ProfileResult[] {
   const rows = profiles.map((profile) => {

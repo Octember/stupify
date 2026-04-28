@@ -1,6 +1,7 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "types": ["node"],
     "rootDir": "src",
     "allowImportingTsExtensions": true,
     "noEmit": true

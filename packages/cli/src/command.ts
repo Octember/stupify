@@ -1,5 +1,5 @@
 import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.ts";
-import type { Command, HookAction, ModelId, SearchSource } from "./types.ts";
+import type { Command, HookAction, ModelId } from "./types.ts";
 
 const DEFAULT_SINCE = "2 weeks ago";
 const DEFAULT_MAX_CANDIDATES = 10;
@@ -13,7 +13,7 @@ type InputMode =
   | Readonly<{ kind: "staged"; source: "staged" }>;
 
 export function parseCommand(argv: readonly string[]): Command {
-  if (argv.length === 1 && isHelp(argv[0])) return { kind: "help" };
+  if (argv.length === 1 && argv[0] && isHelp(argv[0])) return { kind: "help" };
   if (argv[0] === "bench") {
     if (argv[1] !== "search" || !argv[2] || argv.length > 3) {
       throw new Error("Usage: stupify bench search <config.json>");

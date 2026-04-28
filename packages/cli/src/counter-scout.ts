@@ -14,11 +14,26 @@ type SignalBucket = Readonly<{
 
 const MAX_COUNTER_EXAMPLES_PER_CHECK = 4;
 
+export type CounterScoutPlan = Readonly<{
+  buckets: readonly SignalBucket[];
+  totalSignals: number;
+  maxTargets: number;
+  targets: readonly SemCandidate[];
+}>;
+
 export function counterScoutTargets(
   changeSet: SemChangeSet,
   checks: readonly StupifyCheck[],
   maxTargets: number,
 ): readonly SemCandidate[] {
+  return counterScoutPlan(changeSet, checks, maxTargets).targets;
+}
+
+export function counterScoutPlan(
+  changeSet: SemChangeSet,
+  checks: readonly StupifyCheck[],
+  maxTargets: number,
+): CounterScoutPlan {
   const buckets = runSignalCounters(changeSet, checks);
   const targets: SemCandidate[] = [];
   let cursor = 0;
@@ -37,7 +52,12 @@ export function counterScoutTargets(
     }
     cursor += 1;
   }
-  return targets;
+  return {
+    buckets,
+    totalSignals: buckets.reduce((sum, bucket) => sum + bucket.total, 0),
+    maxTargets,
+    targets,
+  };
 }
 
 export function runSignalCounters(
