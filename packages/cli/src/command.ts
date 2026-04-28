@@ -2,7 +2,7 @@ import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.ts";
 import type { Command, HookAction, ModelId } from "./types.ts";
 
 const DEFAULT_SINCE = "2 weeks ago";
-const DEFAULT_MAX_CANDIDATES = 10;
+const DEFAULT_MAX_CANDIDATES = 50;
 const DEFAULT_MAX_SEARCH_INPUT_TOKENS = 12_000;
 
 type InputMode =

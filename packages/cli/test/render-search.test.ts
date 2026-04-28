@@ -11,7 +11,7 @@ const command: SearchCommand = {
   json: false,
   model: "gemma-4-e2b",
   debugSem: false,
-  maxCandidates: 10,
+  maxCandidates: 50,
   maxSearchInputTokens: 12_000,
   searchProfilePath: null,
   includeCounterReasonInPrompt: false,

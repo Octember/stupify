@@ -12,7 +12,7 @@ type SignalBucket = Readonly<{
   examples: readonly Signal[];
 }>;
 
-const MAX_COUNTER_EXAMPLES_PER_CHECK = 4;
+const MAX_COUNTER_EXAMPLES_PER_CHECK = 20;
 
 export type CounterScoutPlan = Readonly<{
   buckets: readonly SignalBucket[];
