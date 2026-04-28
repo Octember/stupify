@@ -9,66 +9,75 @@
 Local-only diagnostic tooling for checking whether AI is making developers
 dumber.
 
-Stupify turns recent local changes into compact search evidence and uses a local
-model to warn on concrete judgment-offload matches. Your code stays on your
-machine.
+Stupify turns local diffs into compact search evidence, then asks a local model
+to look for concrete judgment-offload signals. Your code stays on your machine.
 
 The project is called Stupify. The domain is `stupif.ai`; read it as
 "stupify", where the `ai` makes a `y` sound.
 
 ## Install
 
-Run it without installing:
-
 ```sh
 npx @stupify/cli@latest --commit HEAD
 ```
 
-Or install the CLI globally:
+Or install it:
 
 ```sh
 npm install -g @stupify/cli@latest
 stupify --commit HEAD
 ```
 
-Full analysis also needs Git, `llama-server`, and a local GGUF model. Run
-`stupify doctor` after install to check the local setup.
+Full analysis needs Git, `llama-server`, and a local GGUF model. Run `doctor`
+to check the setup:
+
+```sh
+stupify doctor
+```
 
 ## Quickstart
 
-Check your local setup:
-
 ```sh
-npx @stupify/cli@latest doctor
-```
-
-Analyze one commit:
-
-```sh
-npx @stupify/cli@latest --commit HEAD
+stupify --commit HEAD          # analyze one commit
+stupify --staged               # analyze staged changes
+stupify --commits 20           # analyze a recent range
+git diff HEAD~1..HEAD | stupify --stdin
 ```
 
 By default, `stupify` is equivalent to `stupify --since "2 weeks ago"`.
 
-Analyze staged changes:
-
-```sh
-npx @stupify/cli@latest --staged
-```
-
-Pipe in a diff:
-
-```sh
-git diff HEAD~1..HEAD | npx @stupify/cli@latest --stdin
-```
-
 Install the warn-only pre-commit hook:
 
 ```sh
-npx @stupify/cli@latest hook install
+stupify hook install
 ```
 
 The hook runs `stupify --staged` and exits 0.
+
+## How It Works
+
+```mermaid
+flowchart LR
+  Diff["Local git diff"] --> Sem["sem diff"]
+  Sem --> Scout["counter scout"]
+  Scout --> Context["Repomix context"]
+  Context --> Model["local llama-server model"]
+  Model --> Matches["search matches"]
+
+  Privacy["No hosted LLM calls"] -.-> Model
+```
+
+Stupify emits search `matches`, not audit findings. If the local search input is
+too large, it skips instead of reviewing truncated context.
+
+The default search registry enables the checks that currently pass the local
+hook-safety bench: `duplicated_schema`, `unnecessary_complexity`,
+`over_commenting`, `lint_bypass`, and `reinvented_utils`. Other registry
+patterns remain available with `--checks`.
+
+This iteration intentionally does not run findings audit, validators, judges,
+baselines, upload data, call hosted LLM APIs, GitHub integration, dashboards, or
+repo-wide crawling.
 
 ## Requirements
 
@@ -79,58 +88,14 @@ The hook runs `stupify --staged` and exits 0.
   default model into your local cache.
 - Bun 1.3.12 for repository development, tests, and release checks.
 
-On macOS, install the local model server with:
+On macOS:
 
 ```sh
 brew install llama.cpp
-npx @stupify/cli@latest doctor
+stupify doctor
 ```
 
 Setup notes live in [docs/gemma4-llama-cpp.md](docs/gemma4-llama-cpp.md).
-
-## Upgrade
-
-```sh
-npm install -g @stupify/cli@latest
-```
-
-The release channel is the latest GitHub Release and npm package. The CLI
-publishes from GitHub Releases through npm Trusted Publishing. See
-[docs/releasing.md](docs/releasing.md).
-
-## What It Does
-
-Stupify has one analysis path:
-
-```text
-sem diff -> counter scout -> Repomix context -> local search model
-```
-
-Search mode emits `matches`, not audit findings. If the local search input is
-too large, Stupify skips instead of reviewing truncated context.
-
-The default search registry enables the checks that currently pass the local
-hook-safety bench: `duplicated_schema`, `unnecessary_complexity`,
-`over_commenting`, `lint_bypass`, and `reinvented_utils`. Other registry
-patterns remain available with `--checks`.
-
-Analyze recent commits:
-
-```sh
-npx @stupify/cli@latest --commits 20
-```
-
-Recent-commits mode analyzes the selected range as one change. Findings are
-range-level for now, not per-commit blame.
-
-This iteration intentionally does not run findings audit, validators, judges,
-baselines, upload data, call hosted LLM APIs, GitHub integration, dashboards, or
-repo-wide crawling.
-
-## Local Runtime
-
-Stupify uses one local inference road: `llama-server`. The CLI starts it on
-localhost when needed and reuses the already-loaded model on later runs.
 
 ## Development
 
@@ -141,33 +106,20 @@ bun install --frozen-lockfile
 bun run check
 ```
 
-Current local smoke test:
+Useful loops:
 
 ```sh
+bun run typecheck
 bun run smoke:cli
 ```
 
-## Deployment
+## Project
 
-The web app deploys as a server-rendered React Router app on Cloudflare Workers.
-The Worker routes `stupif.ai/*` and `www.stupif.ai/*` in `wrangler.jsonc`.
-
-```sh
-bun run typecheck:web
-bun run deploy
-```
-
-`bun run deploy` builds the app and publishes the Worker configured in
-`wrangler.jsonc`.
-
-## Releasing
-
-See [docs/releasing.md](docs/releasing.md).
-
-## Contributing
-
-Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before
-opening a PR, and report security issues through [SECURITY.md](SECURITY.md).
+- Upgrade with `npm install -g @stupify/cli@latest`.
+- Releases use GitHub Releases and npm Trusted Publishing. See
+  [docs/releasing.md](docs/releasing.md).
+- Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md).
+- Report security issues through [SECURITY.md](SECURITY.md).
 
 ## License
 
