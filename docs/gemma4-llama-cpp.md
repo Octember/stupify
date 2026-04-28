@@ -30,13 +30,13 @@ The tested local version was:
 llama.cpp b8940
 ```
 
-## Download the test model
+## Download the default model
 
-The tested file was the smallest useful Gemma 4 26B A4B GGUF quant from Unsloth:
+The default model is the smallest useful Gemma 4 E2B GGUF quant from Unsloth:
 
 ```text
-unsloth/gemma-4-26B-A4B-it-GGUF
-gemma-4-26B-A4B-it-UD-IQ2_XXS.gguf
+unsloth/gemma-4-E2B-it-GGUF
+gemma-4-E2B-it-Q4_K_M.gguf
 ```
 
 Download it into Stupify's model cache:
@@ -45,14 +45,14 @@ Download it into Stupify's model cache:
 mkdir -p "$HOME/Library/Caches/stupify/models"
 
 curl -L --fail \
-  "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF/resolve/main/gemma-4-26B-A4B-it-UD-IQ2_XXS.gguf?download=true" \
-  -o "$HOME/Library/Caches/stupify/models/gemma-4-26b-a4b-it-ud-iq2_xxs.gguf"
+  "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf?download=true" \
+  -o "$HOME/Library/Caches/stupify/models/gemma-4-e2b-it-q4_k_m.gguf"
 ```
 
 Expected local size:
 
 ```text
-9.2G
+3.1G
 ```
 
 ## Stupify POC Test
@@ -87,11 +87,12 @@ Observed result on the known duplicated-schema POC:
 
 ## Current Product Decision
 
-Keep Qwen 1.5B as the default because it is cheap and fast. Use Gemma 4 E4B as
-the higher-quality local model:
+Use Gemma 4 E2B as the default because it is the cheapest useful Gemma path.
+Use Gemma 4 E4B as the higher-quality local model, and keep the 26B A4B quant
+available for heavier local experiments:
 
 ```text
-default: qwen2.5-coder-1.5b
+default: gemma-4-e2b
 quality: gemma-4-e4b
-fast Gemma: gemma-4-e2b
+large: gemma-4-26b-a4b
 ```
