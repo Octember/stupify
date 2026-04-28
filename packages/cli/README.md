@@ -2,6 +2,8 @@
 
 Local-only diagnostic CLI for checking whether AI is making you dumber.
 
+Released under the MIT License.
+
 Stupify has one analysis path:
 
 ```text
@@ -48,7 +50,8 @@ stupify --staged --max-search-input-tokens 24000
 ```
 
 The package is prepared for the public `@stupify` npm scope. Publishing should
-run the TypeScript build first so the executable points at `dist/stupify.js`.
+use the repository release workflow so npm receives Trusted Publishing
+provenance. See the repository release docs.
 
 This iteration intentionally does not run findings audit, validators, judges,
 baselines, hosted LLM APIs, GitHub integration, dashboards, or repo-wide
