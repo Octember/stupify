@@ -40,6 +40,7 @@ export async function sourceRangeForRecentCommits(count: number): Promise<Source
 
   const oldest = commits[0];
   const newest = commits[commits.length - 1];
+  if (!oldest || !newest) throw new Error("Could not resolve recent commit range.");
   const [base, target, shortBase, shortTarget] = await Promise.all([
     revParse(`${oldest}^1`),
     revParse(newest),
@@ -233,7 +234,7 @@ function statsFromDiff(diffText: string): NetDiffStats {
   let deletions = 0;
   for (const line of diffText.split(/\r?\n/)) {
     const fileMatch = /^diff --git a\/.+ b\/(.+)$/.exec(line);
-    if (fileMatch) files.add(fileMatch[1]);
+    if (fileMatch?.[1]) files.add(fileMatch[1]);
     else if (line.startsWith("+") && !line.startsWith("+++")) additions += 1;
     else if (line.startsWith("-") && !line.startsWith("---")) deletions += 1;
   }
