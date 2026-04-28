@@ -45,7 +45,7 @@
     "smoke": "bun run build && node ./dist/stupify.js --help"
   },
   "dependencies": {
-    "@ataraxy-labs/sem": "^0.3.24",
+    "@ataraxy-labs/sem": "^0.4.0",
     "@clack/prompts": "^1.2.0",
     "picocolors": "^1.1.1",
     "repomix": "^1.14.0"
