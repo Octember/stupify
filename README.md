@@ -15,6 +15,11 @@ local model to warn on concrete judgment-offload matches.
 
 Stupify is released under the [MIT License](LICENSE).
 
+## Contributing
+
+Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before
+opening a PR, and report security issues through [SECURITY.md](SECURITY.md).
+
 ## CLI
 
 Current local smoke test:

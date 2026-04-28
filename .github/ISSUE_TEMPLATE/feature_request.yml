@@ -1,0 +1,50 @@
+name: Feature request
+description: Suggest a scoped improvement for Stupify.
+title: "Feature: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep requests grounded in what Stupify does today: local-only diagnostic tooling for AI-assisted diffs. Do not include private repository details.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should change?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - CLI
+        - Local model runtime
+        - Search checks
+        - Hooks
+        - Web
+        - Documentation
+        - Release process
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy Boundary
+      description: Does this require upload, sharing, or hosted analysis? If yes, describe the explicit user-controlled boundary.
+      placeholder: "No upload boundary required."
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Any smaller or local-only alternatives?
