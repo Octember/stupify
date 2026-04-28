@@ -1,4 +1,4 @@
-export const VERSION = "0.0.14";
+export const VERSION = "0.0.15";
 import type { ModelConfig, ModelId } from "./types.ts";
 
 export const DEFAULT_MODEL_ID: ModelId = "gemma-4-e2b";
