@@ -3,9 +3,9 @@ import { createRequire } from "node:module";
 import { homedir, platform } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.ts";
+import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "../core/constants.ts";
 import { runHookCommand } from "./hooks.ts";
-import type { CliUi } from "./ui.ts";
+import type { CliUi } from "../core/ui.ts";
 
 const execFileAsync = promisify(execFile);
 

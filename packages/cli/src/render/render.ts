@@ -1,6 +1,6 @@
-import { VERSION } from "./constants.ts";
-import type { SearchCommand, SearchRunJson } from "./types.ts";
-import { format, type CliUi } from "./ui.ts";
+import { VERSION } from "../core/constants.ts";
+import type { SearchCommand, SearchRunJson } from "../core/types.ts";
+import { format, type CliUi } from "../core/ui.ts";
 
 export function renderSearchRun(run: SearchRunJson, command: SearchCommand): string {
   if (command.json) return JSON.stringify(run, null, 2);

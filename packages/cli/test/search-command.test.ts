@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseCommand } from "../src/command.ts";
-import { searchChecks } from "../src/checks.ts";
+import { parseCommand } from "../src/core/command.ts";
+import { searchChecks } from "../src/core/checks.ts";
 
 test("parses --staged as search mode", () => {
   assert.deepEqual(parseCommand(["--staged"]), {

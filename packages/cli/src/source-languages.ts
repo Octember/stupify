@@ -1,4 +1,4 @@
-import type { AiSlopCheck, AiSlopCheckSearch, SourceLanguageId } from "./types.ts";
+import type { AiSlopCheck, AiSlopCheckSearch, SourceLanguageId } from "./core/types.ts";
 
 export type SourceLanguage = Readonly<{
   id: SourceLanguageId;
