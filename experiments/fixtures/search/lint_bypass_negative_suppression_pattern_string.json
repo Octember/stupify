@@ -1,0 +1,9 @@
+{
+  "id": "lint_bypass_negative_suppression_pattern_string",
+  "description": "A regex or string that mentions suppression markers is not itself a lint bypass.",
+  "checks": ["lint_bypass"],
+  "expected": [
+    { "patternId": "lint_bypass", "shouldMatch": false }
+  ],
+  "stagedPatch": "diff --git a/src/lint-text.ts b/src/lint-text.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/lint-text.ts\n@@ -0,0 +1,9 @@\n+export function hasSuppressionText(value: string) {\n+  return /(eslint-disable|biome-ignore|@ts-ignore|@ts-expect-error)/i.test(value);\n+}\n"
+}
