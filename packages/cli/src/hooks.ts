@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { gitPath, gitRoot } from "./git.ts";
 import type { HookAction } from "./types.ts";
+import type { CliUi } from "./ui.ts";
 
 const execFileAsync = promisify(execFile);
 const START = "# stupify hook start";
@@ -14,6 +15,22 @@ export async function runHookCommand(action: HookAction): Promise<string> {
   if (action === "status") return hookStatus();
   if (action === "install") return installHook();
   return uninstallHook();
+}
+
+export function renderHookResultToUi(result: string, ui: CliUi): void {
+  const [firstLine = "Stupify hook: no status returned", ...rest] = result.split(/\r?\n/);
+  if (firstLine.includes("not installed")) {
+    ui.info(firstLine);
+  } else if (firstLine.includes("installed") || firstLine.includes("updated") || firstLine.includes("uninstalled")) {
+    ui.success(firstLine);
+  } else if (firstLine.includes("existing non-Stupify")) {
+    ui.warn(firstLine);
+  } else {
+    ui.info(firstLine);
+  }
+
+  const detail = rest.join("\n").trim();
+  if (detail) ui.note(detail, "Hook");
 }
 
 export function hookSnippet(): string {

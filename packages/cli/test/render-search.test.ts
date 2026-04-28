@@ -37,7 +37,9 @@ test("renders oversized staged search as skipped, not clean", () => {
 
   const output = stripAnsi(renderSearchRun(run, command));
 
-  assert.match(output, /too large for precise local search/);
+  assert.match(output, /Search skipped/);
+  assert.match(output, /Size: ~18400 tokens/);
+  assert.match(output, /Limit: 12000 tokens/);
   assert.match(output, /skipped the search/);
   assert.doesNotMatch(output, /No judgment-offload signals found/);
 });
@@ -94,12 +96,16 @@ test("renders matches as slop report fields", () => {
 
   assert.match(output, /AI SLOP DETECTED/);
   assert.match(output, /================/);
-  assert.match(output, /Noah Lindner \(staged\)/);
+  assert.match(output, /1 signal across 1 file/);
+  assert.match(output, /Noah Lindner · staged/);
+  assert.match(output, /Warn-only\. Nothing blocked\./);
   assert.doesNotMatch(output, /GitHub/);
+  assert.match(output, /duplicated_schema 1/);
+  assert.match(output, /src\/foo\.ts/);
   assert.match(output, /1\. duplicated_schema/);
   assert.match(output, /Payload repeats the same fields\./);
   assert.match(output, /```\ntype FooPayload = \{ id: string \};\n```/);
-  assert.match(output, /src\/foo\.ts::type::FooPayload/);
+  assert.match(output, /::type::FooPayload/);
   assert.match(output, /Duplicated shapes drift\./);
   assert.match(output, /1 signal\. Warn-only\. Nothing blocked\./);
   assert.doesNotMatch(output, /who:/);
@@ -134,5 +140,5 @@ test("renders since windows as short human labels", () => {
 
   const output = renderSearchRun(run, { ...command, kind: "since", source: "since", since: "2 weeks ago" });
 
-  assert.match(output, /Noah Lindner \(last 2 weeks\)/);
+  assert.match(output, /Noah Lindner · last 2 weeks/);
 });

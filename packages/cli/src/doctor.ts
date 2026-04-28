@@ -5,6 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { DEFAULT_MODEL_ID, MODEL_REGISTRY } from "./constants.ts";
 import { runHookCommand } from "./hooks.ts";
+import type { CliUi } from "./ui.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -17,7 +18,13 @@ type DoctorCheck = Readonly<{
   required?: boolean;
 }>;
 
-export async function runDoctor(): Promise<Readonly<{ exitCode: number; text: string }>> {
+export type DoctorResult = Readonly<{
+  exitCode: number;
+  text: string;
+  checks: readonly DoctorCheck[];
+}>;
+
+export async function runDoctor(): Promise<DoctorResult> {
   const checks = await Promise.all([
     gitCheck(),
     hookCheck(),
@@ -30,7 +37,26 @@ export async function runDoctor(): Promise<Readonly<{ exitCode: number; text: st
   return {
     exitCode: requiredMissing ? 1 : 0,
     text: renderDoctor(checks),
+    checks,
   };
+}
+
+export function renderDoctorToUi(result: DoctorResult, ui: CliUi): void {
+  const missingRequired = result.checks.filter((check) => check.required && check.status === "missing");
+  if (missingRequired.length > 0) {
+    ui.error(`Doctor found ${missingRequired.length} missing required dependency.`);
+  } else {
+    ui.success("Doctor checks complete.");
+  }
+
+  ui.note(
+    result.checks.map((check) => `${icon(check.status)} ${check.label}: ${check.detail}`).join("\n"),
+    "Doctor",
+  );
+  ui.note(
+    "Local-only. Stupify does not upload source, diffs, filenames, repo URLs, commit messages, author names, or private package names.",
+    "Privacy",
+  );
 }
 
 async function gitCheck(): Promise<DoctorCheck> {

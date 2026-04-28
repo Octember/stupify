@@ -6,11 +6,11 @@ import { countPromptTokens, runSearch, searchRequest, type SearchRequest } from 
 import { searchChecks } from "./checks.ts";
 import { parseCommand } from "./command.ts";
 import { counterScoutPlan } from "./counter-scout.ts";
-import { runDoctor } from "./doctor.ts";
-import { runHookCommand } from "./hooks.ts";
+import { renderDoctorToUi, runDoctor } from "./doctor.ts";
+import { renderHookResultToUi, runHookCommand } from "./hooks.ts";
 import { firstRunModelBootstrap, loadLocalModel } from "./model.ts";
 import { entityContextsFromChanges, emptyContextPack, repomixContextPack, repomixSearchConfig } from "./repomix-provider.ts";
-import { helpText, renderSearchRun } from "./render.ts";
+import { helpText, renderSearchRun, renderSearchRunToUi } from "./render.ts";
 import {
   effectiveMaxCandidates,
   effectiveMaxSearchInputTokens,
@@ -30,27 +30,36 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   try {
     const command = parseCommand(argv);
     if (command.kind === "help") {
-      ui.writeStdout(helpText());
+      ui.intro("stupify");
+      ui.note(helpText().trim(), "Help");
+      ui.outro("Local-only. Warn-only.");
       return 0;
     }
     if (command.kind === "hook") {
-      ui.writeStdout(await runHookCommand(command.action));
+      ui.intro("stupify");
+      renderHookResultToUi(await runHookCommand(command.action), ui);
+      ui.outro("Hook mode is warn-only. Commits are not blocked.");
       return 0;
     }
     if (command.kind === "doctor") {
       const result = await runDoctor();
-      ui.writeStdout(result.text);
+      ui.intro("stupify");
+      renderDoctorToUi(result, ui);
+      ui.outro(result.exitCode === 0 ? "Ready." : "Fix missing required dependencies, then rerun doctor.");
       return result.exitCode;
     }
     if (command.kind === "bench-search") {
       const { runSearchBench } = await import("./search-bench.ts");
-      ui.writeStdout(await runSearchBench(command.configPath));
+      ui.intro("stupify");
+      ui.note(await runSearchBench(command.configPath), "Search bench");
+      ui.outro("Bench complete.");
       return 0;
     }
 
     ui = createCliUi({ quiet: command.json });
     const run = await runSearchCommand(command, startedAt, ui);
-    ui.writeStdout(renderSearchRun(run, command));
+    if (command.json) ui.writeStdout(renderSearchRun(run, command));
+    else renderSearchRunToUi(run, command, ui);
     return 0;
   } catch (error) {
     ui.error(error instanceof Error ? error.message : String(error), { force: true });

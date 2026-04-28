@@ -1,20 +1,52 @@
 import { VERSION } from "./constants.ts";
 import type { SearchCommand, SearchRunJson } from "./types.ts";
-import { format } from "./ui.ts";
+import { format, type CliUi } from "./ui.ts";
 
 export function renderSearchRun(run: SearchRunJson, command: SearchCommand): string {
   if (command.json) return JSON.stringify(run, null, 2);
+  return renderSearchHumanText(run, command);
+}
+
+export function renderSearchRunToUi(run: SearchRunJson, command: SearchCommand, ui: CliUi): void {
+  if (command.json) {
+    ui.writeStdout(renderSearchRun(run, command));
+    return;
+  }
 
   if (run.stats.skipped && run.stats.skipReason === "input_too_large") {
-    return `${format.heading("Search input is too large for precise local search.")}
-${format.heading("Size:")}
-~${run.stats.inputTokens ?? "unknown"} tokens
-${format.heading("Limit:")}
-${run.stats.inputTokenCap ?? "unknown"} tokens
-Stupify skipped the search rather than review truncated context.
-Nothing was blocked.
-${format.heading("Try:")}
-rerun with ${sourceHint(command)} --max-search-input-tokens ${Math.max((run.stats.inputTokens ?? 12_000) + 1, (run.stats.inputTokenCap ?? 12_000) * 2)}`;
+    ui.warn("Search skipped: input is too large for precise local search.");
+    ui.note(oversizedText(run, command), "Skipped");
+    ui.outro("Warn-only. Nothing blocked.");
+    return;
+  }
+
+  if (run.stats.skipped && run.stats.skipReason === "no_candidates") {
+    ui.success("Search complete: no search targets found.");
+    ui.note(cleanSummaryText(run), "Summary");
+    ui.outro("No judgment-offload signals found.");
+    return;
+  }
+
+  if (run.matches.length === 0) {
+    ui.success("Search complete: no judgment-offload signals found.");
+    ui.note(cleanSummaryText(run), "Summary");
+    ui.outro("Warn-only. Nothing blocked.");
+    return;
+  }
+
+  ui.warn(format.warn(format.heading("AI SLOP DETECTED")));
+  ui.note(matchSummaryText(run, command), "Summary");
+  for (const group of groupMatchesByFile(run.matches)) {
+    ui.note(renderMatchGroup(group), group.filePath);
+  }
+  ui.outro(summaryLine(run));
+}
+
+export function renderSearchHumanText(run: SearchRunJson, command: SearchCommand): string {
+  if (run.stats.skipped && run.stats.skipReason === "input_too_large") {
+    return `${format.heading("Search skipped")}
+${oversizedText(run, command)}
+Warn-only. Nothing blocked.`;
   }
 
   if (run.stats.skipped && run.stats.skipReason === "no_candidates") {
@@ -29,18 +61,12 @@ ${format.label("Patterns:")} ${run.patterns.join(", ")}
 ${format.success("No judgment-offload signals found.")}`;
   }
 
+  const groups = groupMatchesByFile(run.matches);
   return `${slopHeading()}
-${committerLabel(run)} (${sourceLabel(command)})
+${matchSummaryText(run, command)}
 
-${run.matches.map((match, index) => `${index + 1}. ${format.label(match.patternId)}
-${match.reason}
-
-\`\`\`
-${match.snapshot ?? match.proof}
-\`\`\`
-${format.muted(match.proof)}
-
-${match.checkWhy ?? "This pattern may indicate judgment-offload."}`).join("\n\n")}
+${groups.map((group) => `${format.heading(group.filePath)}
+${renderMatchGroup(group)}`).join("\n\n")}
 ${format.muted(summaryLine(run))}`;
 }
 
@@ -90,6 +116,82 @@ Pipeline:
 Not included:
   Findings audit, validators, judges, baselines, sharing, hosted server calls, GitHub, dashboards, or repo-wide crawling.
 `;
+}
+
+type MatchGroup = Readonly<{
+  filePath: string;
+  matches: SearchRunJson["matches"];
+}>;
+
+function oversizedText(run: SearchRunJson, command: SearchCommand): string {
+  const targetLimit = Math.max((run.stats.inputTokens ?? 12_000) + 1, (run.stats.inputTokenCap ?? 12_000) * 2);
+  return [
+    `Size: ~${run.stats.inputTokens ?? "unknown"} tokens`,
+    `Limit: ${run.stats.inputTokenCap ?? "unknown"} tokens`,
+    "Stupify skipped the search rather than review truncated context.",
+    `Try: ${sourceHint(command)} --max-search-input-tokens ${targetLimit}`,
+  ].join("\n");
+}
+
+function cleanSummaryText(run: SearchRunJson): string {
+  return [
+    `Patterns: ${run.patterns.join(", ")}`,
+    run.stats.filesChanged === undefined ? null : `Diff: ${run.stats.filesChanged} files, ${run.stats.entitiesScanned ?? 0} changed entities`,
+  ].filter(Boolean).join("\n");
+}
+
+function matchSummaryText(run: SearchRunJson, command: SearchCommand): string {
+  const fileCount = groupMatchesByFile(run.matches).length;
+  const fileNoun = fileCount === 1 ? "file" : "files";
+  return [
+    `${run.matches.length} ${signalNoun(run.matches.length)} across ${fileCount} ${fileNoun}`,
+    `${committerLabel(run)} · ${sourceLabel(command)}`,
+    "Warn-only. Nothing blocked.",
+    "",
+    patternSummaryLine(run),
+  ].filter((line) => line !== null).join("\n");
+}
+
+function patternSummaryLine(run: SearchRunJson): string {
+  const counts = new Map<string, number>();
+  for (const match of run.matches) counts.set(match.patternId, (counts.get(match.patternId) ?? 0) + 1);
+  return [...counts.entries()].map(([patternId, count]) => `${patternId} ${count}`).join(" · ");
+}
+
+function groupMatchesByFile(matches: SearchRunJson["matches"]): readonly MatchGroup[] {
+  const groups = new Map<string, SearchRunJson["matches"][number][]>();
+  for (const match of matches) {
+    const filePath = proofFilePath(match.proof);
+    const group = groups.get(filePath) ?? [];
+    group.push(match);
+    groups.set(filePath, group);
+  }
+  return [...groups.entries()].map(([filePath, groupedMatches]) => ({
+    filePath,
+    matches: groupedMatches,
+  }));
+}
+
+function renderMatchGroup(group: MatchGroup): string {
+  return group.matches.map((match, index) => {
+    const lines = [
+      `${index + 1}. ${format.label(match.patternId)}`,
+      match.reason,
+      match.snapshot ? `\n\`\`\`\n${match.snapshot}\n\`\`\`` : null,
+      format.muted(proofDetail(match.proof)),
+      match.checkWhy ?? "This pattern may indicate judgment-offload.",
+    ];
+    return lines.filter(Boolean).join("\n");
+  }).join("\n\n");
+}
+
+function proofFilePath(proof: string): string {
+  return proof.split("::")[0] || proof;
+}
+
+function proofDetail(proof: string): string {
+  const [, ...rest] = proof.split("::");
+  return rest.length > 0 ? `::${rest.join("::")}` : proof;
 }
 
 function sourceHint(command: SearchCommand): string {
@@ -149,6 +251,9 @@ function sinceLabel(since: string): string {
 }
 
 function summaryLine(run: SearchRunJson): string {
-  const noun = run.matches.length === 1 ? "signal" : "signals";
-  return `${run.matches.length} ${noun}. Warn-only. Nothing blocked.`;
+  return `${run.matches.length} ${signalNoun(run.matches.length)}. Warn-only. Nothing blocked.`;
+}
+
+function signalNoun(count: number): string {
+  return count === 1 ? "signal" : "signals";
 }
