@@ -101,20 +101,18 @@ test("renders matches as slop report fields", () => {
 
   const output = stripAnsi(renderSearchRun(run, command));
 
-  assert.match(output, /AI SLOP DETECTED/);
-  assert.match(output, /================/);
-  assert.match(output, /1 signal across 1 file/);
-  assert.match(output, /Noah Lindner · staged/);
-  assert.match(output, /Warn-only\. Nothing blocked\./);
+  assert.match(output, /YOU GOT SLOP/);
+  assert.match(output, /============/);
+  assert.match(output, /1 signal · 1 file · staged · Noah Lindner/);
+  assert.match(output, /\[j\/k\] scan examples/);
   assert.doesNotMatch(output, /GitHub/);
   assert.match(output, /Duplicated Schema 1/);
-  assert.match(output, /src\/foo\.ts/);
-  assert.match(output, /1\. Duplicated Schema: `ItemType` -> `FooPayload` -- Ada Lovelace \(tighten payload drag types\)/);
+  assert.match(output, />>  1 Duplicated Schema `ItemType` -> `FooPayload` -- Ada Lovelace \(tighten payload drag types\)/);
+  assert.match(output, /src\/foo\.ts:type:FooPayload/);
   assert.match(output, /FooPayload repeats fields from `ItemType`\./);
-  assert.match(output, /```\ntype FooPayload = \{ id: string \};\n```/);
-  assert.match(output, /::type::FooPayload · commit: fix: timeline drag payload/);
+  assert.match(output, /```\n  type FooPayload = \{ id: string \};\n  ```/);
   assert.match(output, /Duplicated shapes drift\./);
-  assert.match(output, /1 signal\. Warn-only\. Nothing blocked\./);
+  assert.match(output, /:1 signal  1 file  warn-only  nothing-blocked/);
   assert.doesNotMatch(output, /who:/);
   assert.doesNotMatch(output, /what:/);
   assert.doesNotMatch(output, /where:/);
@@ -147,5 +145,5 @@ test("renders since windows as short human labels", () => {
 
   const output = renderSearchRun(run, { ...command, kind: "since", source: "since", since: "2 weeks ago" });
 
-  assert.match(output, /Noah Lindner · last 2 weeks/);
+  assert.match(output, /1 signal · 1 file · last 2 weeks · Noah Lindner/);
 });

@@ -34,12 +34,8 @@ export function renderSearchRunToUi(run: SearchRunJson, command: SearchCommand, 
     return;
   }
 
-  ui.warn(format.warn(format.heading("AI SLOP DETECTED")));
-  ui.note(matchSummaryText(run, command), "Summary");
-  for (const group of groupMatchesByFile(run.matches)) {
-    ui.note(renderMatchGroup(group, run), group.filePath);
-  }
-  ui.outro(summaryLine(run));
+  ui.clearScreen();
+  ui.writeStderr(renderSearchHumanText(run, command));
 }
 
 export function renderSearchHumanText(run: SearchRunJson, command: SearchCommand): string {
@@ -61,13 +57,7 @@ ${format.label("Patterns:")} ${run.patterns.join(", ")}
 ${format.success("No judgment-offload signals found.")}`;
   }
 
-  const groups = groupMatchesByFile(run.matches);
-  return `${slopHeading()}
-${matchSummaryText(run, command)}
-
-${groups.map((group) => `${format.heading(group.filePath)}
-${renderMatchGroup(group, run)}`).join("\n\n")}
-${format.muted(summaryLine(run))}`;
+  return renderSlopReport(run, command);
 }
 
 export function helpText(): string {
@@ -140,16 +130,31 @@ function cleanSummaryText(run: SearchRunJson): string {
   ].filter(Boolean).join("\n");
 }
 
-function matchSummaryText(run: SearchRunJson, command: SearchCommand): string {
+function renderSlopReport(run: SearchRunJson, command: SearchCommand): string {
   const fileCount = groupMatchesByFile(run.matches).length;
-  const fileNoun = fileCount === 1 ? "file" : "files";
   return [
-    `${run.matches.length} ${signalNoun(run.matches.length)} across ${fileCount} ${fileNoun}`,
-    `${committerLabel(run)} · ${sourceLabel(command)}`,
-    "Warn-only. Nothing blocked.",
+    slopHeading(),
+    reportStatusLine(run, command),
+    reportPatternLine(run),
     "",
-    patternSummaryLine(run),
-  ].filter((line) => line !== null).join("\n");
+    run.matches.map((match, index) => renderMatchExample(match, run, index)).join("\n\n"),
+    "",
+    format.muted(`:${run.matches.length} ${signalNoun(run.matches.length)}  ${fileCount} ${fileCount === 1 ? "file" : "files"}  warn-only  nothing-blocked`),
+  ].join("\n");
+}
+
+function reportStatusLine(run: SearchRunJson, command: SearchCommand): string {
+  const fileCount = groupMatchesByFile(run.matches).length;
+  return [
+    `${run.matches.length} ${signalNoun(run.matches.length)}`,
+    `${fileCount} ${fileCount === 1 ? "file" : "files"}`,
+    sourceLabel(command),
+    committerLabel(run),
+  ].join(" · ");
+}
+
+function reportPatternLine(run: SearchRunJson): string {
+  return format.muted(`[j/k] scan examples   [q] quit caring   ${patternSummaryLine(run)}`);
 }
 
 function patternSummaryLine(run: SearchRunJson): string {
@@ -172,21 +177,19 @@ function groupMatchesByFile(matches: SearchRunJson["matches"]): readonly MatchGr
   }));
 }
 
-function renderMatchGroup(group: MatchGroup, run: SearchRunJson): string {
-  return group.matches.map((match, index) => {
-    const lines = [
-      matchHeadline(match, run, index),
-      match.reason,
-      match.snapshot ? `\n\`\`\`\n${match.snapshot}\n\`\`\`` : null,
-      format.muted(`${proofDetail(match.proof)}${commitSubjectSuffix(run)}`),
-      match.checkWhy ?? "This pattern may indicate judgment-offload.",
-    ];
-    return lines.filter(Boolean).join("\n");
-  }).join("\n\n");
+function renderMatchExample(match: SearchRunJson["matches"][number], run: SearchRunJson, index: number): string {
+  return [
+    matchVimHeadline(match, run, index),
+    `  ${format.muted(fileLocation(match.proof))}`,
+    `  ${match.reason}`,
+    match.snapshot ? indentCodeBlock(match.snapshot) : null,
+    `  ${format.label("why")} ${match.checkWhy ?? "This pattern may indicate judgment-offload."}`,
+  ].filter(Boolean).join("\n");
 }
 
-function matchHeadline(match: SearchRunJson["matches"][number], run: SearchRunJson, index: number): string {
-  return `${index + 1}. ${format.label(patternLabel(match))}: ${headlineArgs(match)} -- ${matchBlameLabel(match, run)}`;
+function matchVimHeadline(match: SearchRunJson["matches"][number], run: SearchRunJson, index: number): string {
+  const number = String(index + 1).padStart(2, " ");
+  return `${format.warn(">>")} ${number} ${format.label(patternLabel(match))} ${headlineArgs(match)} ${format.muted(`-- ${matchBlameLabel(match, run)}`)}`;
 }
 
 function patternLabel(match: SearchRunJson["matches"][number]): string {
@@ -213,11 +216,6 @@ function runLevelBlameLabel(run: SearchRunJson): string {
   const author = committerLabel(run);
   const subject = firstHumanSubject(run.stats.commitSubjects ?? []);
   return subject ? `${author} (${subject})` : author;
-}
-
-function commitSubjectSuffix(run: SearchRunJson): string {
-  const subject = firstHumanSubject(run.stats.commitSubjects ?? []);
-  return subject ? ` · commit: ${subject}` : "";
 }
 
 function firstHumanSubject(subjects: readonly string[]): string | undefined {
@@ -258,9 +256,18 @@ function proofFilePath(proof: string): string {
   return proof.split("::")[0] || proof;
 }
 
-function proofDetail(proof: string): string {
-  const [, ...rest] = proof.split("::");
-  return rest.length > 0 ? `::${rest.join("::")}` : proof;
+function fileLocation(proof: string): string {
+  const parts = proof.split("::");
+  if (parts.length >= 3) return `${parts[0]}:${parts[1]}:${parts[2]}`;
+  return proof;
+}
+
+function indentCodeBlock(snapshot: string): string {
+  return [
+    `  ${format.muted("```")}`,
+    ...snapshot.split(/\r?\n/).map((line) => `  ${line}`),
+    `  ${format.muted("```")}`,
+  ].join("\n");
 }
 
 function sourceHint(command: SearchCommand): string {
@@ -302,7 +309,7 @@ function committerDisplayName(value: string): string {
 }
 
 function slopHeading(): string {
-  const heading = "AI SLOP DETECTED";
+  const heading = "YOU GOT SLOP";
   return `${format.warn(format.heading(heading))}
 ${format.warn("=".repeat(heading.length))}`;
 }
@@ -317,10 +324,6 @@ function sinceLabel(since: string): string {
   const unit = match[2];
   if (count === 1) return `last ${unit}`;
   return `last ${count} ${unit}s`;
-}
-
-function summaryLine(run: SearchRunJson): string {
-  return `${run.matches.length} ${signalNoun(run.matches.length)}. Warn-only. Nothing blocked.`;
 }
 
 function signalNoun(count: number): string {

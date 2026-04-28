@@ -5,7 +5,7 @@ import { pack, setLogLevel } from "repomix";
 import type { RepomixSearchConfig, SemCandidate, SemChange, SemContext, SemContextPack } from "./types.ts";
 
 const MAX_PACK_FILE_SIZE_BYTES = 48 * 1024;
-const MAX_PACK_TOTAL_SIZE_BYTES = 128 * 1024;
+const MAX_PACK_TOTAL_SIZE_BYTES = 256 * 1024;
 
 export function emptyContextPack(): SemContextPack {
   const config = repomixSearchConfig();

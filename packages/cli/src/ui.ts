@@ -83,6 +83,10 @@ export function createCliUi(options: CliUiOptions = {}) {
       if (!quiet) log.message(message, { output, symbol: pc.dim("trace") });
     },
 
+    clearScreen(): void {
+      if (!quiet && output.isTTY) output.write("\x1b[2J\x1b[H");
+    },
+
     async confirm(message: string): Promise<boolean> {
       return withPromptIo(async (io) => {
         const result = await clackConfirm({
@@ -114,6 +118,10 @@ export function createCliUi(options: CliUiOptions = {}) {
 
     writeStdout(text: string): void {
       stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+    },
+
+    writeStderr(text: string): void {
+      if (!quiet) output.write(text.endsWith("\n") ? text : `${text}\n`);
     },
   };
 }
