@@ -106,6 +106,7 @@ function uncheckedSearchMatches(value: unknown, contexts: readonly SemContext[])
       patternId: context.checkId,
       reason: match.reason ?? "",
       proof: sourcePointer(context),
+      snapshot: sourceSnapshot(context),
     }];
   });
 }
@@ -113,6 +114,31 @@ function uncheckedSearchMatches(value: unknown, contexts: readonly SemContext[])
 function sourcePointer(context: SemContext): string {
   const file = context.filePath ?? "(unknown)";
   return `${file}::${context.entityKind || "entity"}::${context.entityName || context.entityId}`;
+}
+
+function sourceSnapshot(context: SemContext): string | undefined {
+  try {
+    const parsed = JSON.parse(context.text) as { after?: unknown; before?: unknown };
+    const snapshot = stringSnapshot(parsed.after) ?? stringSnapshot(parsed.before);
+    return snapshot ? limitSnapshot(snapshot) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function stringSnapshot(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "(none)") return undefined;
+  return trimmed;
+}
+
+function limitSnapshot(value: string): string {
+  const lines = value.split(/\r?\n/);
+  const limit = 24;
+  if (lines.length <= limit) return value;
+  return `${lines.slice(0, limit).join("\n")}
+[stupify: snapshot shortened after ${limit} lines]`;
 }
 
 async function runJsonPrompt(

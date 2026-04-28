@@ -29,13 +29,18 @@ ${format.label("Patterns:")} ${run.patterns.join(", ")}
 ${format.success("No judgment-offload signals found.")}`;
   }
 
-  return `${format.warn("AI SLOP DETECTED")}
-${run.matches.map((match, index) => `${index + 1}.
-   ${format.muted("who:")} ${committerLabel(run)}
-   ${format.muted("what:")} ${match.patternId} - ${match.reason}
-   ${format.muted("when:")} ${sourceLabel(command)}
-   ${format.muted("where:")} ${match.proof}
-   ${format.muted("why:")} ${match.checkWhy ?? "This pattern may indicate judgment-offload."}`).join("\n")}
+  return `${slopHeading()}
+${run.matches.map((match, index) => `${index + 1}. ${format.label(match.patternId)}
+${committerLabel(run)} (${sourceLabel(command)})
+
+${match.reason}
+
+\`\`\`
+${match.snapshot ?? match.proof}
+\`\`\`
+${format.muted(match.proof)}
+
+${match.checkWhy ?? "This pattern may indicate judgment-offload."}`).join("\n\n")}
 ${format.muted("Search mode is warn-only.")}`;
 }
 
@@ -104,8 +109,18 @@ function sourceLabel(command: SearchCommand): string {
 }
 
 function committerLabel(run: SearchRunJson): string {
-  const committers = (run.stats.committers ?? []).filter(Boolean);
+  const committers = (run.stats.committers ?? []).filter(Boolean).map(committerDisplayName);
   if (committers.length === 0) return "unknown committer";
   if (committers.length <= 3) return committers.join(", ");
   return `${committers.slice(0, 3).join(", ")} +${committers.length - 3} more`;
+}
+
+function committerDisplayName(value: string): string {
+  return value.replace(/\s*<[^>]+>\s*$/, "").trim() || value;
+}
+
+function slopHeading(): string {
+  const heading = "AI SLOP DETECTED";
+  return `${format.warn(format.heading(heading))}
+${format.warn("=".repeat(heading.length))}`;
 }

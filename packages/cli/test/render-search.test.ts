@@ -86,15 +86,21 @@ test("renders matches as slop report fields", () => {
       checkWhy: "Duplicated shapes drift.",
       reason: "Payload repeats the same fields.",
       proof: "src/foo.ts::type::FooPayload",
+      snapshot: "type FooPayload = { id: string };",
     }],
   };
 
   const output = renderSearchRun(run, command);
 
   assert.match(output, /AI SLOP DETECTED/);
-  assert.match(output, /who: Noah Lindner <noah@example\.com>/);
-  assert.match(output, /what: duplicated_schema - Payload repeats the same fields\./);
-  assert.match(output, /when: staged changes/);
-  assert.match(output, /where: src\/foo\.ts::type::FooPayload/);
-  assert.match(output, /why: Duplicated shapes drift\./);
+  assert.match(output, /================/);
+  assert.match(output, /1\. duplicated_schema/);
+  assert.match(output, /Noah Lindner \(staged changes\)/);
+  assert.match(output, /Payload repeats the same fields\./);
+  assert.match(output, /```\ntype FooPayload = \{ id: string \};\n```/);
+  assert.match(output, /src\/foo\.ts::type::FooPayload/);
+  assert.match(output, /Duplicated shapes drift\./);
+  assert.doesNotMatch(output, /who:/);
+  assert.doesNotMatch(output, /what:/);
+  assert.doesNotMatch(output, /where:/);
 });
