@@ -20,46 +20,49 @@ import {
 } from "./search-profile.ts";
 import { semChangeSetForCommand } from "./sem-provider.ts";
 import { createTracer } from "./trace.ts";
+import { createCliUi, type CliUi } from "./ui.ts";
 import type { SearchCommand, SearchMatch, SearchProfile, SearchRunJson, SemContext, SemContextPack, StupifyCheck } from "./types.ts";
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const startedAt = Date.now();
+  let ui = createCliUi();
   try {
     const command = parseCommand(argv);
     if (command.kind === "help") {
-      console.log(helpText());
+      ui.writeStdout(helpText());
       return 0;
     }
     if (command.kind === "hook") {
-      console.log(await runHookCommand(command.action));
+      ui.writeStdout(await runHookCommand(command.action));
       return 0;
     }
     if (command.kind === "doctor") {
       const result = await runDoctor();
-      console.log(result.text);
+      ui.writeStdout(result.text);
       return result.exitCode;
     }
     if (command.kind === "bench-search") {
       const { runSearchBench } = await import("./search-bench.ts");
-      console.log(await runSearchBench(command.configPath));
+      ui.writeStdout(await runSearchBench(command.configPath));
       return 0;
     }
 
-    const run = await runSearchCommand(command, startedAt);
-    console.log(renderSearchRun(run, command));
+    ui = createCliUi({ quiet: command.json });
+    const run = await runSearchCommand(command, startedAt, ui);
+    ui.writeStdout(renderSearchRun(run, command));
     return 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    ui.error(error instanceof Error ? error.message : String(error), { force: true });
     return 1;
   }
 }
 
-export async function runSearchCommand(command: SearchCommand, startedAt: number): Promise<SearchRunJson> {
+export async function runSearchCommand(command: SearchCommand, startedAt: number, ui = createCliUi({ quiet: command.json })): Promise<SearchRunJson> {
   const t = createTracer({
     writeLine: () => undefined,
     onEvent: (event) => {
       if (command.json) return;
-      console.error(formatStep(event.name, event.ms, event.count, event.detail));
+      ui.step(formatStep(event.name, event.ms, event.count, event.detail));
     },
   });
 
@@ -68,7 +71,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
   const patternIds = checks.map((check) => check.id);
   const maxCandidates = effectiveMaxCandidates(command.maxCandidates, profile);
   const maxSearchInputTokens = effectiveMaxSearchInputTokens(command.maxSearchInputTokens, profile);
-  printRunPlan(command, patternIds);
+  printRunPlan(command, patternIds, ui);
   const { value: changeSet } = await t.trace(
     "entity.diff",
     () => semChangeSetForCommand(command),
@@ -200,14 +203,14 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
     }
 
     if (batches.wasSplit && !command.json) {
-      console.error(`Search input is large; queued ${batches.batches.length} smaller search batches.`);
+      ui.warn(`Search input is large; queued ${batches.batches.length} smaller search batches.`);
       if (batches.skippedTargets > 0) {
-        console.error(`Skipped ${batches.skippedTargets} oversized targets that could not fit alone.`);
+        ui.warn(`Skipped ${batches.skippedTargets} oversized targets that could not fit alone.`);
       }
     }
 
-    const modelPath = await firstRunModelBootstrap(command.model);
-    const model = await loadLocalModel(modelPath, command.model, "scout");
+    const modelPath = await firstRunModelBootstrap(command.model, ui);
+    const model = await loadLocalModel(modelPath, command.model, "scout", ui);
     const matches = [];
     let modelCalls = 0;
     let inputTokens = 0;
@@ -218,7 +221,7 @@ export async function runSearchCommand(command: SearchCommand, startedAt: number
       if (batchInputTokens > maxSearchInputTokens) {
         exactSkippedTargets += batch.contexts.length;
         if (!command.json) {
-          console.error(`Skipped ${batch.contexts.length} targets after exact token count exceeded the limit.`);
+          ui.warn(`Skipped ${batch.contexts.length} targets after exact token count exceeded the limit.`);
         }
         continue;
       }
@@ -419,11 +422,17 @@ function buildSearchRequest(
 function printRunPlan(
   command: SearchCommand,
   patternIds: readonly string[],
+  ui: CliUi,
 ): void {
   if (command.json) return;
-  console.error("🧙 stupify 🪄");
-  console.error(`Search: ${sourceLabel(command)}`);
-  console.error(`Patterns: ${patternIds.join(", ")}`);
+  ui.intro("stupify");
+  ui.note(
+    [
+      `Search: ${sourceLabel(command)}`,
+      `Patterns: ${patternIds.join(", ")}`,
+    ].join("\n"),
+    "Run",
+  );
 }
 
 function formatStep(name: string, ms: number, count?: number, detail?: string): string {

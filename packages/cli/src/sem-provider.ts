@@ -13,6 +13,7 @@ import {
   sourceRangeSince,
   stagedDiff,
 } from "./git.ts";
+import { diagnostic } from "./ui.ts";
 import type {
   SearchCommand,
   SemChange,
@@ -153,14 +154,14 @@ async function withContextWorkspace(changeSet: SemChangeSet, debugSem: boolean):
 }
 
 async function runSem(args: readonly string[], debugSem: boolean, cwd = process.cwd()): Promise<unknown> {
-  if (debugSem) console.error(`sem ${args.join(" ")}`);
+  if (debugSem) diagnostic(`sem ${args.join(" ")}`);
   const { command, commandArgs } = resolveSemCommand(args);
   try {
     const { stdout, stderr } = await execFileAsync(command, commandArgs, {
       cwd,
       maxBuffer: 128 * 1024 * 1024,
     });
-    if (debugSem && stderr.trim()) console.error(stderr.trim());
+    if (debugSem && stderr.trim()) diagnostic(stderr.trim());
     return JSON.parse(stdout);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -169,7 +170,7 @@ async function runSem(args: readonly string[], debugSem: boolean, cwd = process.
 }
 
 async function runSemWithInput(args: readonly string[], stdin: string, debugSem: boolean): Promise<unknown> {
-  if (debugSem) console.error(`sem ${args.join(" ")}`);
+  if (debugSem) diagnostic(`sem ${args.join(" ")}`);
   const { command, commandArgs } = resolveSemCommand(args);
   return new Promise((resolve, reject) => {
     const child = spawn(command, commandArgs, { stdio: ["pipe", "pipe", "pipe"] });
@@ -180,7 +181,7 @@ async function runSemWithInput(args: readonly string[], stdin: string, debugSem:
     child.on("error", (error) => reject(error));
     child.on("close", (code) => {
       const stderrText = Buffer.concat(stderr).toString("utf8");
-      if (debugSem && stderrText.trim()) console.error(stderrText.trim());
+      if (debugSem && stderrText.trim()) diagnostic(stderrText.trim());
       if (code !== 0) {
         reject(new Error(`sem failed with exit code ${code}${stderrText ? `: ${stderrText.trim()}` : ""}`));
         return;
@@ -196,7 +197,7 @@ async function runSemWithInput(args: readonly string[], stdin: string, debugSem:
 }
 
 async function git(args: readonly string[], debugSem: boolean): Promise<void> {
-  if (debugSem) console.error(`git ${args.join(" ")}`);
+  if (debugSem) diagnostic(`git ${args.join(" ")}`);
   await execFileAsync("git", [...args], { maxBuffer: 128 * 1024 * 1024 });
 }
 

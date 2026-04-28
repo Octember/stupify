@@ -1,45 +1,42 @@
 import { VERSION } from "./constants.ts";
 import type { SearchCommand, SearchRunJson } from "./types.ts";
+import { format } from "./ui.ts";
 
 export function renderSearchRun(run: SearchRunJson, command: SearchCommand): string {
   if (command.json) return JSON.stringify(run, null, 2);
 
   if (run.stats.skipped && run.stats.skipReason === "input_too_large") {
-    return `🧙 stupify 🪄
-Search input is too large for precise local search.
-Size:
+    return `${format.heading("Search input is too large for precise local search.")}
+${format.heading("Size:")}
 ~${run.stats.inputTokens ?? "unknown"} tokens
-Limit:
+${format.heading("Limit:")}
 ${run.stats.inputTokenCap ?? "unknown"} tokens
 Stupify skipped the search rather than review truncated context.
 Nothing was blocked.
-Try:
+${format.heading("Try:")}
 rerun with ${sourceHint(command)} --max-search-input-tokens ${Math.max((run.stats.inputTokens ?? 12_000) + 1, (run.stats.inputTokenCap ?? 12_000) * 2)}`;
   }
 
   if (run.stats.skipped && run.stats.skipReason === "no_candidates") {
-    return `🧙 stupify 🪄
-Search complete.
-Patterns: ${run.patterns.join(", ")}
-No search targets found.`;
+    return `${format.heading("Search complete.")}
+${format.label("Patterns:")} ${run.patterns.join(", ")}
+${format.success("No search targets found.")}`;
   }
 
   if (run.matches.length === 0) {
-    return `🧙 stupify 🪄
-Search complete.
-Patterns: ${run.patterns.join(", ")}
-No judgment-offload signals found.`;
+    return `${format.heading("Search complete.")}
+${format.label("Patterns:")} ${run.patterns.join(", ")}
+${format.success("No judgment-offload signals found.")}`;
   }
 
-  return `🧙 stupify 🪄
-AI SLOP DETECTED
+  return `${format.warn("AI SLOP DETECTED")}
 ${run.matches.map((match, index) => `${index + 1}.
-   who: ${committerLabel(run)}
-   what: ${match.patternId} - ${match.reason}
-   when: ${sourceLabel(command)}
-   where: ${match.proof}
-   why: ${match.checkWhy ?? "This pattern may indicate judgment-offload."}`).join("\n")}
-Search mode is warn-only.`;
+   ${format.muted("who:")} ${committerLabel(run)}
+   ${format.muted("what:")} ${match.patternId} - ${match.reason}
+   ${format.muted("when:")} ${sourceLabel(command)}
+   ${format.muted("where:")} ${match.proof}
+   ${format.muted("why:")} ${match.checkWhy ?? "This pattern may indicate judgment-offload."}`).join("\n")}
+${format.muted("Search mode is warn-only.")}`;
 }
 
 export function helpText(): string {

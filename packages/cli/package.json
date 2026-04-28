@@ -1,6 +1,6 @@
 {
   "name": "@stupify/cli",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "Local-only diagnostic CLI for checking whether AI is making you dumber.",
   "private": false,
   "type": "module",
@@ -44,6 +44,8 @@
   },
   "dependencies": {
     "@ataraxy-labs/sem": "^0.3.24",
+    "@clack/prompts": "^1.2.0",
+    "picocolors": "^1.1.1",
     "repomix": "^1.14.0"
   }
 }

@@ -2,6 +2,7 @@ import { cachedJson, fingerprint } from "./cache.ts";
 import type { LocalModel } from "./model.ts";
 import { searchPrompt } from "./prompts.ts";
 import type { SearchMatch, SemChangeSet, SemContext, SemContextPack, StupifyCheck } from "./types.ts";
+import { diagnostic, diagnosticError } from "./ui.ts";
 
 export async function runSearch(
   model: LocalModel,
@@ -150,8 +151,8 @@ Your previous response was not valid JSON. Return the requested JSON object only
   const retryParsed = parseJson(retry);
   if (retryParsed.ok) return retryParsed.value;
 
-  console.error("Raw model output:");
-  console.error(retry);
+  diagnosticError("Raw model output:");
+  diagnostic(retry);
   throw new Error("Model returned invalid JSON.");
 }
 
