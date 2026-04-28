@@ -1,0 +1,9 @@
+{
+  "id": "unnecessary_complexity_negative_feature_module",
+  "description": "A coherent feature service wraps an external dependency boundary.",
+  "checks": ["unnecessary_complexity"],
+  "expected": [
+    { "patternId": "unnecessary_complexity", "shouldMatch": false }
+  ],
+  "stagedPatch": "diff --git a/src/payments/payment-service.ts b/src/payments/payment-service.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/payments/payment-service.ts\n@@ -0,0 +1,24 @@\n+type PaymentClient = { charge(input: { amount: number; token: string }): Promise<{ id: string }> };\n+\n+export class PaymentService {\n+  constructor(private readonly client: PaymentClient) {}\n+\n+  async chargeCustomer(input: { amount: number; token: string }) {\n+    if (input.amount <= 0) throw new Error(\"amount must be positive\");\n+    return this.client.charge({ amount: input.amount, token: input.token });\n+  }\n+}\n"
+}

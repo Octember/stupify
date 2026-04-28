@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, platform } from "node:os";
 import path from "node:path";
-import { diagnostic } from "./ui.ts";
 
 export function fingerprint(value: unknown): string {
   const text = typeof value === "string" ? value : stableStringify(value);
@@ -17,10 +16,8 @@ export async function cachedJson<T>(
   const filePath = cachePath(namespace, key);
   try {
     const value = JSON.parse(await readFile(filePath, "utf8")) as T;
-    diagnostic(`cache hit ${namespace} ${key.slice(0, 12)}`);
     return value;
   } catch {
-    diagnostic(`cache miss ${namespace} ${key.slice(0, 12)}`);
   }
 
   const value = await compute();

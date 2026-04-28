@@ -1,0 +1,9 @@
+{
+  "id": "over_commenting_positive_obvious_comments",
+  "description": "A simple function gains comments that narrate obvious control flow.",
+  "checks": ["over_commenting"],
+  "expected": [
+    { "patternId": "over_commenting", "shouldMatch": true }
+  ],
+  "stagedPatch": "diff --git a/src/count.ts b/src/count.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/count.ts\n@@ -0,0 +1,18 @@\n+export function countReady(items: Array<{ ready: boolean }>) {\n+  // Start the count at zero.\n+  let total = 0;\n+  // Loop over every item.\n+  for (const item of items) {\n+    // Check whether the item is ready.\n+    if (item.ready) {\n+      // Add one to the total.\n+      total += 1;\n+    }\n+  }\n+  // Return the total count.\n+  return total;\n+}\n"
+}

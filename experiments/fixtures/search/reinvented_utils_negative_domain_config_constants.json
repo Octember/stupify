@@ -1,0 +1,9 @@
+{
+  "id": "reinvented_utils_negative_domain_config_constants",
+  "description": "Domain constants are not utility reinvention.",
+  "checks": ["reinvented_utils"],
+  "expected": [
+    { "patternId": "reinvented_utils", "shouldMatch": false }
+  ],
+  "stagedPatch": "diff --git a/src/domain-config.ts b/src/domain-config.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/domain-config.ts\n@@ -0,0 +1,12 @@\n+export const subscriptionTiers = {\n+  starter: { seats: 3, projects: 2 },\n+  team: { seats: 25, projects: 50 },\n+  enterprise: { seats: 500, projects: 5000 },\n+} as const;\n+\n+export function tierLimit(name: keyof typeof subscriptionTiers) {\n+  return subscriptionTiers[name];\n+}\n"
+}

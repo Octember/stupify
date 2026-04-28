@@ -1,0 +1,17 @@
+{
+  "id": "duplicated_schema_only_no_counter_reason",
+  "context": "repomix",
+  "maxCandidates": 5,
+  "maxSearchInputTokens": 12000,
+  "includeCounterReasonInPrompt": false,
+  "repomix": {
+    "compress": true,
+    "showLineNumbers": true,
+    "removeEmptyLines": true,
+    "maxFileBytes": 24576,
+    "maxTotalBytes": 65536
+  },
+  "patterns": {
+    "duplicated_schema": { "enabled": true }
+  }
+}

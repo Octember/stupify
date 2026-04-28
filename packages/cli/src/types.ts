@@ -13,88 +13,69 @@ export function checkId(value: string): CheckId {
   return value as CheckId;
 }
 
-export type Engine = "raw-diff" | "sem";
-export type ScoutMode = "llm" | "counter";
-export type AuditContextMode = "none" | "repomix";
-export type AuditPromptName = "strict" | "high_bar";
+export type SearchMode = "warn" | "off";
+export type HookAction = "install" | "uninstall" | "status";
+export type SearchSource = "since" | "stdin" | "commit" | "commits" | "staged";
 
-type AnalyzeOptions = Readonly<{
+type SearchOptions = Readonly<{
   checkIds: readonly string[] | null;
   json: boolean;
   model: ModelId;
-  engine: Engine;
-  scout: ScoutMode;
-  auditContext: AuditContextMode;
-  auditPrompt: AuditPromptName;
   debugSem: boolean;
-  debugTargets: boolean;
   maxCandidates: number;
-  auditBatchSize: number;
-  maxAuditInputTokens: number;
-  auditConcurrency: number;
+  maxSearchInputTokens: number;
+  searchProfilePath: string | null;
+  includeCounterReasonInPrompt: boolean;
 }>;
 
 export type Command =
   | Readonly<{ kind: "help" }>
-  | Readonly<{ kind: "experiment"; configPath: string }>
-  | (Readonly<{ kind: "since"; since: string }> & AnalyzeOptions)
-  | (Readonly<{ kind: "stdin" }> & AnalyzeOptions)
-  | (Readonly<{ kind: "commit"; commit: string }> & AnalyzeOptions)
-  | (Readonly<{ kind: "commits"; count: number }> & AnalyzeOptions);
+  | Readonly<{ kind: "hook"; action: HookAction }>
+  | Readonly<{ kind: "doctor" }>
+  | Readonly<{ kind: "bench-search"; configPath: string }>
+  | (Readonly<{ kind: "since"; since: string; mode: "search"; source: "since" }> & SearchOptions)
+  | (Readonly<{ kind: "stdin"; mode: "search"; source: "stdin" }> & SearchOptions)
+  | (Readonly<{ kind: "commit"; commit: string; mode: "search"; source: "commit" }> & SearchOptions)
+  | (Readonly<{ kind: "commits"; count: number; mode: "search"; source: "commits" }> & SearchOptions)
+  | (Readonly<{ kind: "staged"; mode: "search"; source: "staged" }> & SearchOptions);
 
-type ControlCommand =
+export type SearchCommand = Exclude<
+  Command,
   | Readonly<{ kind: "help" }>
-  | Readonly<{ kind: "experiment"; configPath: string }>;
-
-export type AnalyzeCommand = Exclude<Command, ControlCommand>;
+  | Readonly<{ kind: "hook"; action: HookAction }>
+  | Readonly<{ kind: "doctor" }>
+  | Readonly<{ kind: "bench-search"; configPath: string }>
+>;
 
 export type StupifyCheck = Readonly<{
   id: CheckId;
   name: string;
   question: string;
+  why: string;
   lookFor: readonly string[];
   ignoreWhen: readonly string[];
   enabledByDefault?: boolean;
+  hookMode?: SearchMode;
+  searchPrompt?: string;
+  searchExamples?: Readonly<{
+    match: readonly string[];
+    nonMatch: readonly string[];
+  }>;
   examples?: Readonly<{
     match?: readonly string[];
     noMatch?: readonly string[];
   }>;
 }>;
 
-export type FindingCandidate = Readonly<{
-  checkId: string;
-  why: string;
-  proof: string;
-}>;
-
-export type Finding = Readonly<{
-  sourceId: SourceId;
-  checkId: CheckId;
-  why: string;
-  proof: string;
-}>;
-
-export type FindingsResult = Readonly<{
-  findings: readonly Finding[];
-  summary?: string;
-}>;
-
-export type AuditReviewStats = Readonly<{
-  totalTargets: number;
-  finding: number;
-  clean: number;
-  uncertain: number;
-  invalid: number;
-}>;
-
-export type AuditReviewResult = FindingsResult & Readonly<{
-  stats: AuditReviewStats;
-}>;
-
 export type NetDiffStats = Readonly<{
   filesChanged: number;
   additions: number;
   deletions: number;
+}>;
+
+export type StagedDiff = Readonly<{
+  text: string;
+  stats: NetDiffStats;
 }>;
 
 export type NetDiff = Readonly<{
@@ -112,27 +93,6 @@ export type SourceRange = Readonly<{
   base: string;
   target: string;
   stats: NetDiffStats;
-}>;
-
-export type DiffHunk = Readonly<{
-  pointer: string;
-  batchId: string;
-  fileId: string;
-  hunkId: string;
-  filePath: string;
-  lineCount: number;
-  text: string;
-}>;
-
-export type DiffBatch = Readonly<{
-  id: string;
-  hunks: readonly DiffHunk[];
-  text: string;
-}>;
-
-export type CandidateContext = Readonly<{
-  pointer: string;
-  text: string;
 }>;
 
 export type SemChange = Readonly<{
@@ -186,65 +146,178 @@ export type SemContext = Readonly<{
   text: string;
 }>;
 
-export type DebugTarget = Readonly<{
-  targetId: string;
-  checkId: CheckId;
-  entityId: string;
-  entityKind?: string;
-  changeKind?: string;
-  scoutReason?: string;
-  sourceLabel?: string;
-}>;
-
 export type SemContextPack = Readonly<{
   provider: "repomix";
   filePaths: readonly string[];
   totalCharacters: number;
   totalTokens: number;
   text: string;
+  config: RepomixSearchConfig;
 }>;
 
-export type AnalysisRun = Readonly<{
-  engine: Engine;
-  auditContext: AuditContextMode;
-  auditPrompt: AuditPromptName;
-  mode: AnalyzeCommand["kind"];
-  modelId: ModelId;
-  checkIds: readonly CheckId[];
-  sourceId: SourceId;
-  label: string;
-  stats: NetDiffStats;
-  batchesScanned: number;
-  candidateCount: number;
-  targetsByCheck?: Readonly<Record<string, number>>;
-  entitiesScanned: number;
-  auditedCandidateCount: number;
-  scoutModelCalls: number;
-  auditModelCalls: number;
-  timingsMs: Readonly<{
-    diff: number;
-    modelLoad: number;
-    search: number;
-    audit: number;
-    total: number;
+export type RepomixSearchConfig = Readonly<{
+  compress: boolean;
+  showLineNumbers: boolean;
+  removeEmptyLines: boolean;
+  maxFileSizeBytes: number;
+  maxTotalSizeBytes: number;
+  ignorePatterns: readonly string[];
+}>;
+
+export type SearchProfileRepomixConfig = Readonly<{
+  compress?: boolean;
+  showLineNumbers?: boolean;
+  removeEmptyLines?: boolean;
+  maxFileBytes?: number;
+  maxTotalBytes?: number;
+  ignorePatterns?: readonly string[];
+}>;
+
+export type SearchProfilePattern = Readonly<{
+  enabled?: boolean;
+  searchPrompt?: string;
+  matchExamples?: readonly string[];
+  nonMatchExamples?: readonly string[];
+}>;
+
+export type SearchProfile = Readonly<{
+  id: string;
+  context?: "repomix" | "sem";
+  maxCandidates?: number;
+  maxSearchInputTokens?: number;
+  includeCounterReasonInPrompt?: boolean;
+  repomix?: SearchProfileRepomixConfig;
+  patterns?: Readonly<Record<string, SearchProfilePattern>>;
+}>;
+
+export type SearchMatch = Readonly<{
+  targetId: string;
+  patternId: CheckId;
+  checkWhy?: string;
+  reason: string;
+  proof: string;
+}>;
+
+export type SearchRunJson = Readonly<{
+  schemaVersion: "search.v1";
+  mode: "search";
+  source: SearchSource;
+  model: Readonly<{ id: ModelId }>;
+  patterns: readonly CheckId[];
+  stats: Readonly<{
+    elapsedMs: number;
+    modelCalls: number;
+    inputTokens?: number;
+    inputTokenCap?: number;
+    skipped?: boolean;
+    skipReason?: "input_too_large" | "no_candidates";
+    filesChanged?: number;
+    entitiesScanned?: number;
+    candidates?: number;
+    repomixFiles?: number;
+    repomixTokens?: number;
+    repomixConfig?: RepomixSearchConfig;
+    searchTargets?: number;
+    searchBatches?: number;
+    skippedTargets?: number;
+    profileId?: string;
+    targetsByPattern?: Readonly<Record<string, number>>;
+    targetsPreview?: readonly SearchTargetPreview[];
   }>;
-  warnings: readonly string[];
-  auditStats?: AuditReviewStats;
-  debugTargets?: readonly DebugTarget[];
-  traceEvents?: readonly TraceEvent[];
+  matches: readonly SearchMatch[];
 }>;
 
-export type TraceEvent = Readonly<{
+export type SearchTargetPreview = Readonly<{
+  targetId: string;
+  patternId: CheckId;
+  entityKind?: string;
+  sourceKind?: string;
+}>;
+
+export type SearchBenchConfig = Readonly<{
   name: string;
-  ms: number;
-  count?: number;
-  detail?: string;
+  profiles: readonly string[];
+  fixtures: string;
+  realSmokeRuns?: readonly SearchBenchSmokeRun[];
+  realCommitReplay?: readonly SearchBenchCommitReplay[];
 }>;
 
-export type AnalysisReport = Readonly<{
-  run: AnalysisRun;
-  result: FindingsResult;
+export type SearchBenchSmokeRun = Readonly<{
+  id: string;
+  cwd?: string;
+  args: readonly string[];
 }>;
+
+export type SearchBenchCommitReplay = Readonly<{
+  id: string;
+  repoEnv?: string;
+  cwd?: string;
+  limit: number;
+  since?: string;
+  nonMerge?: boolean;
+  profiles: readonly string[];
+}>;
+
+export type SearchFixture = Readonly<{
+  id: string;
+  description: string;
+  stagedPatch: string;
+  checks: readonly string[];
+  expected: readonly SearchFixtureExpectation[];
+}>;
+
+export type SearchFixtureExpectation = Readonly<{
+  patternId: string;
+  shouldMatch: boolean;
+}>;
+
+export type SearchBenchRun = Readonly<{
+  profileId: string;
+  fixtureId?: string;
+  smokeId?: string;
+  elapsedMs: number;
+  modelCalls: number;
+  patterns: readonly CheckId[];
+  targets: number;
+  targetsByPattern: Readonly<Record<string, number>>;
+  inputTokens: number;
+  repomixPackedTokens?: number;
+  skipped: boolean;
+  skipReason?: string;
+  matches: readonly SearchMatch[];
+  expected?: readonly SearchFixtureExpectation[];
+  score?: number;
+  targetsPreview: readonly SearchTargetPreview[];
+  matchesUsingCounterReasonAsProof: number;
+  error?: string;
+}>;
+
+export type SearchBenchReplayRun = Readonly<{
+  profileId: string;
+  replayId: string;
+  commitId: string;
+  outcome: SearchReplayOutcome;
+  changedFiles: number;
+  addedLines: number;
+  deletedLines: number;
+  elapsedMs: number;
+  skipped: boolean;
+  skipReason?: string;
+  targets: number;
+  inputTokens: number;
+  repomixPackedTokens?: number;
+  modelCalls: number;
+  matches: readonly SearchMatch[];
+  matchesByPattern: Readonly<Record<string, number>>;
+  error?: string;
+}>;
+
+export type SearchReplayOutcome =
+  | "no_candidates"
+  | "ran_no_matches"
+  | "ran_with_matches"
+  | "skipped_input_too_large"
+  | "error";
 
 export type ModelId =
   | "gemma-4-e2b"
@@ -258,7 +331,14 @@ export type ModelId =
 export type ModelConfig = Readonly<{
   id: ModelId;
   name: string;
-  size: string;
   file: string;
   url: string;
+  size: string;
+}>;
+
+export type TraceEvent = Readonly<{
+  name: string;
+  ms: number;
+  count?: number;
+  detail?: string;
 }>;

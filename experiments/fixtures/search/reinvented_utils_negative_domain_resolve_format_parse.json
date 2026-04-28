@@ -1,0 +1,9 @@
+{
+  "id": "reinvented_utils_negative_domain_resolve_format_parse",
+  "description": "Domain resolve/format/parse helpers are not generic utility reinvention.",
+  "checks": ["reinvented_utils"],
+  "expected": [
+    { "patternId": "reinvented_utils", "shouldMatch": false }
+  ],
+  "stagedPatch": "diff --git a/src/timeline.ts b/src/timeline.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/timeline.ts\n@@ -0,0 +1,23 @@\n+type Clip = { label: string; startSeconds: number; endSeconds: number };\n+\n+export function resolveTimelineAssemblerSelectedClip(clips: Clip[], selectedLabel: string) {\n+  return clips.find((clip) => clip.label === selectedLabel) ?? clips[0] ?? null;\n+}\n+\n+export function formatClipHeader(clip: Clip) {\n+  return `${clip.label} (${clip.startSeconds}-${clip.endSeconds})`;\n+}\n+\n+export function parseRequestQaArgs(args: string[]) {\n+  return {\n+    path: args[0] ?? null,\n+    verbose: args.includes(\"--verbose\"),\n+  };\n+}\n"
+}
