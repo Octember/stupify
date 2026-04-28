@@ -10,7 +10,11 @@ const command: SearchCommand = {
   checkIds: null,
   json: false,
   model: "gemma-4-e2b",
+  debugSem: false,
+  maxCandidates: 10,
   maxSearchInputTokens: 12_000,
+  searchProfilePath: null,
+  includeCounterReasonInPrompt: false,
 };
 
 test("renders oversized staged search as skipped, not clean", () => {
@@ -33,8 +37,8 @@ test("renders oversized staged search as skipped, not clean", () => {
 
   const output = renderSearchRun(run, command);
 
-  assert.match(output, /too large for precise hook search/);
-  assert.match(output, /skipped the hook scan/);
+  assert.match(output, /too large for precise local search/);
+  assert.match(output, /skipped the search/);
   assert.doesNotMatch(output, /No judgment-offload signals found/);
 });
 

@@ -16,10 +16,8 @@ export async function cachedJson<T>(
   const filePath = cachePath(namespace, key);
   try {
     const value = JSON.parse(await readFile(filePath, "utf8")) as T;
-    console.error(`cache hit ${namespace} ${key.slice(0, 12)}`);
     return value;
   } catch {
-    console.error(`cache miss ${namespace} ${key.slice(0, 12)}`);
   }
 
   const value = await compute();
