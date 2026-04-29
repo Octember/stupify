@@ -1,54 +1,50 @@
 # Stupify
 
-**This project is called Stupify.**
+[![CI](https://github.com/Octember/stupif.ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Octember/stupif.ai/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@stupify/cli)](https://www.npmjs.com/package/@stupify/cli)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**The domain is `stupif.ai` - read it as "stupify"; the `ai` makes a `y`
-sound.**
+[Website](https://stupif.ai) | [npm](https://www.npmjs.com/package/@stupify/cli) | [Releases](https://github.com/Octember/stupif.ai/releases) | [Contributing](CONTRIBUTING.md) | [Security](SECURITY.md)
 
 Local-only diagnostic tooling for checking whether AI is making developers
 dumber.
 
-Current goal: turn recent local changes into compact search evidence and use a
-local model to warn on concrete judgment-offload matches.
+Stupify turns local diffs into compact search evidence, then asks a local model
+to look for concrete judgment-offload signals. Your code stays on your machine.
 
-## License
+The project is called Stupify. The domain is `stupif.ai`; read it as
+"stupify", where the `ai` makes a `y` sound.
 
-Stupify is released under the [MIT License](LICENSE).
-
-## Contributing
-
-Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before
-opening a PR, and report security issues through [SECURITY.md](SECURITY.md).
-
-## CLI
-
-Current local smoke test:
+## Install
 
 ```sh
-bun run smoke:cli
+npx @stupify/cli@latest --commit HEAD
 ```
 
-Try a diff:
+Or install it:
 
 ```sh
-npx @stupify/cli --commit HEAD
+npm install -g @stupify/cli@latest
+stupify --commit HEAD
+```
+
+Full analysis needs Git, `llama-server`, and a local GGUF model. Run `doctor`
+to check the setup:
+
+```sh
+stupify doctor
+```
+
+## Quickstart
+
+```sh
+stupify --commit HEAD          # analyze one commit
+stupify --staged               # analyze staged changes
+stupify --commits 20           # analyze a recent range
+git diff HEAD~1..HEAD | stupify --stdin
 ```
 
 By default, `stupify` is equivalent to `stupify --since "2 weeks ago"`.
-Commit mode analyzes `<commit>^..commit` as a net diff.
-The default search registry enables the checks that currently pass the local
-hook-safety bench: `duplicated_schema`, `unnecessary_complexity`,
-`over_commenting`, `lint_bypass`, and `reinvented_utils`. Other registry
-patterns remain available with `--checks`.
-
-The only analysis path is:
-
-```text
-sem diff -> counter scout -> Repomix context -> local search model
-```
-
-Search mode emits `matches`, not audit findings. If the local search input is
-too large, Stupify skips instead of reviewing truncated context.
 
 Install the warn-only pre-commit hook:
 
@@ -56,58 +52,75 @@ Install the warn-only pre-commit hook:
 stupify hook install
 ```
 
-Check local setup:
+The hook runs `stupify --staged` and exits 0.
+
+## How It Works
+
+```mermaid
+flowchart LR
+  Diff["Local diff<br/>commit, range, staged, or stdin"]
+  Sem["sem diff<br/>changed code entities"]
+  Scout["counter scout<br/>candidate checks"]
+  Context["Repomix<br/>minimal local context"]
+  Model["llama-server<br/>local GGUF model"]
+  Matches["matches<br/>with proof pointers"]
+
+  Diff --> Sem --> Scout --> Context --> Model --> Matches
+```
+
+Stupify emits search `matches`, not audit findings.
+
+The default search registry enables the checks that currently pass the local
+hook-safety bench: `duplicated_schema`, `unnecessary_complexity`,
+`over_commenting`, `lint_bypass`, and `reinvented_utils`. Other registry
+patterns remain available with `--checks`.
+
+This iteration intentionally does not run findings audit, validators, judges,
+baselines, upload data, call hosted LLM APIs, GitHub integration, dashboards, or
+repo-wide crawling.
+
+## Requirements
+
+- Node.js 20 or newer for the published CLI.
+- Git, because Stupify reads local diffs and commits.
+- `llama-server` from `llama.cpp` for local inference.
+- A local GGUF model. On first run, Stupify can ask before downloading the
+  default model into your local cache.
+- Bun 1.3.12 for repository development, tests, and release checks.
+
+On macOS:
 
 ```sh
+brew install llama.cpp
 stupify doctor
 ```
 
-Analyze recent commits:
+Setup notes live in [docs/gemma4-llama-cpp.md](docs/gemma4-llama-cpp.md).
+
+## Development
+
+Use the Bun version pinned in `package.json`.
 
 ```sh
-npx @stupify/cli --commits 20
+bun install --frozen-lockfile
+bun run check
 ```
 
-Recent-commits mode analyzes the selected range as one change. Findings are
-range-level for now, not per-commit blame.
-
-Pipe mode:
+Useful loops:
 
 ```sh
-git diff HEAD~1..HEAD | npx @stupify/cli --stdin
+bun run typecheck
+bun run smoke:cli
 ```
 
-This iteration intentionally does not run findings audit, validators, judges,
-baselines, upload data, call hosted LLM APIs, or scan the whole repo.
+## Project
 
-## Local Runtime
+- Upgrade with `npm install -g @stupify/cli@latest`.
+- Releases use GitHub Releases and npm Trusted Publishing. See
+  [docs/releasing.md](docs/releasing.md).
+- Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md).
+- Report security issues through [SECURITY.md](SECURITY.md).
 
-Stupify uses one local inference road: `llama-server`.
-The CLI starts it on localhost when needed and reuses the already-loaded model
-on later runs. Setup notes live in
-[docs/gemma4-llama-cpp.md](docs/gemma4-llama-cpp.md).
+## License
 
-## Product framing
-
-Stupify asks whether a diff shows signs that AI may be replacing engineering
-judgment instead of augmenting it.
-
-Your code stays on your machine.
-
-## Deployment
-
-The web app deploys as a server-rendered React Router app on Cloudflare Workers.
-The Worker routes `stupif.ai/*` and `www.stupif.ai/*` in `wrangler.jsonc`.
-
-```sh
-bun run typecheck:web
-bun run deploy
-```
-
-`bun run deploy` builds the app and publishes the Worker configured in
-`wrangler.jsonc`.
-
-## Releasing
-
-The CLI publishes from GitHub Releases through npm Trusted Publishing. See
-[docs/releasing.md](docs/releasing.md).
+Stupify is released under the [MIT License](LICENSE).

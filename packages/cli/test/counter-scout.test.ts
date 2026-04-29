@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { searchChecks } from "../src/checks.ts";
-import { counterScoutTargets } from "../src/counter-scout.ts";
-import { sourceId, type SemChange, type SemChangeSet } from "../src/types.ts";
+import { searchChecks } from "../src/core/checks.ts";
+import { sourceId, type SemChange, type SemChangeSet } from "../src/core/types.ts";
+import { counterScoutTargets } from "../src/sem/counter-scout.ts";
 
 test("broad search checks can target non-JS source files", () => {
   const targets = counterScoutTargets(

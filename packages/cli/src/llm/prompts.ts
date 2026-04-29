@@ -1,5 +1,5 @@
-import { searchImplForLanguage, sourceLanguageForPath } from "./source-languages.ts";
-import type { AiSlopCheck, SemChangeSet, SemContext, SemContextPack } from "./types.ts";
+import { searchImplForLanguage, sourceLanguageForPath } from "../source-languages.ts";
+import type { AiSlopCheck, SemChangeSet, SemContext, SemContextPack } from "../core/types.ts";
 
 export function searchPrompt(input: Readonly<{
   changeSet: SemChangeSet;

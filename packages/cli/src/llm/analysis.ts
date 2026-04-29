@@ -1,8 +1,8 @@
-import { cachedJson, fingerprint } from "./cache.ts";
-import type { LocalModel } from "./model.ts";
+import { cachedJson, fingerprint } from "../model/cache.ts";
+import type { LocalModel } from "../model/model.ts";
 import { searchPrompt } from "./prompts.ts";
-import type { AiSlopCheck, SearchMatch, SemChangeSet, SemContext, SemContextPack } from "./types.ts";
-import { diagnostic, diagnosticError } from "./ui.ts";
+import type { AiSlopCheck, SearchMatch, SemChangeSet, SemContext, SemContextPack } from "../core/types.ts";
+import { diagnostic, diagnosticError } from "../core/ui.ts";
 
 export async function runSearch(
   model: LocalModel,

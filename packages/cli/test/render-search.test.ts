@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { renderSearchRun } from "../src/render.ts";
-import { checkId, type SearchCommand, type SearchRunJson } from "../src/types.ts";
+import { renderSearchRun } from "../src/render/render.ts";
+import { checkId, type SearchCommand, type SearchRunJson } from "../src/core/types.ts";
 
 const command: SearchCommand = {
   kind: "staged",

@@ -1,13 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { defaultChecks, searchChecks } from "./checks.ts";
+import { defaultChecks, searchChecks } from "../core/checks.ts";
 import type {
   AiSlopCheck,
   AiSlopCheckSearch,
   RepomixSearchConfig,
   SearchProfile,
   SearchProfilePattern,
-} from "./types.ts";
+} from "../core/types.ts";
 
 export async function loadSearchProfile(profilePath: string | null): Promise<SearchProfile | null> {
   if (!profilePath) return null;

@@ -3,9 +3,9 @@ import { existsSync } from "node:fs";
 import { chmod, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { gitPath, gitRoot } from "./git.ts";
-import type { HookAction } from "./types.ts";
-import type { CliUi } from "./ui.ts";
+import { gitPath, gitRoot } from "../git/git.ts";
+import type { HookAction } from "../core/types.ts";
+import type { CliUi } from "../core/ui.ts";
 
 const execFileAsync = promisify(execFile);
 const START = "# stupify hook start";

@@ -14,7 +14,7 @@ import type {
   SearchMatch,
   SearchProfile,
   SearchRunJson,
-} from "./types.ts";
+} from "../core/types.ts";
 
 const execFileAsync = promisify(execFile);
 

@@ -11,9 +11,9 @@ import {
 import { homedir, platform } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { MODEL_REGISTRY } from "./constants.ts";
-import type { ModelId } from "./types.ts";
-import type { CliUi } from "./ui.ts";
+import { MODEL_REGISTRY } from "../core/constants.ts";
+import type { ModelId } from "../core/types.ts";
+import type { CliUi } from "../core/ui.ts";
 
 const execFileAsync = promisify(execFile);
 const LLAMA_SERVER_HOST = "127.0.0.1";
