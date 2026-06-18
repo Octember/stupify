@@ -26,7 +26,7 @@ A finder, not a gatekeeper — it comments, it doesn't block merges.
 Stupify runs on an always-on box, so it rides [exe.dev](https://exe.dev). From your laptop, **one command provisions everything** — it detects your repo, wires the GitHub integration, and spins up a VM that installs itself. No keys, no tokens, you never SSH anywhere:
 
 ```bash
-bunx github:Octember/stupif.ai
+bunx @stupify/cli
 ```
 
 ```
@@ -39,9 +39,9 @@ bunx github:Octember/stupif.ai
 First time on exe.dev? `ssh exe.dev` to onboard, link GitHub at [exe.dev/integrations](https://exe.dev/integrations). Then give it your taste — copy [`.review/`](.review) into your repo and point `CORPUS.md` at your best files. Label a PR `codex-review` (or add [`autolabel.yml`](.github/workflows/autolabel.yml)) → a review in ~60s.
 
 ```bash
-bunx github:Octember/stupif.ai <owner/repo>   # provision for a specific repo
+bunx @stupify/cli <owner/repo>   # provision for a specific repo
 ssh exe.dev rm stupify-<owner>-<repo>         # tear it down
-bunx github:Octember/stupif.ai setup          # install on this machine instead of a VM
+bunx @stupify/cli setup          # install on this machine instead of a VM
 ```
 
 ## How it works
