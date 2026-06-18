@@ -68,7 +68,7 @@ ssh exe.dev rm stupify-<owner>-<repo>          # tear it down
 ```
 
 **Don't want a VM?** `bunx github:Octember/stupif.ai setup` installs it on the current machine instead (needs
-`bun`, `gh`, `codex`, `git`, `flock` on Linux + `cron`, with `gh auth login` + a working `codex` auth).
+`bun`, `gh`, `codex`, `git` + `cron`, with `gh auth login` + a working `codex` auth).
 
 ---
 
@@ -88,7 +88,7 @@ it provisions the VM via `ssh exe.dev new --integration … --setup-script …` 
 `bunx … setup`, so the box installs itself). The **engine** (`src/review-sweep.ts`, dependency-free Bun) is
 the sweep that runs there. The **taste** lives in a `.review/`
 dir *inside the repo you're reviewing*, so it's version-controlled with the code it judges. Idempotent
-(one review per head SHA), bot/draft PRs skipped, `MAX_PRS` cap, `DRY_RUN`, single-flight via `flock`, and a
+(one review per head SHA), bot/draft PRs skipped, `MAX_PRS` cap, `DRY_RUN`, single-flight via its own lockfile, and a
 **loud failure comment** if Codex can't run. Full design notes — including why memory replaced a debounce
 window — in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
