@@ -13,11 +13,11 @@
  * Per-PR memory: each review is fed the PR's existing review thread, so it won't re-raise resolved/declined
  * items and converges ("no new blocking issues") instead of nagging forever.
  *
- * Single-flight is the caller's job: the cron line wraps this in `flock -n` so two sweeps never overlap.
- * Every knob lives in config.env next to this file (read fresh each run). Run: `bun review-sweep.ts`.
+ * Single-flight: the sweep takes its own lockfile (state/sweep.lock) so two cron ticks never overlap — no
+ * `flock` dependency. Every knob lives in config.env next to this file (read fresh each run). Run: `bun review-sweep.ts`.
  */
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -387,8 +387,40 @@ function failureReason(out: string): string {
   return cleaned || 'codex run failed (no output captured — check the sweep log)'
 }
 
+// Single-flight without flock: O_EXCL create wins atomically; a lock older than 30 min (longer than any
+// possible sweep — codex is capped at 20) is treated as stale from a crashed run and stolen.
+function acquireLock(path: string): boolean {
+  try {
+    writeFileSync(path, String(process.pid), { flag: 'wx' })
+    return true
+  } catch {
+    try {
+      if (Date.now() - statSync(path).mtimeMs > 30 * 60_000) {
+        writeFileSync(path, String(process.pid))
+        return true
+      }
+    } catch {
+      /* lock vanished between calls — let the next sweep retry */
+    }
+    return false
+  }
+}
+
 function main(): void {
   const cfg = loadConfig() // also mkdirs stateDir and sets LOG, so config warnings are already captured
+
+  const lockPath = join(cfg.stateDir, 'sweep.lock')
+  if (!acquireLock(lockPath)) {
+    log('another sweep already running — skip')
+    return
+  }
+  process.on('exit', () => {
+    try {
+      rmSync(lockPath, { force: true })
+    } catch {
+      /* best-effort */
+    }
+  })
 
   if (!refreshRepo(cfg)) process.exit(1)
   const haveMachinery =

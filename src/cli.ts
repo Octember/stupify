@@ -18,7 +18,7 @@ import pc from 'picocolors'
 const PKG_DIR = dirname(fileURLToPath(import.meta.url))
 const HOME = process.env.STUPIFY_HOME ?? join(homedir(), '.stupify')
 const STATE = join(HOME, 'state')
-const REQUIRED = ['bun', 'gh', 'codex', 'git', 'flock'] as const
+const REQUIRED = ['bun', 'gh', 'codex', 'git'] as const
 
 function bail<T>(value: T | symbol): asserts value is T {
   if (isCancel(value)) {
@@ -44,9 +44,9 @@ function detectRepo(): string | null {
 
 function installCron(opts: { ghHost: string }): string {
   const bun = which('bun')!
-  const flock = which('flock')!
   const prefix = opts.ghHost ? `GH_HOST=${opts.ghHost} ` : ''
-  const line = `*/1 * * * * ${prefix}${flock} -n ${STATE}/sweep.lock ${bun} ${join(HOME, 'review-sweep.ts')} >> ${STATE}/cron.log 2>&1`
+  // No flock — the sweep self-locks (state/sweep.lock), so overlapping cron ticks no-op on their own.
+  const line = `*/1 * * * * ${prefix}${bun} ${join(HOME, 'review-sweep.ts')} >> ${STATE}/cron.log 2>&1`
   const current = spawnSync('crontab', ['-l'], { encoding: 'utf8' }).stdout ?? ''
   const kept = current
     .split('\n')
@@ -68,12 +68,12 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean }): Prom
   if (missing.length) {
     s.stop(pc.red(`missing: ${missing.join(', ')}`))
     note(
-      `install them first:\n  bun    → ${pc.cyan('bun.sh')}\n  gh     → ${pc.cyan('cli.github.com')}\n  codex  → ${pc.cyan('github.com/openai/codex')}\n  flock  → Linux/util-linux`,
+      `install them first:\n  bun    → ${pc.cyan('bun.sh')}\n  gh     → ${pc.cyan('cli.github.com')}\n  codex  → ${pc.cyan('github.com/openai/codex')}`,
       'missing tools',
     )
     process.exit(1)
   }
-  s.stop(pc.green('bun, gh, codex, git, flock') + pc.dim(' — all here'))
+  s.stop(pc.green('bun, gh, codex, git') + pc.dim(' — all here'))
 
   // 2. repo (auto-detect, else ask)
   let repo = argv.repo ?? ''

@@ -19,7 +19,7 @@ engine reads it fresh from `origin/main` on every sweep, so a merged change to t
 
 ## The sweep loop
 
-A cron job runs the sweep every `REVIEW_INTERVAL_MIN` minutes (default 1), wrapped in `flock -n` so two never
+A cron job runs the sweep every `REVIEW_INTERVAL_MIN` minutes (default 1); the sweep self-locks so two never
 overlap. Each run:
 
 1. **Refresh** a dedicated checkout (`$STUPIFY_HOME/repo`) to `origin/<DEFAULT_BRANCH>` (default `main`) —
@@ -73,8 +73,8 @@ to stop."** Feed the conversation back in and both go away.
   never live — a typo'd safety switch must not start posting.
 - **Bounded spend.** `SCOPE=label` (opt-in) + `MAX_PRS` + the per-head dedup cap what gets reviewed; `DRY_RUN`
   lets you see what *would* be reviewed before spending a token.
-- **Single-flight.** `flock -n` in the cron line is the mutual-exclusion primitive — the script doesn't manage
-  its own lock.
+- **Single-flight.** The sweep takes its own `state/sweep.lock` (O_EXCL create; a lock older than 30 min is
+  treated as stale from a crash and stolen) — no `flock` dependency, so it runs anywhere `bun` does.
 
 ## Codex specifics
 
