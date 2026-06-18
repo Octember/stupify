@@ -36,11 +36,11 @@ It's a finder, not a gatekeeper — it posts a comment, it doesn't block your me
 ## Quickstart
 
 Built for [**exe.dev**](https://exe.dev): on a VM there's nothing to authenticate — Codex runs on the exe-llm
-gateway (no API key) and `gh` runs on your GitHub integration (no token). One line clones it, installs the
-deps, and drops you into the setup wizard:
+gateway (no API key) and `gh` runs on your GitHub integration (no token). One command — Bun fetches and runs
+the wizard, no clone, no install:
 
 ```bash
-git clone https://github.com/Octember/stupif.ai && cd stupif.ai && bun install && bun src/cli.ts
+bunx github:Octember/stupif.ai
 ```
 
 The wizard checks your tools, **auto-detects your repo**, asks for your integration host, shows the plan, and
@@ -59,11 +59,12 @@ Then **give it your taste** — copy this repo's [`.review/`](.review) into the 
 [`.github/workflows/autolabel.yml`](.github/workflows/autolabel.yml)) and a review lands within ~60s.
 
 ```bash
-stupify              # the setup wizard (or: stupify <owner/repo>)
-stupify run --dry    # preview a sweep without posting
-stupify --help
+bunx github:Octember/stupif.ai              # the setup wizard (or pass <owner/repo>)
+bunx github:Octember/stupif.ai run --dry    # preview a sweep without posting
+bunx github:Octember/stupif.ai --help
 ```
 
+Prefer a real command? `bun add -g github:Octember/stupif.ai` gives you `stupify` on your PATH.
 Not on exe.dev? It runs anywhere with `bun`, `gh`, `codex`, `git`, `flock` (Linux) and `cron` — `gh auth login`
 + a working `codex` auth, then the same wizard (leave the integration host blank).
 

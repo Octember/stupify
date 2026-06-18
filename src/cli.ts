@@ -152,7 +152,7 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean }): Prom
       `   (copy this repo's ${pc.cyan('.review/')} and point ${pc.cyan('CORPUS.md')} at YOUR best files)`,
       `${pc.bold('2.')} label any open PR ${pc.cyan('codex-review')} ${pc.dim('(or add .github/workflows/autolabel.yml)')}`,
       ``,
-      `${pc.dim('→ a review lands within ~60s. preview anytime:')} ${pc.cyan('stupify run --dry')}`,
+      `${pc.dim('→ a review lands within ~60s. preview anytime:')} ${pc.cyan(`DRY_RUN=1 bun ${join(HOME, 'review-sweep.ts')}`)}`,
     ].join('\n'),
     'two steps to your first review',
   )
