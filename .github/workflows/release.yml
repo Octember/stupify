@@ -1,0 +1,57 @@
+name: Release
+
+# Publish `stupify` to npm when you publish a GitHub Release tagged `vX.Y.Z` (matching package.json).
+# The package is bun-run (the bin is TypeScript), so there's no build step — it ships src/ as-is and
+# `bunx stupify` runs it.
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish stupify to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Smoke the CLI
+        run: bun src/cli.ts --help
+
+      - name: Guard version (tag matches package.json, not already published)
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="${{ github.event.release.tag_name }}"
+          if [ "$TAG" != "v$VERSION" ] && [ "$TAG" != "$VERSION" ]; then
+            echo "::error::release tag '$TAG' must be 'v$VERSION' (or '$VERSION')"
+            exit 1
+          fi
+          if npm view "stupify@$VERSION" version >/dev/null 2>&1; then
+            echo "::error::stupify@$VERSION is already on npm"
+            exit 1
+          fi
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
