@@ -8,7 +8,7 @@
  * `stupify run [--dry]` → run one review sweep right now.
  */
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -31,6 +31,17 @@ function which(bin: string): string | null {
   return Bun.which(bin)
 }
 
+// A bun path the cron can rely on. Under `bunx`, the running bun lives in an EPHEMERAL /tmp/bun-node-… dir
+// that's deleted after install — so never bake that into the crontab. Prefer a stable install location.
+function stableBun(): string {
+  const running = which('bun')
+  if (running && !running.includes('/bun-node-') && !running.startsWith('/tmp/')) return running
+  for (const c of [join(homedir(), '.bun/bin/bun'), '/usr/local/bin/bun', '/usr/bin/bun']) {
+    if (existsSync(c)) return c
+  }
+  return running ?? 'bun'
+}
+
 function detectRepo(): string | null {
   const r = spawnSync('git', ['config', '--get', 'remote.origin.url'], { encoding: 'utf8' })
   if (r.status !== 0) return null
@@ -43,7 +54,7 @@ function detectRepo(): string | null {
 }
 
 function installCron(opts: { ghHost: string }): string {
-  const bun = which('bun')!
+  const bun = stableBun()
   const prefix = opts.ghHost ? `GH_HOST=${opts.ghHost} ` : ''
   // No flock — the sweep self-locks (state/sweep.lock), so overlapping cron ticks no-op on their own.
   const line = `*/1 * * * * ${prefix}${bun} ${join(HOME, 'review-sweep.ts')} >> ${STATE}/cron.log 2>&1`
