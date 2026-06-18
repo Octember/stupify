@@ -42,14 +42,15 @@ jobs:
 
       - name: Guard version (tag matches package.json, not already published)
         run: |
+          NAME="$(node -p "require('./package.json').name")"
           VERSION="$(node -p "require('./package.json').version")"
           TAG="${{ github.event.release.tag_name }}"
           if [ -n "$TAG" ] && [ "$TAG" != "v$VERSION" ] && [ "$TAG" != "$VERSION" ]; then
             echo "::error::release tag '$TAG' must be 'v$VERSION' (or '$VERSION')"
             exit 1
           fi
-          if npm view "stupify@$VERSION" version >/dev/null 2>&1; then
-            echo "::error::stupify@$VERSION is already on npm"
+          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "::error::$NAME@$VERSION is already on npm"
             exit 1
           fi
 
