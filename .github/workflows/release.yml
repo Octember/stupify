@@ -1,11 +1,12 @@
 name: Release
 
-# Publish `stupify` to npm when you publish a GitHub Release tagged `vX.Y.Z` (matching package.json).
-# The package is bun-run (the bin is TypeScript), so there's no build step — it ships src/ as-is and
-# `bunx stupify` runs it.
+# Publish `stupify` to npm when you publish a GitHub Release tagged `vX.Y.Z` (matching package.json), or on
+# a manual run. The package is bun-run (the bin is TypeScript), so there's no build step — it ships src/ as-is
+# and `bunx stupify` runs it. Auth/provenance come from the `npm` environment (trusted publishing + OIDC).
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -14,9 +15,10 @@ jobs:
   publish:
     name: Publish stupify to npm
     runs-on: ubuntu-latest
+    environment: npm
     permissions:
       contents: read
-      id-token: write # npm provenance
+      id-token: write # npm provenance / trusted publishing
     steps:
       - uses: actions/checkout@v4
 
@@ -42,7 +44,7 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           TAG="${{ github.event.release.tag_name }}"
-          if [ "$TAG" != "v$VERSION" ] && [ "$TAG" != "$VERSION" ]; then
+          if [ -n "$TAG" ] && [ "$TAG" != "v$VERSION" ] && [ "$TAG" != "$VERSION" ]; then
             echo "::error::release tag '$TAG' must be 'v$VERSION' (or '$VERSION')"
             exit 1
           fi
@@ -53,5 +55,3 @@ jobs:
 
       - name: Publish
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
