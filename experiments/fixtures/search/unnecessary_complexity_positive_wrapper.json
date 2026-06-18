@@ -1,9 +1,0 @@
-{
-  "id": "unnecessary_complexity_positive_wrapper",
-  "description": "A tiny local decision is moved behind a one-call helper wrapper.",
-  "checks": ["unnecessary_complexity"],
-  "expected": [
-    { "patternId": "unnecessary_complexity", "shouldMatch": true }
-  ],
-  "stagedPatch": "diff --git a/src/checkout.ts b/src/checkout.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/checkout.ts\n@@ -0,0 +1,18 @@\n+type Cart = { subtotal: number; coupon?: string };\n+\n+export function checkout(cart: Cart) {\n+  const total = helper(cart);\n+  return { total };\n+}\n+\n+function helper(cart: Cart) {\n+  if (cart.coupon === \"SAVE10\") {\n+    return cart.subtotal - 10;\n+  }\n+  return cart.subtotal;\n+}\n"
-}

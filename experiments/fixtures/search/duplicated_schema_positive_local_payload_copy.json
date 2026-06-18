@@ -1,9 +1,0 @@
-{
-  "id": "duplicated_schema_positive_local_payload_copy",
-  "description": "A local payload type copies an existing user shape without adding a boundary.",
-  "checks": ["duplicated_schema"],
-  "expected": [
-    { "patternId": "duplicated_schema", "shouldMatch": true }
-  ],
-  "stagedPatch": "diff --git a/src/user-payload.ts b/src/user-payload.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/user-payload.ts\n@@ -0,0 +1,23 @@\n+type User = {\n+  id: string;\n+  email: string;\n+  displayName: string;\n+};\n+\n+type LocalUserPayload = {\n+  id: string;\n+  email: string;\n+  displayName: string;\n+};\n+\n+export function toPayload(user: User): LocalUserPayload {\n+  return {\n+    id: user.id,\n+    email: user.email,\n+    displayName: user.displayName,\n+  };\n+}\n"
-}

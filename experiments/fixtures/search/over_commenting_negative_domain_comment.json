@@ -1,9 +1,0 @@
-{
-  "id": "over_commenting_negative_domain_comment",
-  "description": "Comments explain a domain constraint instead of narrating code.",
-  "checks": ["over_commenting"],
-  "expected": [
-    { "patternId": "over_commenting", "shouldMatch": false }
-  ],
-  "stagedPatch": "diff --git a/src/billing.ts b/src/billing.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/billing.ts\n@@ -0,0 +1,16 @@\n+export function billableMonth(date: Date) {\n+  // Finance closes the month on the last New York business day, not UTC midnight.\n+  // This mirrors the reconciliation export consumed by the billing provider.\n+  // Keep this in local time so the generated invoice month matches the ledger.\n+  // The provider rejects invoices whose service period crosses their close date.\n+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, \"0\")}`;\n+}\n"
-}

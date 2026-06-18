@@ -1,9 +1,0 @@
-{
-  "id": "lint_bypass_negative_known_library_type_gap",
-  "description": "A narrow suppression documents an external library typing gap.",
-  "checks": ["lint_bypass"],
-  "expected": [
-    { "patternId": "lint_bypass", "shouldMatch": false }
-  ],
-  "stagedPatch": "diff --git a/src/vendor.ts b/src/vendor.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/vendor.ts\n@@ -0,0 +1,12 @@\n+declare const legacyChart: { render(input: unknown): void };\n+\n+export function renderVendorChart(input: { series: number[] }) {\n+  // @ts-expect-error legacyChart accepts this runtime shape but ships stale types.\n+  legacyChart.render({ series: input.series, version: 2 });\n+}\n"
-}

@@ -1,9 +1,0 @@
-{
-  "id": "reinvented_utils_positive_local_clamp_or_debounce",
-  "description": "A generic clamp helper recreates a common utility shape.",
-  "checks": ["reinvented_utils"],
-  "expected": [
-    { "patternId": "reinvented_utils", "shouldMatch": true }
-  ],
-  "stagedPatch": "diff --git a/src/clamp.ts b/src/clamp.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/clamp.ts\n@@ -0,0 +1,8 @@\n+export function clampValue(value: number, min: number, max: number) {\n+  if (value < min) return min;\n+  if (value > max) return max;\n+  return value;\n+}\n"
-}

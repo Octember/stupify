@@ -1,8 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: Security vulnerability
-    url: https://github.com/Octember/stupif.ai/security/advisories/new
-    about: Report privacy or security issues privately.
-  - name: Release process
-    url: https://github.com/Octember/stupif.ai/blob/main/docs/releasing.md
-    about: Read how the CLI release process works.

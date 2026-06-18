@@ -1,9 +1,0 @@
-{
-  "id": "unnecessary_complexity_negative_reused_helper",
-  "description": "A helper is used by multiple call sites and improves local clarity.",
-  "checks": ["unnecessary_complexity"],
-  "expected": [
-    { "patternId": "unnecessary_complexity", "shouldMatch": false }
-  ],
-  "stagedPatch": "diff --git a/src/money.ts b/src/money.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/money.ts\n@@ -0,0 +1,18 @@\n+export function formatCurrencyHelper(cents: number) {\n+  return `$${(cents / 100).toFixed(2)}`;\n+}\n+\n+export function invoiceTotalLabel(cents: number) {\n+  return `Total: ${formatCurrencyHelper(cents)}`;\n+}\n+\n+export function refundLabel(cents: number) {\n+  return `Refund: ${formatCurrencyHelper(cents)}`;\n+}\n"
-}

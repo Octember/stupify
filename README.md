@@ -1,126 +1,101 @@
-# Stupify
+# stupify
 
-[![CI](https://github.com/Octember/stupif.ai/actions/workflows/ci.yml/badge.svg)](https://github.com/Octember/stupif.ai/actions/workflows/ci.yml)
-[![npm](https://img.shields.io/npm/v/@stupify/cli)](https://www.npmjs.com/package/@stupify/cli)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[Website](https://stupif.ai) | [npm](https://www.npmjs.com/package/@stupify/cli) | [Releases](https://github.com/Octember/stupif.ai/releases) | [Contributing](CONTRIBUTING.md) | [Security](SECURITY.md)
+**A code reviewer that talks like an idiot and catches real bugs.**
 
-Local-only diagnostic tooling for checking whether AI is making developers
-dumber.
+> uhhhh ummm a couple things 👇
+>
+> 🔴 **`src/checkout/session.ts:88`** · footgun · conf 0.9
+> if `stripe.retrieve()` throws, the `catch` returns an empty cart — a transient API blip silently looks like
+> an empty order instead of an error.
+> **→ Fix:** rethrow with context, like the fail-loud boundary in `payment-service.ts`.
+>
+> _— stupify, against the good-code corpus_
 
-Stupify turns local diffs into compact search evidence, then asks a local model
-to look for concrete judgment-offload signals. Your code stays on your machine.
+It reads like it's a little dumb. It isn't. Stupify reviews your PRs on [Codex](https://github.com/openai/codex),
+measured against a corpus of code **you** picked — so it flags *your* kind of slop and cites *your* primitives.
+And it's different from every other AI reviewer in four ways:
 
-The project is called Stupify. The domain is `stupif.ai`; read it as
-"stupify", where the `ai` makes a `y` sound.
+- 🎯 **Grounded in your taste.** You hand-pick a few of your best files into `CORPUS.md`. Every diff is judged
+  against *that*, not the model's idea of "best practices." Reviews name the actual thing in your codebase the
+  change should have reused.
+- 🧹 **Anti-slop, not pro-process.** A `RUBRIC.md` defines what slop is for your team — reinvented primitives,
+  speculative abstraction, defensive fallbacks the types already guarantee — and it right-sizes the fix to the
+  owner (a one-off script shouldn't grow a schema library).
+- 🧠 **It remembers, so it converges.** Each review is fed the PR's existing thread. It won't re-raise what you
+  fixed or declined-with-a-reason, and when nothing new remains it posts `no new blocking issues ✅` and
+  **shuts up**. It reviews what's new since last time, not everything every time.
+- 😂 **A personality.** `uhhhh ummm`, `oof, yeah this'll break:`, `yep. clean. no notes 🎉` — it reacts like a
+  human scrolling your diff, then gets to the point. (Tunable; delete it for a dry tone.)
 
-## Install
+It's a finder, not a gatekeeper — it posts a comment, it doesn't block your merge.
 
-```sh
-npx @stupify/cli@latest --commit HEAD
-```
-
-Or install it:
-
-```sh
-npm install -g @stupify/cli@latest
-stupify --commit HEAD
-```
-
-Full analysis needs Git, `llama-server`, and a local GGUF model. Run `doctor`
-to check the setup:
-
-```sh
-stupify doctor
-```
+---
 
 ## Quickstart
 
-```sh
-stupify --commit HEAD          # analyze one commit
-stupify --staged               # analyze staged changes
-stupify --commits 20           # analyze a recent range
-git diff HEAD~1..HEAD | stupify --stdin
+Built for [**exe.dev**](https://exe.dev): on a VM there's nothing to authenticate — Codex runs on the exe-llm
+gateway (no API key) and `gh` runs on your GitHub integration (no token). One line clones it, installs the
+deps, and drops you into the setup wizard:
+
+```bash
+git clone https://github.com/Octember/stupif.ai && cd stupif.ai && bun install && bun src/cli.ts
 ```
 
-By default, `stupify` is equivalent to `stupify --since "2 weeks ago"`.
+The wizard checks your tools, **auto-detects your repo**, asks for your integration host, shows the plan, and
+installs the cron sweep — then:
 
-Install the warn-only pre-commit hook:
-
-```sh
-stupify hook install
+```
+┌  stupify  — sounds dumb, reviews sharp
+◇  bun, gh, codex, git, flock — all here
+◇  Review acme/widgets? (detected from git remote) Yes
+◇  installed → ~/.stupify
+└  stupify is watching acme/widgets 👀
 ```
 
-The hook runs `stupify --staged` and exits 0.
+Then **give it your taste** — copy this repo's [`.review/`](.review) into the repo you're reviewing and point
+`CORPUS.md` at *your* best files (5 minutes, highest leverage). Label any PR `codex-review` (or drop in
+[`.github/workflows/autolabel.yml`](.github/workflows/autolabel.yml)) and a review lands within ~60s.
 
-## How It Works
-
-```mermaid
-flowchart LR
-  Diff["Local diff<br/>commit, range, staged, or stdin"]
-  Sem["sem diff<br/>changed code entities"]
-  Scout["counter scout<br/>candidate checks"]
-  Context["Repomix<br/>minimal local context"]
-  Model["llama-server<br/>local GGUF model"]
-  Matches["matches<br/>with proof pointers"]
-
-  Diff --> Sem --> Scout --> Context --> Model --> Matches
+```bash
+stupify              # the setup wizard (or: stupify <owner/repo>)
+stupify run --dry    # preview a sweep without posting
+stupify --help
 ```
 
-Stupify emits search `matches`, not audit findings.
+Not on exe.dev? It runs anywhere with `bun`, `gh`, `codex`, `git`, `flock` (Linux) and `cron` — `gh auth login`
++ a working `codex` auth, then the same wizard (leave the integration host blank).
 
-The default search registry enables the checks that currently pass the local
-hook-safety bench: `duplicated_schema`, `unnecessary_complexity`,
-`over_commenting`, `lint_bypass`, and `reinvented_utils`. Other registry
-patterns remain available with `--checks`.
+---
 
-This iteration intentionally does not run findings audit, validators, judges,
-baselines, upload data, call hosted LLM APIs, GitHub integration, dashboards, or
-repo-wide crawling.
+## How it works
 
-## Requirements
-
-- Node.js 20 or newer for the published CLI.
-- Git, because Stupify reads local diffs and commits.
-- `llama-server` from `llama.cpp` for local inference.
-- A local GGUF model. On first run, Stupify can ask before downloading the
-  default model into your local cache.
-- Bun 1.3.12 for repository development, tests, and release checks.
-
-On macOS:
-
-```sh
-brew install llama.cpp
-stupify doctor
+```
+cron (~60s)  →  review-sweep.ts  →  codex exec  →  gh pr comment
+                   ├─ git: refresh a dedicated checkout of your repo
+                   ├─ gh:  open PRs labelled codex-review
+                   ├─ skip any already reviewed at this head SHA (hidden marker)
+                   ├─ build memory from the PR's existing review thread
+                   └─ codex reads .review/{REVIEW-PROMPT,RUBRIC,CORPUS}.md + the diff, writes, posts
 ```
 
-Setup notes live in [docs/gemma4-llama-cpp.md](docs/gemma4-llama-cpp.md).
+The **CLI** (`src/cli.ts`, Bun + [@clack/prompts](https://github.com/bombshell-dev/clack)) is just the wizard.
+The **engine** (`src/review-sweep.ts`, dependency-free Bun) is the sweep. The **taste** lives in a `.review/`
+dir *inside the repo you're reviewing*, so it's version-controlled with the code it judges. Idempotent
+(one review per head SHA), bot/draft PRs skipped, `MAX_PRS` cap, `DRY_RUN`, single-flight via `flock`, and a
+**loud failure comment** if Codex can't run. Full design notes — including why memory replaced a debounce
+window — in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-## Development
+## Honest notes
 
-Use the Bun version pinned in `package.json`.
-
-```sh
-bun install --frozen-lockfile
-bun run check
-```
-
-Useful loops:
-
-```sh
-bun run typecheck
-bun run smoke:cli
-```
-
-## Project
-
-- Upgrade with `npm install -g @stupify/cli@latest`.
-- Releases use GitHub Releases and npm Trusted Publishing. See
-  [docs/releasing.md](docs/releasing.md).
-- Contributions are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md).
-- Report security issues through [SECURITY.md](SECURITY.md).
+- **It's a finder, not a judge.** It surfaces candidates well; which findings matter is still your call —
+  which is exactly why the corpus is curated, not inferred.
+- **Cost scales with reviews.** Each review is a Codex run. `SCOPE=label` + `MAX_PRS` bound spend; memory makes
+  re-reviews cheap (often a one-line "no new issues").
+- **Taste can't be auto-extracted.** Hand-pick `CORPUS.md` — a tool that guessed your taste tended to praise
+  the exact slop it should cut.
 
 ## License
 
-Stupify is released under the [MIT License](LICENSE).
+[MIT](LICENSE) © Noah Lindner. The domain is `stupif.ai` — read it as "stupify".

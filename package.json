@@ -1,50 +1,48 @@
 {
-  "name": "stupif.ai",
-  "private": true,
-  "license": "MIT",
+  "name": "stupify",
+  "version": "0.1.0",
+  "description": "A code reviewer that talks like an idiot and catches real bugs — corpus-grounded, anti-slop, runs on Codex.",
   "type": "module",
-  "packageManager": "bun@1.3.12",
-  "workspaces": [
-    "packages/*"
+  "bin": {
+    "stupify": "src/cli.ts"
+  },
+  "files": [
+    "src",
+    ".review",
+    "README.md",
+    "LICENSE"
   ],
-  "trustedDependencies": [
-    "@ataraxy-labs/sem"
+  "license": "MIT",
+  "homepage": "https://stupif.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Octember/stupif.ai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Octember/stupif.ai/issues"
+  },
+  "keywords": [
+    "code-review",
+    "codex",
+    "ai",
+    "pull-request",
+    "developer-tools",
+    "anti-slop"
   ],
+  "engines": {
+    "bun": ">=1.3"
+  },
   "scripts": {
-    "build": "react-router build",
-    "build:all": "bun run build && bun run build:cli",
-    "clean": "rm -rf build packages/cli/dist .react-router/types experiments/results",
-    "cf-typegen": "wrangler types",
-    "check": "bun run typecheck && bun test packages/cli/test/*.test.ts && bun run smoke:cli",
-    "deploy": "bun run build && wrangler deploy",
-    "deploy:cloudflare": "bun run deploy",
-    "dev": "react-router dev",
-    "start": "react-router-serve ./build/server/index.js",
-    "build:cli": "tsc -p packages/cli/tsconfig.build.json",
-    "typecheck": "wrangler types && react-router typegen && tsc -p tsconfig.json && tsc -p packages/cli/tsconfig.json",
-    "typecheck:web": "wrangler types && react-router typegen && tsc -p tsconfig.json",
-    "typecheck:cli": "tsc -p packages/cli/tsconfig.json",
-    "test:cli": "bun test packages/cli/test/*.test.ts",
-    "smoke:cli": "bun run build:cli && node packages/cli/dist/stupify.js --help"
+    "typecheck": "tsc -p tsconfig.json",
+    "cli": "bun src/cli.ts"
   },
   "dependencies": {
-    "@react-router/node": "7.14.2",
-    "@react-router/serve": "7.14.0",
-    "isbot": "^5.1.36",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "react-router": "7.14.2"
+    "@clack/prompts": "^1.2.0",
+    "picocolors": "^1.1.1"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "^1.33.2",
-    "@react-router/dev": "7.14.2",
-    "@tailwindcss/vite": "^4.2.2",
-    "@types/node": "^22",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "tailwindcss": "^4.2.2",
-    "typescript": "^6.0.3",
-    "vite": "^8.0.3",
-    "wrangler": "^4.85.0"
+    "@types/bun": "^1.3.14",
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2"
   }
 }

@@ -1,18 +1,5 @@
-.DS_Store
-.env
-.env.*
-!.env.example
 node_modules/
-.wrangler/
-worker-configuration.d.ts
-*.tsbuildinfo
-coverage/
-
-# React Router
-/.react-router/
-/build/
-/packages/*/dist/
-/experiments/results/
-
-# Claude Code harness
-/.claude/
+*.log
+config.env
+.DS_Store
+dist/

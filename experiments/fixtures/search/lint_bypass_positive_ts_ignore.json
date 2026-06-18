@@ -1,9 +1,0 @@
-{
-  "id": "lint_bypass_positive_ts_ignore",
-  "description": "A broad ts-ignore is added with no local explanation.",
-  "checks": ["lint_bypass"],
-  "expected": [
-    { "patternId": "lint_bypass", "shouldMatch": true }
-  ],
-  "stagedPatch": "diff --git a/src/importer.ts b/src/importer.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/importer.ts\n@@ -0,0 +1,10 @@\n+export function readLegacy(row: unknown) {\n+  // @ts-ignore\n+  return row.value.toString();\n+}\n"
-}

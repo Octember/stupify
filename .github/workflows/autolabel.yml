@@ -1,0 +1,38 @@
+# Drop this in the TARGET repo (.github/workflows/autolabel.yml) to auto-apply the `codex-review` label
+# that stupify's SCOPE=label sweep picks up. By default it labels every PR; tighten the rule if you
+# only want larger PRs reviewed (an example is commented below).
+name: PR autolabel
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  autolabel:
+    runs-on: ubuntu-latest
+    steps:
+      - name: apply label rules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          # ADDITIONS/DELETIONS available if you want a size gate (see commented rule):
+          ADDITIONS: ${{ github.event.pull_request.additions }}
+          DELETIONS: ${{ github.event.pull_request.deletions }}
+        run: |
+          add_label() { gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=$1" >/dev/null; }
+          has_label() { case " $PR_LABELS " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
+          # Rule: every PR → codex-review (the stupify sweep picks up this label; it skips drafts/bots itself).
+          if ! has_label codex-review; then
+            add_label codex-review && echo "labelled #$PR codex-review"
+          fi
+
+          # Only larger PRs? Replace the rule above with:
+          #   if [ "$((ADDITIONS + DELETIONS))" -gt 200 ] && ! has_label codex-review; then
+          #     add_label codex-review && echo "labelled #$PR codex-review ($((ADDITIONS + DELETIONS)) loc)"
+          #   fi

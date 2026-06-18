@@ -1,9 +1,0 @@
-{
-  "id": "duplicated_schema_negative_public_dto_boundary",
-  "description": "A DTO represents an intentional public API boundary.",
-  "checks": ["duplicated_schema"],
-  "expected": [
-    { "patternId": "duplicated_schema", "shouldMatch": false }
-  ],
-  "stagedPatch": "diff --git a/src/webhook-dto.ts b/src/webhook-dto.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/webhook-dto.ts\n@@ -0,0 +1,20 @@\n+type InternalJob = {\n+  id: string;\n+  status: \"queued\" | \"done\";\n+  privateNotes: string;\n+};\n+\n+export type PublicWebhookDto = {\n+  id: string;\n+  status: \"queued\" | \"done\";\n+};\n+\n+export function toPublicWebhookDto(job: InternalJob): PublicWebhookDto {\n+  return { id: job.id, status: job.status };\n+}\n"
-}
