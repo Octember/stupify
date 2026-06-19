@@ -1,5 +1,7 @@
 # stupify
 
+[Afraid](https://github.com/anthropics/claudes-c-compiler/issues/1) of [AI](https://github.com/RsyncProject/rsync/issues/929) [slop](https://github.com/oven-sh/bun/issues/30412)?
+
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **A code reviewer that talks like an idiot and catches real bugs.**

