@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, type Pr, priorReviewThread, reviewPrompt, stablePrefix } from './review-sweep'
+import { type Config, isRateLimited, type Pr, priorReviewThread, reviewPrompt, stablePrefix } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -20,6 +20,7 @@ const cfg = (): Config => ({
   diffLineCap: 800,
   dryRun: false,
   maxPrs: 15,
+  maxReviewsPerDay: 40,
   failRetryMs: 60_000,
   stateDir: '/tmp/x/state',
   codexEffort: 'high',
@@ -85,6 +86,15 @@ test('a malicious PR comment cannot break out of the <prior_reviews> fence', () 
 test('priorReviewThread caps total size so a chatty PR cannot balloon the prompt', () => {
   const huge = Array.from({ length: 20 }, (_, i) => ({ login: `u${i}`, body: 'x'.repeat(5000) }))
   expect(priorReviewThread(huge).length).toBeLessThanOrEqual(16_000)
+})
+
+// Plan-exhaustion ends the sweep early (spend control); a normal review failure does not.
+test('isRateLimited flags plan exhaustion, not ordinary failures', () => {
+  expect(isRateLimited("ERROR: You've hit your usage limit. try again at 6:54 PM.")).toBe(true)
+  expect(isRateLimited('429 Too Many Requests')).toBe(true)
+  expect(isRateLimited('exceeded your quota')).toBe(true)
+  expect(isRateLimited('codex: E2BIG: argument list too long')).toBe(false)
+  expect(isRateLimited('the diff had no reviewable changes')).toBe(false)
 })
 
 test('only the tail changes — per-PR content is present and correct there', () => {

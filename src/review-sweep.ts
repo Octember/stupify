@@ -35,6 +35,7 @@ export interface Config {
   diffLineCap: number
   dryRun: boolean
   maxPrs: number
+  maxReviewsPerDay: number
   failRetryMs: number
   stateDir: string
   codexEffort: string
@@ -91,6 +92,7 @@ function loadConfig(): Config {
     diffLineCap: int('DIFF_LINE_CAP', 5000, 1), // generous by design — only skips genuinely huge PRs; override via config.env
     dryRun: bool('DRY_RUN', false, true), // unset = live (cron's normal mode); garbage = preview (never post on a typo)
     maxPrs: int('MAX_PRS', 15, 1),
+    maxReviewsPerDay: int('MAX_REVIEWS_PER_DAY', 40, 0), // spend ceiling; 0 = unlimited. Protects the plan from runaway/backlog bursts
     failRetryMs: int('FAIL_RETRY_MIN', 60, 1) * 60_000, // after a failed review, don't re-attempt that head for this long
     stateDir,
     codexEffort: pick('CODEX_EFFORT', 'high'),
@@ -335,6 +337,29 @@ function recordFailure(cfg: Config, failures: Record<string, { head: string; at:
   }
 }
 
+/** Per-VM daily review counter — the spend ceiling. Real (posted) reviews count against MAX_REVIEWS_PER_DAY; once
+ *  hit, the sweep stops reviewing until the date rolls over (the stored date no longer matches today). This is what
+ *  stops a backlog burst or a runaway loop from draining the Codex plan. */
+function loadDaily(cfg: Config): { date: string; count: number } {
+  const today = new Date().toISOString().slice(0, 10)
+  try {
+    const p = join(cfg.stateDir, 'daily.json')
+    const d = existsSync(p) ? (JSON.parse(readFileSync(p, 'utf8')) as { date: string; count: number }) : null
+    return d && d.date === today ? d : { date: today, count: 0 }
+  } catch {
+    return { date: today, count: 0 }
+  }
+}
+
+function bumpDaily(cfg: Config, daily: { date: string; count: number }): void {
+  daily.count += 1
+  try {
+    writeFileSync(join(cfg.stateDir, 'daily.json'), JSON.stringify(daily))
+  } catch {
+    /* best-effort */
+  }
+}
+
 // codex's sandbox only allows writes under /tmp, so the review file lives there — but key it by repo slug so two
 // stupify instances reviewing same-numbered PRs in different repos on one machine never clobber each other.
 const reviewOutPath = (cfg: Config, pr: Pr): string => `/tmp/stupify-${cfg.slug.replace(/\//g, '-')}-${pr.number}.md`
@@ -395,7 +420,7 @@ ${diff}`
  *  posted — the caller throttles retries). The runner — not codex — does ALL gh I/O, and codex runs with NO
  *  network, so a prompt-injected diff/thread can at worst make it write a junk review file: it cannot exfiltrate,
  *  touch the gh token, or run commands. */
-function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string): number | null {
+function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string): number | 'limit' | null {
   const mark = markFor(pr)
   const outPath = reviewOutPath(cfg, pr)
   log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)}`)
@@ -438,8 +463,12 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string): numbe
   // someone's thread (and used to pile up). Log it for the operator; the caller throttles re-attempts via local
   // state so a persistently-failing PR isn't re-run every sweep. Only real reviews ever reach the PR.
   log(`  review FAILED for #${pr.number} — ${failureReason(cx.combined)}`)
-  return null
+  return isRateLimited(cx.combined) ? 'limit' : null // 'limit' tells the sweep to STOP — the rest will fail the same way
 }
+
+// A usage/rate limit from the Codex plan (vs a one-off bad review). When we hit it, the whole plan is tapped, so the
+// sweep should stop rather than fail every remaining PR — and back off until the next sweep.
+export const isRateLimited = (out: string): boolean => /usage limit|rate limit|too many requests|\b429\b|quota/i.test(out)
 
 /** codex prints `tokens used` then the count on the next line — read the last such pair. */
 function parseTokens(out: string): number | null {
@@ -527,6 +556,7 @@ function main(): void {
   const u = exec('gh', ['api', 'user', '--jq', '.login'])
   const self = u.ok ? u.stdout.trim() : ''
   const failures = loadFailures(cfg) // per-VM record of (PR → failed head + when); throttles retries WITHOUT a PR comment
+  const daily = loadDaily(cfg) // today's review count vs MAX_REVIEWS_PER_DAY — the spend ceiling
 
   let reviewed = 0
   let tokens = 0
@@ -534,6 +564,10 @@ function main(): void {
   // the front of the list can't consume the budget and starve later ones.
   let handled = 0
   for (const pr of queue) {
+    if (cfg.maxReviewsPerDay > 0 && !cfg.dryRun && daily.count >= cfg.maxReviewsPerDay) {
+      log(`daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}) — no more reviews today; resumes tomorrow`)
+      break
+    }
     const mark = markFor(pr)
     const comments = prComments(cfg, pr.number)
     if (comments === null) {
@@ -576,9 +610,15 @@ function main(): void {
     }
 
     const used = reviewPr(cfg, pr, priorReviewThread(comments), diff)
+    if (used === 'limit') {
+      log('codex plan is rate-limited — ending this sweep early (the rest would fail the same way); retries next sweep')
+      recordFailure(cfg, failures, pr) // throttle this head too so the next sweep doesn't immediately re-hit the wall
+      break
+    }
     if (used !== null) {
       reviewed += 1
       tokens += used
+      bumpDaily(cfg, daily) // count real, posted reviews toward the daily spend ceiling
     } else {
       recordFailure(cfg, failures, pr) // logged, not posted — throttle re-attempt until the window lapses or the head moves
     }
