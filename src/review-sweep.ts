@@ -28,7 +28,8 @@ interface Config {
   remote: string
   slug: string
   defaultBranch: string
-  reviewDir: string // dir IN the target repo holding REVIEW-PROMPT.md / RUBRIC.md / CORPUS.md
+  reviewDir: string // resolved review dir holding REVIEW-PROMPT.md / RUBRIC.md / CORPUS.md — the repo's .review/ if it has one, else homeReviewDir (set in main)
+  homeReviewDir: string // fallback taste the CLI assembled under STUPIFY_HOME/.review (packs or bring-your-own)
   scope: 'label' | 'auto'
   reviewLabel: string
   diffLineCap: number
@@ -83,7 +84,8 @@ function loadConfig(): Config {
     remote: pick('REMOTE', `https://github.com/${slug}.git`),
     slug,
     defaultBranch: pick('DEFAULT_BRANCH', 'main'),
-    reviewDir: pick('REVIEW_DIR', '.review'),
+    reviewDir: pick('REVIEW_DIR', '.review'), // relative name here; main() resolves it to an absolute path (repo's or home's)
+    homeReviewDir: join(stupifyHome, '.review'),
     scope: scopeRaw === 'auto' ? 'auto' : 'label',
     reviewLabel: pick('REVIEW_LABEL', 'codex-review'),
     diffLineCap: int('DIFF_LINE_CAP', 800, 1),
@@ -423,12 +425,16 @@ function main(): void {
   })
 
   if (!refreshRepo(cfg)) process.exit(1)
+  // Resolve the taste: the target repo's own .review/ wins (a repo can override); otherwise fall back to the
+  // home taste the CLI assembled from packs (~/.stupify/.review). Either way cfg.reviewDir becomes ABSOLUTE.
+  const repoReview = join(cfg.repoDir, cfg.reviewDir)
+  cfg.reviewDir = existsSync(join(repoReview, 'CORPUS.md')) ? repoReview : cfg.homeReviewDir
   const haveMachinery =
-    existsSync(join(cfg.repoDir, cfg.reviewDir, 'CORPUS.md')) &&
-    existsSync(join(cfg.repoDir, cfg.reviewDir, 'REVIEW-PROMPT.md')) &&
-    existsSync(join(cfg.repoDir, cfg.reviewDir, 'RUBRIC.md'))
+    existsSync(join(cfg.reviewDir, 'CORPUS.md')) &&
+    existsSync(join(cfg.reviewDir, 'REVIEW-PROMPT.md')) &&
+    existsSync(join(cfg.reviewDir, 'RUBRIC.md'))
   if (!haveMachinery) {
-    log(`no review machinery in ${cfg.slug}:${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Copy the templates from the stupify repo.`)
+    log(`no review machinery at ${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Run \`stupify setup\` to assemble taste, or add a .review/ to ${cfg.slug}.`)
     return
   }
 

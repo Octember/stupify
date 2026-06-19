@@ -37,7 +37,7 @@ something real, says it in one sentence, and shuts up.
 
 ### What you get
 
-- **Your taste, not the model's.** Every diff is judged against your `CORPUS.md`.
+- **Your taste, not the model's.** Every diff is judged against a `CORPUS.md` — either a **taste pack** ("review my code like dtolnay / DHH / antirez …", picked in the setup) or your own best files. Nothing to write to start.
 - **Slop, named.** `RUBRIC.md` is your list of what counts as slop: reinvented primitives, speculative abstraction, fallbacks the types already guarantee. It keeps the fix small.
 - **It remembers.** Reads the PR thread, won't re-raise what you fixed or waved off, posts `no new blocking issues ✅` when there's nothing left.
 - **It's funny.** `oof, yeah this'll break:`. Turn it off if you hate joy.
@@ -61,9 +61,12 @@ bunx @stupify/cli
 ```
 
 New to exe.dev? `ssh exe.dev` to onboard and link GitHub at [exe.dev/integrations](https://exe.dev/integrations)
-— both one-time, both painless. Then the fun part: **teach it your taste.** Copy [`.review/`](.review) into
-your repo and point `CORPUS.md` at the files you *wish* all your code looked like. Label a PR `codex-review`
-(or drop in [`autolabel.yml`](.github/workflows/autolabel.yml)) and a review lands in ~60s.
+— both one-time, both painless. Then the fun part: **pick whose code yours should look like.** The setup asks,
+and you choose a [taste pack](packs) — review like [dtolnay](packs/dtolnay.md), [DHH](packs/dhh.md),
+[antirez](packs/antirez.md), [the perf pack](packs/jarred-sumner.md), and [more](packs) — or bring your own by
+copying [`.review/`](.review) into your repo and pointing `CORPUS.md` at the files you *wish* all your code
+looked like (it overrides the pack). Label a PR `codex-review` (or drop in
+[`autolabel.yml`](.github/workflows/autolabel.yml)) and a review lands in ~60s.
 
 ```bash
 bunx @stupify/cli <owner/repo>          # provision for a specific repo
@@ -80,8 +83,9 @@ cron (~60s) → review-sweep.ts → codex exec → gh pr comment
 ```
 
 The CLI (`src/cli.ts`) provisions; the engine (`src/review-sweep.ts`, dependency-free Bun) does the sweep;
-your taste lives in the repo it judges (`.review/`). The whole design — including why it *remembers* instead
-of debouncing — is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+your taste is either a [pack](packs) the setup assembled or a `.review/` in the repo it judges (which wins if
+present). The whole design — including why it *remembers* instead of debouncing — is in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## License
 
