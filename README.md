@@ -1,8 +1,3 @@
-> Debugging is twice as hard as writing the code in the first place. Therefore, if you write the code as
-> cleverly as possible, you are, by definition, not smart enough to debug it.
->
-> — **Kernighan's Law**
-
 # stupify
 
 **AI agents are rats in a maze — they reach for what they know.** And unless you teach them better, what they know is slop: most software is garbage, and they'll [happily](https://github.com/thesysdev/openui/issues/517) [imitate](https://github.com/RsyncProject/rsync/issues/929) [it](https://github.com/anthropics/claudes-c-compiler/issues/1).
@@ -10,18 +5,7 @@
 [![npm](https://img.shields.io/npm/v/@stupify/cli?color=cb3837&label=%40stupify%2Fcli)](https://www.npmjs.com/package/@stupify/cli)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**A code reviewer that talks like an idiot and catches real bugs.**
-
-Kernighan was right: the clever code is the code you can't debug. stupify drags your code back toward boring —
-at **both ends** of the loop:
-
-- **before you code** — [`stupify prime`](#prime-your-agent-instant-local-no-servers) seeds every Claude Code session with your taste, so the agent writes to your standard from line one.
-- **after you PR** — the reviewer reads every PR on [Codex](https://github.com/openai/codex) against that *same* taste and flags what drifted.
-
-You encode your taste once — a `CORPUS.md` of files you already think are good (or a [taste pack](#taste-packs)) — and stupify enforces it going in and coming out. Not some model's idea of "best practice." So it catches the stuff that actually bugs *you*: premature abstractions, cute one-liners with a bug hiding in them, helpers someone reinvented. Then it points at the boring thing they should've used.
-
-Most AI reviewers carpet-bomb your PR with `consider renaming this`. stupify stays quiet until it finds
-something real, says it in one sentence, and shuts up.
+stupify stays quiet until it finds something real — then says it in one sentence:
 
 > uhhhh ummm this cleanup got a little cleanup-y:
 >
