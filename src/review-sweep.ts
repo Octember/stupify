@@ -298,7 +298,7 @@ function markersFor(pr: Pr): { mark: string; failMark: string } {
  *  they'd arrive as tool results after model-chosen steps that vary per run, and wouldn't cache.) We inline the
  *  corpus INDEX only — its exemplars stay commit-pinned links the model opens on demand, so a review never pays to
  *  read the whole corpus. Keep ALL per-PR tokens (diff target, marker, memory) OUT of here — they go in the tail. */
-function tastedPrefix(cfg: Config): string {
+function stablePrefix(cfg: Config): string {
   const read = (f: string) => readFileSync(join(cfg.reviewDir, f), 'utf8').trim()
   return `You are a code reviewer running in an automated sweep (you have gh + git; no token needed). DO NOT modify any code.
 Everything down to the "THIS PR" line is your fixed spec and taste — identical for every PR, so treat it as standing reference.
@@ -326,7 +326,7 @@ and stop) if nothing new remains.
 ${priorThread}`
     : ''
   // Stable prefix first (cached across PRs); then the ONLY per-PR tokens — diff target, output marker, memory.
-  return `${tastedPrefix(cfg)}
+  return `${stablePrefix(cfg)}
 
 ===== THIS PR (the only part that changes per run) =====
 Review ONE pull request, per the spec and rubric above:
