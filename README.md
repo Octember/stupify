@@ -62,14 +62,19 @@ bunx @stupify/cli
 
 New to [exe.dev](https://exe.dev)? `ssh exe.dev` to onboard and link GitHub at
 [exe.dev/integrations](https://exe.dev/integrations) — both one-time, both painless. Then just **open a PR** —
-stupify reviews every non-draft, non-bot PR in ~60s, no labels or workflows to wire up. (Want manual control?
-`SCOPE=label` flips it to opt-in: only PRs you tag get reviewed.)
+the sweep picks it up within ~60s and posts once the review finishes, no labels or workflows to wire up. (Want
+manual control? `SCOPE=label` flips it to opt-in: only PRs you tag get reviewed.)
 
 ```bash
 bunx @stupify/cli <owner/repo>          # provision for a specific repo
 bunx @stupify/cli setup                 # run the reviewer on this machine instead of a VM
 ssh exe.dev rm stupify-<owner>-<repo>   # tear it down
 ```
+
+The keyless story is the exe.dev path — the VM ships a `gh`-authed GitHub integration and a `codex` gateway. On
+the local `setup` path you bring your own (`gh auth login` + a Codex login). Either way the reviewer is a cron
+that shells out to [Codex](https://github.com/openai/codex); set `CODEX_PROVIDER`/`CODEX_MODEL` to point it
+elsewhere.
 
 ## Taste packs
 
