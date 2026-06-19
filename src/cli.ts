@@ -26,20 +26,19 @@ const REQUIRED = ['bun', 'gh', 'codex', 'git'] as const
 interface Pack {
   id: string
   label: string
-  kind: 'taste' | 'perf'
 }
 const PACKS: Pack[] = [
-  { id: 'anton-kropp', label: 'Anton Kropp (devshorts) — DI + branded types', kind: 'taste' },
-  { id: 'zod', label: 'Colin McDonnell / Zod — parse, don’t validate', kind: 'taste' },
-  { id: 'sindre-sorhus', label: 'Sindre Sorhus — one file, one job', kind: 'taste' },
-  { id: 'rich-harris', label: 'Rich Harris / Svelte — compiler-grade precision', kind: 'taste' },
-  { id: 'tanner-linsley', label: 'Tanner Linsley / TanStack — types forbid bad states', kind: 'taste' },
-  { id: 'mitchell-hashimoto', label: 'Mitchell Hashimoto / Ghostty — documented tradeoffs', kind: 'taste' },
-  { id: 'simon-willison', label: 'Simon Willison — one concept per file', kind: 'taste' },
-  { id: 'dtolnay', label: 'David Tolnay — the API that disappears (Rust)', kind: 'taste' },
-  { id: 'antirez', label: 'antirez / Redis — comments that earn their keep (C)', kind: 'taste' },
-  { id: 'dhh', label: 'DHH / Rails — controllers that tell the story (Ruby)', kind: 'taste' },
-  { id: 'jarred-sumner', label: 'Jarred Sumner / Bun — perf as correctness', kind: 'perf' },
+  { id: 'anton-kropp', label: 'Anton Kropp (devshorts) — DI + branded types' },
+  { id: 'zod', label: 'Colin McDonnell / Zod — parse, don’t validate' },
+  { id: 'sindre-sorhus', label: 'Sindre Sorhus — one file, one job' },
+  { id: 'rich-harris', label: 'Rich Harris / Svelte — compiler-grade precision' },
+  { id: 'tanner-linsley', label: 'Tanner Linsley / TanStack — types forbid bad states' },
+  { id: 'mitchell-hashimoto', label: 'Mitchell Hashimoto / Ghostty — documented tradeoffs' },
+  { id: 'simon-willison', label: 'Simon Willison — one concept per file' },
+  { id: 'dtolnay', label: 'David Tolnay — the API that disappears (Rust)' },
+  { id: 'antirez', label: 'antirez / Redis — comments that earn their keep (C)' },
+  { id: 'dhh', label: 'DHH / Rails — controllers that tell the story (Ruby)' },
+  { id: 'jarred-sumner', label: 'Jarred Sumner / Bun — perf as correctness' },
 ]
 
 function bail<T>(value: T | symbol): asserts value is T {
@@ -117,7 +116,7 @@ async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<stri
   const choice = await multiselect({
     message: 'Whose code should yours look like? (pick any — or your own)',
     options: [
-      ...PACKS.map((p) => ({ value: p.id, label: p.label, ...(p.kind === 'perf' ? { hint: 'perf' } : {}) })),
+      ...PACKS.map((p) => ({ value: p.id, label: p.label })),
       { value: 'own', label: '🧠 my own codebase', hint: 'point CORPUS.md at your files yourself' },
     ],
     required: false,

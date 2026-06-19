@@ -1,6 +1,6 @@
 ## Code like Jarred Sumner (@Jarred-Sumner) · perf as a correctness concern
 
-The perf pack. Performance decided *structurally*, not by micro-tweaking later: stack-fallback allocators
+Performance decided *structurally*, not by micro-tweaking later: stack-fallback allocators
 before the heap, atomic counters instead of mutexes, `comptime` conditionals that delete dead paths at zero
 runtime cost. Names encode invariants. The root module is a curated namespace, not a junk drawer. Fast because
 the *shape* is fast — and still readable.

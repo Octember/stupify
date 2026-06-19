@@ -91,7 +91,7 @@ write) like them — or compose several:
 [Sindre Sorhus](packs/sindre-sorhus.md) · [Rich Harris](packs/rich-harris.md) ·
 [zod](packs/zod.md) · [Mitchell Hashimoto](packs/mitchell-hashimoto.md) ·
 [Tanner Linsley](packs/tanner-linsley.md) · [Simon Willison](packs/simon-willison.md) ·
-[Anton Kropp](packs/anton-kropp.md) · [the perf pack](packs/jarred-sumner.md) · [browse all →](packs)
+[Anton Kropp](packs/anton-kropp.md) · [Jarred Sumner](packs/jarred-sumner.md) · [browse all →](packs)
 
 Each pack is concrete principles plus commit-pinned exemplar files. Or bring your own: drop a
 [`.review/`](.review) in your repo and point `CORPUS.md` at the files you *wish* all your code looked like (it
