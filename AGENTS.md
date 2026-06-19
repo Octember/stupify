@@ -6,8 +6,8 @@ anti-slop rubric. Read `README.md` and `docs/ARCHITECTURE.md` first.
 ## Layout
 - `src/cli.ts` — the `stupify` command: a `@clack/prompts` setup wizard + `run`. The only interactive surface.
 - `src/review-sweep.ts` — the engine. Dependency-free Bun; shells out to `git`/`gh`/`codex`. The CLI deploys
-  a copy to `~/.stupify/` and a cron runs it. Runs `main()` on import — keep it standalone; never `import` it
-  from the CLI (spawn it instead).
+  a copy to `~/.stupify/` and a cron runs it. Runs `main()` only when invoked directly (`if (import.meta.main)`),
+  so it stays importable for tests — but keep it standalone and spawn it from the CLI, never `import` it.
 - `.review/` — the **taste templates** (`REVIEW-PROMPT.md`, `RUBRIC.md`, `CORPUS.md`). These get copied into
   the *target* repo and edited there; in this repo they're the starting point.
 
