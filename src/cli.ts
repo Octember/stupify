@@ -458,6 +458,10 @@ const PRIME_ENGINE = join(HOME, 'prime.ts') // the dep-free copy the hook actual
 /** Claude Code's user settings file. CLAUDE_CONFIG_DIR overrides ~/.claude (and makes this testable). */
 const claudeSettingsPath = (): string => join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'settings.json')
 
+/** Codex's user hooks file. Same JSON shape as Claude's settings.json (hooks.SessionStart[]). CODEX_HOME
+ *  overrides ~/.codex. We use hooks.json (not config.toml) so we never touch the user's main Codex config. */
+const codexHooksPath = (): string => join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'hooks.json')
+
 /** Read settings.json (or {} if absent). Throws on malformed JSON so callers refuse to clobber a broken file. */
 function readSettings(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {}
@@ -467,9 +471,92 @@ function readSettings(path: string): Record<string, unknown> {
 type HookEntry = { matcher?: string; hooks?: { type?: string; command?: string }[] }
 const isOurHook = (e: HookEntry): boolean => (e.hooks ?? []).some((h) => (h.command ?? '').includes(PRIME_ENGINE))
 
-async function installPrimeHook(argv: { pack?: string }): Promise<void> {
+// Every agent stupify primes reads a SessionStart command hook in the SAME JSON shape
+// ({ hooks: { SessionStart: [{ matcher, hooks: [{ type:'command', command }] }] } }) and the SAME prime.ts
+// payload ({ hookSpecificOutput: { hookEventName:'SessionStart', additionalContext } }). So adding an agent is
+// just another target here — the merge/emit logic is shared.
+type PrimeTarget = {
+  id: string
+  label: string
+  file: () => string
+  matcher: string
+  installed: () => boolean
+  trust?: string // post-install step unique to this agent (Codex makes you trust a hook before it runs)
+}
+const PRIME_TARGETS: PrimeTarget[] = [
+  {
+    id: 'claude',
+    label: 'Claude Code',
+    file: claudeSettingsPath,
+    matcher: 'startup',
+    installed: () => which('claude') !== null || existsSync(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')),
+  },
+  {
+    id: 'codex',
+    label: 'Codex',
+    file: codexHooksPath,
+    matcher: 'startup|resume',
+    installed: () => which('codex') !== null || existsSync(process.env.CODEX_HOME ?? join(homedir(), '.codex')),
+    trust: `run ${pc.cyan('/hooks')} in Codex once to trust it — Codex won't run an untrusted hook`,
+  },
+]
+
+/** Which agents to prime: an explicit --agent list, else every one we detect installed (fall back to Claude Code
+ *  so `prime --install` on a bare machine still wires something). */
+function selectTargets(agentArg?: string): PrimeTarget[] {
+  if (agentArg !== undefined) {
+    const ids = agentArg.toLowerCase().split(',').map((s) => s.trim()).filter(Boolean)
+    const unknown = ids.filter((id) => !PRIME_TARGETS.some((t) => t.id === id))
+    if (unknown.length) die(`unknown --agent: ${unknown.join(', ')} (known: ${PRIME_TARGETS.map((t) => t.id).join(', ')})`)
+    return PRIME_TARGETS.filter((t) => ids.includes(t.id))
+  }
+  const detected = PRIME_TARGETS.filter((t) => t.installed())
+  return detected.length > 0 ? detected : PRIME_TARGETS.slice(0, 1) // fall back to Claude Code
+}
+
+/** Merge our SessionStart command hook into one agent's hooks file. Never clobbers the user's other hooks or
+ *  settings; refreshes our command if already present (the resolved bun path can move); never duplicates. */
+function mergeHook(file: string, matcher: string, command: string): { already: boolean } {
+  let settings: Record<string, unknown>
+  try {
+    settings = readSettings(file)
+  } catch {
+    die(`couldn't parse ${file} — fix or remove it, then retry (left it untouched)`)
+  }
+  const hooks = (settings.hooks ??= {}) as Record<string, HookEntry[]>
+  const sessionStart = (hooks.SessionStart ??= [])
+  const existing = sessionStart.find(isOurHook)
+  if (existing) existing.hooks = [{ type: 'command', command }]
+  else sessionStart.push({ matcher, hooks: [{ type: 'command', command }] })
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`)
+  return { already: existing !== undefined }
+}
+
+/** Remove our SessionStart hook from one agent's hooks file, leaving the user's other hooks + settings intact. */
+function removeHook(file: string): { removed: boolean } {
+  if (!existsSync(file)) return { removed: false }
+  let settings: Record<string, unknown>
+  try {
+    settings = readSettings(file)
+  } catch {
+    die(`couldn't parse ${file} — fix or remove it, then retry (left it untouched)`)
+  }
+  const hooks = settings.hooks as Record<string, HookEntry[]> | undefined
+  if (!hooks?.SessionStart) return { removed: false }
+  const kept = hooks.SessionStart.filter((e) => !isOurHook(e))
+  const removed = kept.length !== hooks.SessionStart.length
+  if (kept.length > 0) hooks.SessionStart = kept
+  else delete hooks.SessionStart
+  if (Object.keys(hooks).length === 0) delete settings.hooks
+  writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`)
+  return { removed }
+}
+
+async function installPrimeHook(argv: { pack?: string; agent?: string }): Promise<void> {
   console.clear()
-  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — prime Claude Code with your taste'))
+  const targets = selectTargets(argv.agent)
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(` — prime ${targets.map((t) => t.label).join(' + ')} with your taste`))
 
   // 0. ensure GLOBAL taste exists for the hook to inject. The hook runs in EVERY repo; a repo's own .review/
   //    wins, but ~/.stupify/.review is the fallback, so without it the hook would no-op everywhere. Assemble it
@@ -495,68 +582,40 @@ async function installPrimeHook(argv: { pack?: string }): Promise<void> {
   copyFileSync(join(PKG_DIR, 'prime.ts'), PRIME_ENGINE)
   const command = `${stableBun()} ${PRIME_ENGINE}`
 
-  // 2. merge our SessionStart hook into settings.json — never clobber existing hooks/settings, never duplicate
-  const path = claudeSettingsPath()
-  let settings: Record<string, unknown>
-  try {
-    settings = readSettings(path)
-  } catch {
-    die(`couldn't parse ${path} — fix or remove it, then retry (left it untouched)`)
-  }
-  const hooks = (settings.hooks ??= {}) as Record<string, HookEntry[]>
-  const sessionStart = (hooks.SessionStart ??= [])
-  const existing = sessionStart.find(isOurHook)
-  // Refresh the command on re-install too — `command` carries the resolved bun path, which can move (a new bun
-  // install, a Homebrew relocation). Updating only the engine file but leaving a stale path would silently break.
-  if (existing) existing.hooks = [{ type: 'command', command }]
-  else sessionStart.push({ matcher: 'startup', hooks: [{ type: 'command', command }] })
-  const already = existing !== undefined
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`)
+  // 2. wire the SessionStart hook into each target. The command carries the resolved bun path (which can move —
+  //    a new bun install, a Homebrew relocation), so mergeHook refreshes it on re-install instead of going stale.
+  const wired = targets.map((t) => ({ t, already: mergeHook(t.file(), t.matcher, command).already }))
 
   note(
     [
-      already
-        ? `already wired in ${pc.cyan(path)} ${pc.dim('(refreshed engine + command)')}`
-        : `added a ${pc.bold('SessionStart')} hook to ${pc.cyan(path)}`,
+      ...wired.map(
+        ({ t, already }) =>
+          `${already ? pc.dim('refreshed') : pc.green('wired   ')} ${pc.bold(t.label)} ${pc.dim('→ ' + t.file())}` +
+          (t.trust ? `\n          ${pc.yellow('↳ ' + t.trust)}` : ''),
+      ),
+      ``,
       primed
-        ? `every new Claude Code session now opens primed with your taste ${pc.dim('(~30ms)')}.`
-        : `the hook is wired but ${pc.bold('dormant')} — it activates in any repo with a ${pc.cyan('.review/')}, or run ${pc.cyan('stupify taste --pack <id>')} to set a global one.`,
+        ? `every new session now opens primed with your taste ${pc.dim('(~30ms, pure file read)')}.`
+        : `wired but ${pc.bold('dormant')} — it activates in any repo with a ${pc.cyan('.review/')}, or run ${pc.cyan('stupify taste --pack <id>')} to set a global one.`,
       ``,
       `${pc.dim('undo:')} ${pc.cyan('stupify prime --uninstall')}`,
     ].join('\n'),
-    primed ? "you're primed" : 'hook wired (no taste yet)',
+    primed ? "you're primed" : 'hooks wired (no taste yet)',
   )
-  outro(primed ? pc.green('Claude Code will write to your taste from the first line 🧠') : pc.yellow('add taste to bring it to life ↑'))
+  outro(primed ? pc.green('your agents will write to your taste from the first line 🧠') : pc.yellow('add taste to bring it to life ↑'))
 }
 
 function uninstallPrimeHook(): void {
   console.clear()
-  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — remove the Claude Code prime hook'))
-  const path = claudeSettingsPath()
-  let removed = false
-  if (existsSync(path)) {
-    let settings: Record<string, unknown>
-    try {
-      settings = readSettings(path)
-    } catch {
-      die(`couldn't parse ${path} — fix or remove it, then retry (left it untouched)`)
-    }
-    const hooks = settings.hooks as Record<string, HookEntry[]> | undefined
-    if (hooks?.SessionStart) {
-      const kept = hooks.SessionStart.filter((e) => !isOurHook(e))
-      removed = kept.length !== hooks.SessionStart.length
-      if (kept.length > 0) hooks.SessionStart = kept
-      else delete hooks.SessionStart
-      if (Object.keys(hooks).length === 0) delete settings.hooks
-      writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`)
-    }
-  }
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — remove the prime hooks'))
+  // Sweep every known target, not just the ones currently installed — so an uninstall after the agent is gone
+  // (or after switching machines) still cleans up any hook we left behind.
+  const removedFrom = PRIME_TARGETS.filter((t) => removeHook(t.file()).removed).map((t) => t.label)
   rmSync(PRIME_ENGINE, { force: true }) // drop the copied engine too
 
   note(
-    removed
-      ? `removed the SessionStart hook from ${pc.cyan(path)}. your other hooks + settings are untouched.`
+    removedFrom.length
+      ? `removed the stupify SessionStart hook from ${pc.bold(removedFrom.join(' + '))}. your other hooks + settings are untouched.`
       : `no stupify prime hook found ${pc.dim('(nothing to remove)')}.`,
     'done',
   )
@@ -797,13 +856,14 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify run [--dry]     run one review sweep now (where stupify is installed)
   stupify taste [--pack a,b]  borrow a taste pack (assembles ~/.stupify/.review) — packs below
   stupify init [files…]       encode YOUR OWN taste: scaffold .review/ from your best files in this repo
-  stupify prime --install     prime Claude Code with your taste every session (adds a SessionStart hook)
-  stupify prime --uninstall   remove that hook
+  stupify prime --install     prime Claude Code + Codex with your taste every session (SessionStart hook)
+  stupify prime --uninstall   remove those hooks
   stupify --help
 
 ${pc.dim('Flags')}
   --host <h.int.exe.xyz>  GitHub integration host (for 'setup')
   --codex-host <h>        exe-llm gateway host (for 'setup'; default llm.int.exe.xyz)
+  --agent <a,b>           ('prime') which agents to wire: ${PRIME_TARGETS.map((t) => t.id).join(', ')} (default: detected)
   --pack <a,b,...>        taste packs: ${PACKS.map((p) => p.id).join(', ')}
   --force                 ('init') rebuild CORPUS.md even if it exists (your filled-in "why" lines are kept)
   --yes, -y               accept detected defaults, no prompts (for CI / scripts)
@@ -821,8 +881,14 @@ const valueFlag = (name: string) => {
 const host = valueFlag('--host')
 const codexHost = valueFlag('--codex-host')
 const pack = valueFlag('--pack')
+const agent = valueFlag('--agent')
 const positional = args.filter(
-  (a, i) => !a.startsWith('-') && args[i - 1] !== '--host' && args[i - 1] !== '--codex-host' && args[i - 1] !== '--pack',
+  (a, i) =>
+    !a.startsWith('-') &&
+    args[i - 1] !== '--host' &&
+    args[i - 1] !== '--codex-host' &&
+    args[i - 1] !== '--pack' &&
+    args[i - 1] !== '--agent',
 )
 const cmd = positional[0]
 
@@ -833,7 +899,7 @@ if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
 } else if (cmd === 'init') {
   await init({ files: positional.slice(1), force: args.includes('--force') })
 } else if (cmd === 'prime') {
-  if (args.includes('--install')) await installPrimeHook({ pack })
+  if (args.includes('--install')) await installPrimeHook({ pack, agent })
   else if (args.includes('--uninstall')) uninstallPrimeHook()
   else if (process.stdin.isTTY) die('did you mean `stupify prime --install`? (bare `prime` is the internal hook emitter)')
   else emitPrime() // machine path: the SessionStart hook pipes this JSON payload (non-TTY)
