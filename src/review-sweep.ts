@@ -35,6 +35,7 @@ export interface Config {
   diffLineCap: number
   dryRun: boolean
   maxPrs: number
+  failRetryMs: number
   stateDir: string
   codexEffort: string
   codexProvider: string // optional `-c model_provider=...`; empty = codex's own default/auth
@@ -90,6 +91,7 @@ function loadConfig(): Config {
     diffLineCap: int('DIFF_LINE_CAP', 5000, 1), // generous by design — only skips genuinely huge PRs; override via config.env
     dryRun: bool('DRY_RUN', false, true), // unset = live (cron's normal mode); garbage = preview (never post on a typo)
     maxPrs: int('MAX_PRS', 15, 1),
+    failRetryMs: int('FAIL_RETRY_MIN', 60, 1) * 60_000, // after a failed review, don't re-attempt that head for this long
     stateDir,
     codexEffort: pick('CODEX_EFFORT', 'high'),
     codexProvider: pick('CODEX_PROVIDER', ''),
@@ -123,10 +125,10 @@ interface ProcResult {
   combined: string
 }
 
-function exec(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: number } = {}): ProcResult {
+function exec(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string } = {}): ProcResult {
   const r = spawnSync(cmd, args, {
     cwd: opts.cwd,
-    input: '', // close stdin (codex would otherwise read from the terminal)
+    input: opts.input ?? '', // default closes stdin; codex gets its (large) prompt here to dodge ARG_MAX on argv
     timeout: opts.timeoutMs,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
@@ -307,10 +309,29 @@ function getDiff(cfg: Config, number: number): string | null {
 
 const diffLineCount = (diff: string): number => (diff ? diff.split('\n').length - (diff.endsWith('\n') ? 1 : 0) : 0)
 
-function markersFor(pr: Pr): { mark: string; failMark: string } {
-  return {
-    mark: `<!-- stupify:${pr.headRefOid} -->`,
-    failMark: `<!-- stupify-failed:${pr.headRefOid} -->`,
+// The hidden marker stupify ends every posted review with, keyed to the head SHA — how a later sweep recognizes a
+// PR it already reviewed AT THIS HEAD (durable dedup, survives VM recreation). Failures aren't posted, so there's
+// no fail marker; they're throttled via local state instead.
+const markFor = (pr: Pr): string => `<!-- stupify:${pr.headRefOid} -->`
+
+/** Per-VM record of PRs we tried and FAILED (number → {head, at}). Since failures are NEVER posted to the PR (that
+ *  was operator noise), this local file is how a sweep avoids re-running codex on the same failing head every
+ *  minute. Best-effort: a parse error or a fresh VM just means we re-attempt — harmless. */
+function loadFailures(cfg: Config): Record<string, { head: string; at: number }> {
+  try {
+    const p = join(cfg.stateDir, 'failures.json')
+    return existsSync(p) ? (JSON.parse(readFileSync(p, 'utf8')) as Record<string, { head: string; at: number }>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function recordFailure(cfg: Config, failures: Record<string, { head: string; at: number }>, pr: Pr): void {
+  failures[String(pr.number)] = { head: pr.headRefOid, at: Date.now() }
+  try {
+    writeFileSync(join(cfg.stateDir, 'failures.json'), JSON.stringify(failures))
+  } catch {
+    /* best-effort — a re-attempt next sweep is fine */
   }
 }
 
@@ -340,7 +361,7 @@ ${read('CORPUS.md')}`
 }
 
 export function reviewPrompt(cfg: Config, pr: Pr, priorThread: string, diff: string): string {
-  const { mark } = markersFor(pr)
+  const mark = markFor(pr)
   const outPath = reviewOutPath(cfg, pr)
   const memory = priorThread
     ? `\n\n## Prior reviews on this PR (your memory)
@@ -370,12 +391,12 @@ The runner posts that file for you — do NOT run gh. Keep it terse; no preamble
 ${diff}`
 }
 
-/** Run one review. Returns tokens used on success, or null when codex couldn't produce a review (a failure was
- *  posted, or a transient gh-post failure left it to retry). The runner — not codex — does ALL gh I/O, and codex
- *  runs with NO network, so a prompt-injected diff/thread can at worst make it write a junk review file: it cannot
- *  exfiltrate, touch the gh token, or run commands. */
+/** Run one review. Returns tokens used on success, or null when codex couldn't produce a review (logged, never
+ *  posted — the caller throttles retries). The runner — not codex — does ALL gh I/O, and codex runs with NO
+ *  network, so a prompt-injected diff/thread can at worst make it write a junk review file: it cannot exfiltrate,
+ *  touch the gh token, or run commands. */
 function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string): number | null {
-  const { mark, failMark } = markersFor(pr)
+  const mark = markFor(pr)
   const outPath = reviewOutPath(cfg, pr)
   log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)}`)
   rmSync(outPath, { force: true }) // clear any stale file so we never post a previous run's review
@@ -394,9 +415,9 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string): numbe
   ]
   if (cfg.codexProvider) codexArgs.push('-c', `model_provider=${cfg.codexProvider}`)
   if (cfg.codexModel) codexArgs.push('-c', `model=${cfg.codexModel}`)
-  codexArgs.push(reviewPrompt(cfg, pr, priorThread, diff))
+  codexArgs.push('-') // read the prompt from STDIN, not argv — the inlined corpus + diff would blow ARG_MAX (E2BIG)
 
-  const cx = exec('codex', codexArgs, { cwd: cfg.repoDir, timeoutMs: 1_200_000 })
+  const cx = exec('codex', codexArgs, { cwd: cfg.repoDir, timeoutMs: 1_200_000, input: reviewPrompt(cfg, pr, priorThread, diff) })
   appendFileSync(LOG, `${cx.combined}\n`)
 
   const review = cx.ok && existsSync(outPath) ? readFileSync(outPath, 'utf8').trim() : ''
@@ -412,22 +433,11 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string): numbe
     return tokens ?? 0
   }
 
-  // Codex couldn't produce a review (provider down, out of credits, timeout, wrote nothing). Don't fail silently —
-  // post a short error on the PR and stamp FAIL_MARK so the next sweep skips this head instead of re-hammering.
-  const reason = failureReason(cx.combined)
-  log(`  review FAILED for #${pr.number} — ${reason}`)
-  const body = [
-    "uhh — i couldn't review this one. codex didn't run:",
-    '',
-    `> ${reason}`,
-    '',
-    "_— stupify (auto-reviewer). i'll retry on your next push._",
-    failMark,
-  ].join('\n')
-  writeFileSync(outPath, `${body}\n`)
-  if (!exec('gh', ['pr', 'comment', String(pr.number), '--repo', cfg.slug, '--body-file', outPath]).ok) {
-    log(`    (couldn't post failure comment for #${pr.number} either — gh down?)`)
-  }
+  // Codex couldn't produce a review (provider down, usage limit, timeout, wrote nothing). This is an OPERATOR
+  // problem the PR author can't act on, so we do NOT comment on the PR — "couldn't review" notes are pure noise on
+  // someone's thread (and used to pile up). Log it for the operator; the caller throttles re-attempts via local
+  // state so a persistently-failing PR isn't re-run every sweep. Only real reviews ever reach the PR.
+  log(`  review FAILED for #${pr.number} — ${failureReason(cx.combined)}`)
   return null
 }
 
@@ -510,9 +520,13 @@ function main(): void {
   const queue = prs.filter((pr) => inScope(pr, cfg)) // MAX_PRS is applied to PRs actually HANDLED, not iterated (below)
 
   // The reviewer's own login: the dedup marker is only trusted from OUR comments, so a PR author can't post
-  // `<!-- stupify:<their-head-sha> -->` themselves to silence the review. Empty (gh failed) = fall back to
-  // marker-anywhere, since double-posting a review is worse than the narrow spoof.
-  const self = exec('gh', ['api', 'user', '--jq', '.login']).stdout.trim()
+  // `<!-- stupify:<their-head-sha> -->` themselves to silence the review. MUST gate on .ok: a GitHub-App
+  // integration (exe.dev) gets 403 "not accessible by integration" from `gh api user`, whose non-empty error
+  // body would otherwise become a bogus `self` that matches NObody — re-reviewing every PR every sweep (spam).
+  // On any failure, fall back to marker-anywhere: a double review is far better than an infinite re-post loop.
+  const u = exec('gh', ['api', 'user', '--jq', '.login'])
+  const self = u.ok ? u.stdout.trim() : ''
+  const failures = loadFailures(cfg) // per-VM record of (PR → failed head + when); throttles retries WITHOUT a PR comment
 
   let reviewed = 0
   let tokens = 0
@@ -520,16 +534,20 @@ function main(): void {
   // the front of the list can't consume the budget and starve later ones.
   let handled = 0
   for (const pr of queue) {
-    const { mark, failMark } = markersFor(pr)
+    const mark = markFor(pr)
     const comments = prComments(cfg, pr.number)
     if (comments === null) {
       log(`skip #${pr.number} — couldn't read it from gh (failed/malformed); will retry next sweep`)
       continue
     }
     const reviewedHead = self
-      ? comments.some((c) => c.login === self && (c.body.includes(mark) || c.body.includes(failMark)))
-      : comments.some((c) => c.body.includes(mark) || c.body.includes(failMark))
-    if (reviewedHead) continue
+      ? comments.some((c) => c.login === self && c.body.includes(mark))
+      : comments.some((c) => c.body.includes(mark))
+    // Failures aren't posted, so suppression is local: skip a PR we already tried at THIS head within the retry
+    // window (so a persistently-failing PR isn't re-run every sweep, but a transient failure retries once it lapses).
+    const f = failures[String(pr.number)]
+    const recentlyFailed = f !== undefined && f.head === pr.headRefOid && Date.now() - f.at < cfg.failRetryMs
+    if (reviewedHead || recentlyFailed) continue
 
     // Past the cheap dedup skip — this PR is a real candidate. Enforce MAX_PRS here, not on the
     // iterated list, and defer the rest to the next sweep.
@@ -561,6 +579,8 @@ function main(): void {
     if (used !== null) {
       reviewed += 1
       tokens += used
+    } else {
+      recordFailure(cfg, failures, pr) // logged, not posted — throttle re-attempt until the window lapses or the head moves
     }
   }
 

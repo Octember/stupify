@@ -20,6 +20,7 @@ const cfg = (): Config => ({
   diffLineCap: 800,
   dryRun: false,
   maxPrs: 15,
+  failRetryMs: 60_000,
   stateDir: '/tmp/x/state',
   codexEffort: 'high',
   codexProvider: '',
