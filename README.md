@@ -1,3 +1,8 @@
+> Debugging is twice as hard as writing the code in the first place. Therefore, if you write the code as
+> cleverly as possible, you are, by definition, not smart enough to debug it.
+>
+> — **Kernighan's Law**
+
 # stupify
 
 **AI agents are rats in a maze — they reach for what they know.** And unless you teach them better, what they know is slop: most software is garbage, and they'll [happily](https://github.com/thesysdev/openui/issues/517) [imitate](https://github.com/RsyncProject/rsync/issues/929) [it](https://github.com/anthropics/claudes-c-compiler/issues/1).
