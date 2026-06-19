@@ -74,7 +74,7 @@ function loadConfig(): Config {
 
   const slug = pick('REPO_SLUG', '').trim()
   if (!slug) {
-    log('config: REPO_SLUG is required (owner/repo) — aborting. Run `stupify` to set up.')
+    log('config: REPO_SLUG is required (owner/repo) — aborting. Run `stupify setup` to install locally.')
     process.exit(1)
   }
   const scopeRaw = pick('SCOPE', 'auto').trim().toLowerCase()

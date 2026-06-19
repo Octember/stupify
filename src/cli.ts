@@ -53,6 +53,18 @@ function die(message: string): never {
   process.exit(1)
 }
 
+// clack's spinner reads stdin and keeps the event loop alive in non-TTY contexts (CI, pipes, scripts) — the
+// process never exits. Fall back to plain step logs there so non-interactive runs actually finish.
+function progress(start: string): { stop: (msg: string) => void } {
+  if (!process.stdin.isTTY) {
+    log.step(start)
+    return { stop: (msg: string) => log.success(msg) }
+  }
+  const s = spinner()
+  s.start(start)
+  return { stop: (msg: string) => s.stop(msg) }
+}
+
 function which(bin: string): string | null {
   return Bun.which(bin)
 }
@@ -103,13 +115,18 @@ function installCron(opts: { ghHost: string }): string {
   const prefix = opts.ghHost ? `GH_HOST=${opts.ghHost} ` : ''
   // No flock — the sweep self-locks (state/sweep.lock), so overlapping cron ticks no-op on their own.
   const line = `*/1 * * * * ${prefix}${bun} ${join(HOME, 'review-sweep.ts')} >> ${STATE}/cron.log 2>&1`
-  const current = spawnSync('crontab', ['-l'], { encoding: 'utf8' }).stdout ?? ''
+  // crontab is external and can hang in restricted/sandboxed environments — cap both calls so a hung crontab
+  // becomes a clean error (with the line to paste), never an infinite block.
+  const current = spawnSync('crontab', ['-l'], { encoding: 'utf8', timeout: 8_000 }).stdout ?? ''
   const kept = current
     .split('\n')
     .filter((l) => l.trim() && !l.includes('review-sweep.ts'))
   const next = [...kept, line].join('\n') + '\n'
-  const wrote = spawnSync('crontab', ['-'], { input: next })
-  if (wrote.status !== 0) throw new Error('could not write crontab')
+  const wrote = spawnSync('crontab', ['-'], { input: next, encoding: 'utf8', timeout: 8_000 })
+  if (wrote.status !== 0) {
+    const why = (wrote.stderr ?? '').trim() || wrote.error?.message || (wrote.signal ? `timed out (${wrote.signal})` : 'crontab exited non-zero')
+    throw new Error(`couldn't install the cron job (${why}). your config is saved — add the line yourself:\n  ${line}`)
+  }
   return line
 }
 
@@ -121,7 +138,11 @@ const tasteLabel = (packs: string[]): string =>
 // no flag it defaults to the devshorts pack so a fresh repo reviews immediately.
 async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<string[]> {
   if (opts.packArg !== undefined) {
-    return opts.packArg.split(',').map((s) => s.trim()).filter((id) => id && id !== 'own' && PACKS.some((p) => p.id === id))
+    const requested = opts.packArg.split(',').map((s) => s.trim()).filter(Boolean)
+    const known = (id: string) => PACKS.some((p) => p.id === id)
+    const unknown = requested.filter((id) => id !== 'own' && !known(id))
+    if (unknown.length) log.warn(`unknown pack(s): ${pc.bold(unknown.join(', '))} — valid: ${PACKS.map((p) => p.id).join(', ')}`)
+    return requested.filter((id) => id !== 'own' && known(id))
   }
   if (opts.yes) return ['devshorts']
   if (!process.stdin.isTTY) return [] // non-interactive (CI, scripts, the install hook): never block on a picker
@@ -156,10 +177,10 @@ function assembleReview(packs: string[]): void {
 // `stupify taste [--pack a,b]` — assemble your GLOBAL taste at ~/.stupify/.review from packs, and nothing else.
 // This is the shared core both the reviewer and `stupify prime` read when a repo has no .review/ of its own —
 // so you can set taste once without installing the cron reviewer.
-async function taste(argv: { pack?: string }): Promise<void> {
+async function taste(argv: { pack?: string; yes: boolean }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — pick the code yours should look like'))
-  const packs = await pickPacks({ yes: false, packArg: argv.pack })
+  const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
   if (packs.length === 0) {
     note(
       [
@@ -168,7 +189,7 @@ async function taste(argv: { pack?: string }): Promise<void> {
       ].join('\n'),
       'nothing to assemble',
     )
-    outro(pc.dim('run again and pick at least one pack.'))
+    outro(pc.dim('pass --pack <id> for a taste pack, or bring your own .review/.'))
     return
   }
   assembleReview(packs)
@@ -190,8 +211,7 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — sounds dumb, reviews sharp'))
 
   // 1. tools
-  const s = spinner()
-  s.start('checking your tools')
+  const s = progress('checking your tools')
   const missing = REQUIRED.filter((b) => !which(b))
   if (missing.length) {
     s.stop(pc.red(`missing: ${missing.join(', ')}`))
@@ -219,6 +239,7 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
     }
   }
   if (!repo) {
+    if (argv.yes) die('--yes needs a repo when none is detected: stupify setup <owner/repo> --yes')
     const answer = await text({
       message: 'GitHub repo to review',
       placeholder: 'owner/repo',
@@ -228,7 +249,7 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
     repo = answer
   }
   repo = normalizeRepo(repo)
-  if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo`)
+  if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo — expected owner/repo (e.g. acme/widgets)`)
 
   // 3. integration host (exe.dev) — can't be detected
   let host = argv.host ?? process.env.GH_HOST ?? ''
@@ -271,8 +292,7 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
   }
 
   // 5. install
-  const s2 = spinner()
-  s2.start('installing')
+  const s2 = progress('installing')
   mkdirSync(STATE, { recursive: true })
   copyFileSync(join(PKG_DIR, 'review-sweep.ts'), join(HOME, 'review-sweep.ts'))
   assembleReview(packs)
@@ -280,7 +300,12 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
     .filter(Boolean)
     .join('\n')
   writeFileSync(join(HOME, 'config.env'), cfg + '\n')
-  installCron({ ghHost: host })
+  try {
+    installCron({ ghHost: host })
+  } catch (e) {
+    s2.stop(pc.yellow('files installed, but the cron job failed'))
+    die((e as Error).message) // friendly: includes the reason + the exact line to add by hand
+  }
   s2.stop(pc.green('installed') + pc.dim(` → ${HOME}`))
 
   // 6. success
@@ -336,10 +361,12 @@ async function installPrimeHook(argv: { pack?: string }): Promise<void> {
   //    wins, but ~/.stupify/.review is the fallback, so without it the hook would no-op everywhere. Assemble it
   //    here (explicit --pack always (re)assembles; otherwise pick only when none exists) so install just works.
   const haveHomeTaste = existsSync(join(HOME, '.review', 'RUBRIC.md')) && existsSync(join(HOME, '.review', 'CORPUS.md'))
+  let primed = haveHomeTaste
   if (argv.pack !== undefined || !haveHomeTaste) {
     const packs = await pickPacks({ yes: false, packArg: argv.pack })
     if (packs.length > 0) {
       assembleReview(packs)
+      primed = true
       const tasteLine = tasteLabel(packs)
       log.success(`global taste assembled → ${pc.cyan(join(HOME, '.review'))} ${pc.dim(`(${tasteLine})`)}`)
     } else if (!haveHomeTaste) {
@@ -376,13 +403,15 @@ async function installPrimeHook(argv: { pack?: string }): Promise<void> {
       already
         ? `already wired in ${pc.cyan(path)} ${pc.dim('(refreshed engine + command)')}`
         : `added a ${pc.bold('SessionStart')} hook to ${pc.cyan(path)}`,
-      `every new Claude Code session now opens primed with your taste ${pc.dim('(~30ms, no-op if a repo has none)')}.`,
+      primed
+        ? `every new Claude Code session now opens primed with your taste ${pc.dim('(~30ms)')}.`
+        : `the hook is wired but ${pc.bold('dormant')} — it activates in any repo with a ${pc.cyan('.review/')}, or run ${pc.cyan('stupify taste --pack <id>')} to set a global one.`,
       ``,
       `${pc.dim('undo:')} ${pc.cyan('stupify prime --uninstall')}`,
     ].join('\n'),
-    "you're primed",
+    primed ? "you're primed" : 'hook wired (no taste yet)',
   )
-  outro(pc.green('Claude Code will write to your taste from the first line 🧠'))
+  outro(primed ? pc.green('Claude Code will write to your taste from the first line 🧠') : pc.yellow('add taste to bring it to life ↑'))
 }
 
 function uninstallPrimeHook(): void {
@@ -421,7 +450,7 @@ function uninstallPrimeHook(): void {
 function run(dry: boolean): void {
   const sweep = join(HOME, 'review-sweep.ts')
   if (!Bun.file(sweep).size) {
-    log.error(`not set up yet — run ${pc.cyan('stupify')} first`)
+    log.error(`not set up yet — run ${pc.cyan('stupify setup')} to install on this machine, or ${pc.cyan('stupify')} to provision an exe.dev VM`)
     process.exit(1)
   }
   const env = { ...process.env, ...(dry ? { DRY_RUN: '1' } : {}) }
@@ -458,8 +487,7 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — provision a reviewer on exe.dev'))
 
   // 1. onboarded to exe.dev?
-  const s = spinner()
-  s.start('checking exe.dev')
+  const s = progress('checking exe.dev')
   const who = exe(['whoami'])
   if (!who.ok) {
     s.stop(pc.red('not connected to exe.dev'))
@@ -482,6 +510,7 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
     }
   }
   if (!repo) {
+    if (argv.yes) die('--yes needs a repo when none is detected: stupify <owner/repo> --yes')
     const answer = await text({
       message: 'GitHub repo to review',
       placeholder: 'owner/repo',
@@ -491,14 +520,13 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
     repo = answer
   }
   repo = normalizeRepo(repo)
-  if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo`)
+  if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo — expected owner/repo (e.g. acme/widgets)`)
 
   // 2.5 taste — pick a pack (or your own code); the VM installs it on first boot
   const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
 
   // 3. GitHub integration — reuse an existing one, else create it (needs your GitHub linked once, on the web)
-  const s2 = spinner()
-  s2.start('finding your GitHub integration')
+  const s2 = progress('finding your GitHub integration')
   let integration = githubIntegrationFor(repo)
   if (integration) {
     s2.stop(pc.green(`using integration ${pc.bold(integration)}`))
@@ -539,8 +567,7 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
   }
 
   // 5. create the VM with a first-boot setup-script that installs stupify
-  const s3 = spinner()
-  s3.start('provisioning VM + installing stupify')
+  const s3 = progress('provisioning VM + installing stupify')
   const vm = vmNameFor(repo)
   const script = [
     'export PATH="$HOME/.bun/bin:/usr/local/bin:$PATH"',
@@ -621,14 +648,15 @@ const pack = valueFlag('--pack')
 const positional = args.filter((a, i) => !a.startsWith('-') && args[i - 1] !== '--host' && args[i - 1] !== '--pack')
 const cmd = positional[0]
 
-if (args.includes('-h') || args.includes('--help')) {
+if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
   help()
 } else if (cmd === 'taste') {
-  await taste({ pack })
+  await taste({ pack, yes })
 } else if (cmd === 'prime') {
   if (args.includes('--install')) await installPrimeHook({ pack })
   else if (args.includes('--uninstall')) uninstallPrimeHook()
-  else emitPrime() // bare `prime`: machine-called by the SessionStart hook — prints only the JSON payload
+  else if (process.stdin.isTTY) die('did you mean `stupify prime --install`? (bare `prime` is the internal hook emitter)')
+  else emitPrime() // machine path: the SessionStart hook pipes this JSON payload (non-TTY)
 } else if (cmd === 'run') {
   run(args.includes('--dry'))
 } else if (cmd === 'setup') {

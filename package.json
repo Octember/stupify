@@ -1,6 +1,6 @@
 {
   "name": "@stupify/cli",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A code reviewer that talks like an idiot and catches real bugs — corpus-grounded, anti-slop, runs on Codex.",
   "type": "module",
   "bin": {

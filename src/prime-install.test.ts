@@ -73,8 +73,8 @@ test('--uninstall on a machine with no settings.json is a clean no-op', () => {
 
 test('taste --pack assembles ~/.stupify/.review and nothing else (no reviewer leaks in)', () => {
   const e = env()
-  run(['taste', '--pack', 'anton-kropp,zod'], e)
-  expect(readFileSync(join(e.home, '.review', 'CORPUS.md'), 'utf8')).toContain('Anton Kropp') // packs assembled
+  run(['taste', '--pack', 'devshorts,zod'], e)
+  expect(readFileSync(join(e.home, '.review', 'CORPUS.md'), 'utf8')).toContain('devshorts') // packs assembled
   expect(existsSync(join(e.home, 'config.env'))).toBe(false) // no reviewer config
   expect(existsSync(join(e.home, 'review-sweep.ts'))).toBe(false) // no reviewer engine
   rmSync(e.home, { recursive: true, force: true })
