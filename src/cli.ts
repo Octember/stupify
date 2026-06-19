@@ -109,6 +109,7 @@ async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<stri
     return opts.packArg.split(',').map((s) => s.trim()).filter((id) => id && id !== 'own' && PACKS.some((p) => p.id === id))
   }
   if (opts.yes) return ['anton-kropp']
+  if (!process.stdin.isTTY) return [] // non-interactive (CI, scripts, the install hook): never block on a picker
   const choice = await multiselect({
     message: 'Whose code should yours look like? (pick any — or your own)',
     options: [
@@ -135,6 +136,38 @@ function assembleReview(packs: string[]): void {
   const header = `# Good-code reference — taste packs\n\nJudge every diff against the standards below. When you flag slop, name the principle (or the linked file) the change should have followed. The links are commit-pinned exemplars — open them when you need detail.\n\n---\n\n`
   const body = packs.map((id) => readFileSync(join(PKG_ROOT, 'packs', `${id}.md`), 'utf8').trim()).join('\n\n---\n\n')
   writeFileSync(join(out, 'CORPUS.md'), `${header}${body}\n`)
+}
+
+// `stupify taste [--pack a,b]` — assemble your GLOBAL taste at ~/.stupify/.review from packs, and nothing else.
+// This is the shared core both the reviewer and `stupify prime` read when a repo has no .review/ of its own —
+// so you can set taste once without installing the cron reviewer.
+async function taste(argv: { pack?: string }): Promise<void> {
+  console.clear()
+  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — pick the code yours should look like'))
+  const packs = await pickPacks({ yes: false, packArg: argv.pack })
+  if (packs.length === 0) {
+    note(
+      [
+        `no packs picked. taste packs seed a global corpus at ${pc.cyan(join(HOME, '.review'))}.`,
+        `for YOUR-OWN-codebase taste, add a ${pc.cyan('.review/')} to a repo instead ${pc.dim('(a repo .review/ always wins)')}.`,
+      ].join('\n'),
+      'nothing to assemble',
+    )
+    outro(pc.dim('run again and pick at least one pack.'))
+    return
+  }
+  assembleReview(packs)
+  const tasteLine = PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' — ')[0]).join(' + ')
+  note(
+    [
+      `assembled ${pc.cyan(join(HOME, '.review'))} against ${pc.bold(tasteLine)}.`,
+      `your global taste — read by the reviewer AND ${pc.cyan('stupify prime')} in any repo without its own .review/.`,
+      ``,
+      `${pc.bold('next:')} ${pc.cyan('stupify prime --install')} ${pc.dim('— prime Claude Code with it every session')}`,
+    ].join('\n'),
+    'taste ready',
+  )
+  outro(pc.green('your taste is set 🎯'))
 }
 
 async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: string }): Promise<void> {
@@ -279,9 +312,25 @@ function readSettings(path: string): Record<string, unknown> {
 type HookEntry = { matcher?: string; hooks?: { type?: string; command?: string }[] }
 const isOurHook = (e: HookEntry): boolean => (e.hooks ?? []).some((h) => (h.command ?? '').includes(PRIME_ENGINE))
 
-function installPrimeHook(): void {
+async function installPrimeHook(argv: { pack?: string }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — prime Claude Code with your taste'))
+
+  // 0. ensure GLOBAL taste exists for the hook to inject. The hook runs in EVERY repo; a repo's own .review/
+  //    wins, but ~/.stupify/.review is the fallback, so without it the hook would no-op everywhere. Assemble it
+  //    here (explicit --pack always (re)assembles; otherwise pick only when none exists) so install just works.
+  const haveHomeTaste = existsSync(join(HOME, '.review', 'RUBRIC.md')) && existsSync(join(HOME, '.review', 'CORPUS.md'))
+  if (argv.pack !== undefined || !haveHomeTaste) {
+    const packs = await pickPacks({ yes: false, packArg: argv.pack })
+    if (packs.length > 0) {
+      assembleReview(packs)
+      const tasteLine = PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' — ')[0]).join(' + ')
+      log.success(`global taste assembled → ${pc.cyan(join(HOME, '.review'))} ${pc.dim(`(${tasteLine})`)}`)
+    } else if (!haveHomeTaste) {
+      log.warn(`no global taste yet — the hook will no-op until a repo has its own ${pc.cyan('.review/')} or you run ${pc.cyan('stupify taste')}`)
+    }
+  }
+
   // 1. drop the dep-free emitter where the hook can run it fast, no global install needed
   mkdirSync(HOME, { recursive: true })
   copyFileSync(join(PKG_DIR, 'prime.ts'), PRIME_ENGINE)
@@ -526,6 +575,7 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify <owner/repo>    provision for a specific repo
   stupify setup [repo]    install on THIS machine instead of provisioning a VM
   stupify run [--dry]     run one review sweep now (where stupify is installed)
+  stupify taste [--pack a,b]  pick the code yours should look like (assembles ~/.stupify/.review)
   stupify prime --install     prime Claude Code with your taste every session (adds a SessionStart hook)
   stupify prime --uninstall   remove that hook
   stupify --help
@@ -552,8 +602,10 @@ const cmd = positional[0]
 
 if (args.includes('-h') || args.includes('--help')) {
   help()
+} else if (cmd === 'taste') {
+  await taste({ pack })
 } else if (cmd === 'prime') {
-  if (args.includes('--install')) installPrimeHook()
+  if (args.includes('--install')) await installPrimeHook({ pack })
   else if (args.includes('--uninstall')) uninstallPrimeHook()
   else emitPrime() // bare `prime`: machine-called by the SessionStart hook — prints only the JSON payload
 } else if (cmd === 'run') {

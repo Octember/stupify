@@ -70,3 +70,23 @@ test('--uninstall on a machine with no settings.json is a clean no-op', () => {
   rmSync(e.home, { recursive: true, force: true })
   rmSync(e.cfg, { recursive: true, force: true })
 })
+
+test('taste --pack assembles ~/.stupify/.review and nothing else (no reviewer leaks in)', () => {
+  const e = env()
+  run(['taste', '--pack', 'anton-kropp,zod'], e)
+  expect(readFileSync(join(e.home, '.review', 'CORPUS.md'), 'utf8')).toContain('Anton Kropp') // packs assembled
+  expect(existsSync(join(e.home, 'config.env'))).toBe(false) // no reviewer config
+  expect(existsSync(join(e.home, 'review-sweep.ts'))).toBe(false) // no reviewer engine
+  rmSync(e.home, { recursive: true, force: true })
+  rmSync(e.cfg, { recursive: true, force: true })
+})
+
+test('prime --install --pack assembles taste AND wires the hook in one step', () => {
+  const e = env()
+  run(['prime', '--install', '--pack', 'zod'], e)
+  expect(readFileSync(join(e.home, '.review', 'CORPUS.md'), 'utf8')).toContain('zod') // taste assembled
+  const s = read(e.settings)
+  expect(s.hooks.SessionStart[0].hooks[0].command).toContain('prime.ts') // and hook wired
+  rmSync(e.home, { recursive: true, force: true })
+  rmSync(e.cfg, { recursive: true, force: true })
+})
