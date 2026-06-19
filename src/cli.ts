@@ -29,16 +29,16 @@ interface Pack {
   label: string
 }
 const PACKS: Pack[] = [
-  { id: 'devshorts', label: 'devshorts — DI + branded types' },
-  { id: 'zod', label: 'Colin McDonnell / Zod — parse, don’t validate' },
   { id: 'sindre-sorhus', label: 'Sindre Sorhus — one file, one job' },
+  { id: 'zod', label: 'Colin McDonnell / Zod — parse, don’t validate' },
   { id: 'rich-harris', label: 'Rich Harris / Svelte — compiler-grade precision' },
   { id: 'tanner-linsley', label: 'Tanner Linsley / TanStack — types forbid bad states' },
-  { id: 'mitchell-hashimoto', label: 'Mitchell Hashimoto / Ghostty — documented tradeoffs' },
   { id: 'simon-willison', label: 'Simon Willison — one concept per file' },
   { id: 'dtolnay', label: 'David Tolnay — the API that disappears (Rust)' },
   { id: 'antirez', label: 'antirez / Redis — comments that earn their keep (C)' },
   { id: 'dhh', label: 'DHH / Rails — controllers that tell the story (Ruby)' },
+  { id: 'mitchell-hashimoto', label: 'Mitchell Hashimoto / Ghostty — documented tradeoffs' },
+  { id: 'devshorts', label: 'devshorts — DI + branded types' },
   { id: 'jarred-sumner', label: 'Jarred Sumner / Bun — perf as correctness' },
 ]
 
@@ -142,7 +142,7 @@ const tasteLabel = (packs: string[]): string =>
   PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' — ')[0]).join(' + ')
 
 // Returns the chosen pack ids. `--pack a,b` (or 'own'/'' = your own codebase) skips the prompt; with --yes and
-// no flag it defaults to the devshorts pack so a fresh repo reviews immediately.
+// no flag it defaults to sindre-sorhus (the broadly-applicable TS/JS taste) so a fresh repo reviews immediately.
 async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<string[]> {
   if (opts.packArg !== undefined) {
     const requested = opts.packArg.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
@@ -151,7 +151,7 @@ async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<stri
     if (unknown.length) log.warn(`unknown pack(s): ${pc.bold(unknown.join(', '))} — valid: ${PACKS.map((p) => p.id).join(', ')}`)
     return requested.filter((id) => id !== 'own' && known(id))
   }
-  if (opts.yes) return ['devshorts']
+  if (opts.yes) return ['sindre-sorhus']
   if (!process.stdin.isTTY) return [] // non-interactive (CI, scripts, the install hook): never block on a picker
   const choice = await multiselect({
     message: 'Whose code should yours look like? (pick any — or your own)',
