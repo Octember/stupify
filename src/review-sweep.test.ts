@@ -40,9 +40,9 @@ const prefixOf = (prompt: string) => prompt.slice(0, prompt.indexOf(THIS_PR))
 // Three different PRs: different numbers, different head SHAs, and (crucially) one mid-thread with memory —
 // the hardest case, since "continuing a review" must STILL not perturb the prefix.
 const prompts = [
-  reviewPrompt(cfg(), pr(1, 'a'.repeat(40)), ''),
-  reviewPrompt(cfg(), pr(42, 'b'.repeat(40)), ''),
-  reviewPrompt(cfg(), pr(987, 'c'.repeat(40)), 'PRIOR-THREAD: a past review and the author reply'),
+  reviewPrompt(cfg(), pr(1, 'a'.repeat(40)), '', 'diff --git a/one.ts b/one.ts\n+const one = 1'),
+  reviewPrompt(cfg(), pr(42, 'b'.repeat(40)), '', 'diff --git a/two.ts b/two.ts\n+const two = 2'),
+  reviewPrompt(cfg(), pr(987, 'c'.repeat(40)), 'PRIOR-THREAD: a past review', 'diff --git a/three.ts b/three.ts\n+const three = 3'),
 ]
 const prefixes = prompts.map(prefixOf)
 
@@ -61,7 +61,8 @@ test('the prefix equals stablePrefix(cfg) and carries the real taste, not generi
 
 test('NO per-PR token leaks into the cached prefix', () => {
   for (const prefix of prefixes) {
-    expect(prefix).not.toContain('gh pr diff') // the diff command lives in the tail
+    expect(prefix).not.toContain('diff --git') // the inlined diff lives in the tail, not the cached prefix
+    expect(prefix).not.toContain('const one') // ...nor any of its content
     expect(prefix).not.toContain('a'.repeat(40)) // no head SHA / marker
     expect(prefix).not.toContain('b'.repeat(40))
     expect(prefix).not.toContain('PRIOR-THREAD') // memory lives in the tail
@@ -76,7 +77,7 @@ test('a malicious PR comment cannot break out of the <prior_reviews> fence', () 
   expect(built).not.toContain('</prior_reviews>') // the closing tag is neutralized — no early fence break
   expect(built).not.toContain('<!-- stealthy -->') // hidden markers stripped
   // and once it's inlined into the real prompt, there is still exactly ONE closing fence (the runner's own)
-  const occurrences = reviewPrompt(cfg(), pr(7, 'd'.repeat(40)), built).split('</prior_reviews>').length - 1
+  const occurrences = reviewPrompt(cfg(), pr(7, 'd'.repeat(40)), built, 'diff --git a/q b/q\n+x').split('</prior_reviews>').length - 1
   expect(occurrences).toBe(1)
 })
 
@@ -87,9 +88,9 @@ test('priorReviewThread caps total size so a chatty PR cannot balloon the prompt
 
 test('only the tail changes — per-PR content is present and correct there', () => {
   expect(prompts[0]).not.toBe(prompts[1]) // whole prompts differ...
-  expect(prompts[0]).toContain('gh pr diff 1 --repo acme/widgets')
-  expect(prompts[1]).toContain('gh pr diff 42 --repo acme/widgets')
-  expect(prompts[2]).toContain('gh pr diff 987 --repo acme/widgets')
+  expect(prompts[0]).toContain('const one = 1') // ...because each carries its OWN inlined diff in the tail
+  expect(prompts[1]).toContain('const two = 2')
+  expect(prompts[2]).toContain('const three = 3')
   expect(prompts[2]).toContain('PRIOR-THREAD') // memory threaded into the tail
 })
 
