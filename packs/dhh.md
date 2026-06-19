@@ -1,185 +1,258 @@
 ## Code like DHH (@dhh) · controllers that tell the story
 
-Controllers are a table of contents, not an implementation. Every action is 1–4 lines; every setup step is a named `before_action` that reads like English (`set_room`, `ensure_can_administer`). Cross-cutting rules live in named concerns (`Authentication`, `Authorization`), not in a base-class tangle. Domain logic — pagination, broadcasts, roles — is pushed to named model scopes or mixins so the call site never needs to know how it works.
+DHH writes code that reads like an outline of intent, not a transcript of implementation. Controllers are one-line-per-action tables of contents; the hard work lives in named model methods, scopes, and concerns that carry the domain vocabulary. Cross-cutting rules — auth, scoping, rate-limiting — are declared once in a concern and applied by name at the call site, never repeated inline. Error handling follows the same philosophy: domain errors become named exception classes, guard clauses become named predicates, and failure paths redirect or respond with a status, never swallow. Tests are integration-first, hitting real HTTP endpoints with fixture data and asserting on the full response, not on implementation details.
 
-### `messages_controller.rb` — a controller you can read in under a minute; actions tell the story, nothing more
-[source](https://github.com/basecamp/once-campfire/blob/8d3c2bbd2be070008a275330efbee1001fd202dc/app/controllers/messages_controller.rb)
+### `sessions_controller.rb` — the controller as a table of contents; no logic leaks in
+
+[source](https://github.com/basecamp/once-campfire/blob/8d3c2bbd2be070008a275330efbee1001fd202dc/app/controllers/sessions_controller.rb)
 ```ruby
-class MessagesController < ApplicationController
-  include ActiveStorage::SetCurrent, RoomScoped
+class SessionsController < ApplicationController
+  allow_unauthenticated_access only: %i[ new create ]
+  rate_limit to: 10, within: 3.minutes, only: :create, with: -> { render_rejection :too_many_requests }
 
-  before_action :set_room, except: :create
-  before_action :set_message, only: %i[ show edit update destroy ]
-  before_action :ensure_can_administer, only: %i[ edit update destroy ]
+  before_action :ensure_user_exists, only: :new
 
-  layout false, only: :index
-
-  def index
-    @messages = find_paged_messages
-
-    if @messages.any?
-      fresh_when @messages
-    else
-      head :no_content
-    end
+  def new
   end
 
   def create
-    set_room
-    @message = @room.messages.create_with_attachment!(message_params)
-
-    @message.broadcast_create
-    deliver_webhooks_to_bots
-  rescue ActiveRecord::RecordNotFound
-    render action: :room_not_found
-  end
-
-  def show
-  end
-
-  def edit
-  end
-
-  def update
-    @message.update!(message_params)
-
-    @message.broadcast_replace_to @room, :messages, target: [ @message, :presentation ], partial: "messages/presentation", attributes: { maintain_scroll: true }
-    redirect_to room_message_url(@room, @message)
+    if user = User.active.authenticate_by(email_address: params[:email_address], password: params[:password])
+      start_new_session_for user
+      redirect_to post_authenticating_url
+    else
+      render_rejection :unauthorized
+    end
   end
 
   def destroy
-    @message.destroy
-    @message.broadcast_remove
+    remove_push_subscription
+    terminate_current_session
+    redirect_to root_url
   end
 
   private
-    def set_message
-      @message = @room.messages.find(params[:id])
+    def ensure_user_exists
+      redirect_to first_run_url if User.none?
     end
 
-    def ensure_can_administer
-      head :forbidden unless Current.user.can_administer?(@message)
+    def render_rejection(status)
+      flash.now[:alert] = "Too many requests or unauthorized."
+      render :new, status: status
     end
 
-
-    def find_paged_messages
-      case
-      when params[:before].present?
-        @room.messages.with_creator.page_before(@room.messages.find(params[:before]))
-      when params[:after].present?
-        @room.messages.with_creator.page_after(@room.messages.find(params[:after]))
-      else
-        @room.messages.with_creator.last_page
+    def remove_push_subscription
+      if endpoint = params[:push_subscription_endpoint]
+        Push::Subscription.destroy_by(endpoint: endpoint, user_id: Current.user.id)
       end
-    end
-
-
-    def message_params
-      params.require(:message).permit(:body, :attachment, :client_message_id)
-    end
-
-
-    def deliver_webhooks_to_bots
-      bots_eligible_for_webhook.excluding(@message.creator).each { |bot| bot.deliver_webhook_later(@message) }
-    end
-
-    def bots_eligible_for_webhook
-      @room.direct? ? @room.users.active_bots : @message.mentionees.active_bots
     end
 end
 ```
-Every action body is declarative — `create_with_attachment!`, `broadcast_create`, `broadcast_remove` — the controller orchestrates; the model does the work. The guard logic (`ensure_can_administer`) never appears inline; it is named once and attached via filter.
+Every action is two lines or fewer; policy declarations (`allow_unauthenticated_access`, `rate_limit`) sit at the top of the class like annotations. The only conditional in `create` names both branches — `authenticate_by` and `render_rejection` — and neither branch has any implementation detail inside the action body.
 
-### `authentication.rb` — cross-cutting auth policy extracted as a named concern with a class-method DSL
-[source](https://github.com/basecamp/once-campfire/blob/8d3c2bbd2be070008a275330efbee1001fd202dc/app/controllers/concerns/authentication.rb)
+### `room.rb` — association extensions as named domain operations, not ad-hoc query logic
+
+[source](https://github.com/basecamp/once-campfire/blob/8d3c2bbd2be070008a275330efbee1001fd202dc/app/models/room.rb)
 ```ruby
-module Authentication
-  extend ActiveSupport::Concern
-  include SessionLookup
+class Room < ApplicationRecord
+  has_many :memberships, dependent: :delete_all do
+    def grant_to(users)
+      room = proxy_association.owner
+      Membership.insert_all(Array(users).collect { |user| { room_id: room.id, user_id: user.id, involvement: room.default_involvement } })
+    end
 
-  included do
-    before_action :require_authentication
-    before_action :deny_bots
-    helper_method :signed_in?
+    def revoke_from(users)
+      destroy_by user: users
+    end
 
-    protect_from_forgery with: :exception, unless: -> { authenticated_by.bot_key? }
+    def revise(granted: [], revoked: [])
+      transaction do
+        grant_to(granted) if granted.present?
+        revoke_from(revoked) if revoked.present?
+      end
+    end
   end
 
-  class_methods do
-    def allow_unauthenticated_access(**options)
-      skip_before_action :require_authentication, **options
+  has_many :users, through: :memberships
+  has_many :messages, dependent: :destroy
+
+  belongs_to :creator, class_name: "User", default: -> { Current.user }
+
+  scope :opens,           -> { where(type: "Rooms::Open") }
+  scope :closeds,         -> { where(type: "Rooms::Closed") }
+  scope :directs,         -> { where(type: "Rooms::Direct") }
+  scope :without_directs, -> { where.not(type: "Rooms::Direct") }
+```
+Membership management is embedded directly in the `has_many` block as named operations — `grant_to`, `revoke_from`, `revise` — so call sites say `room.memberships.grant_to(users)` and never need to know about `insert_all` or the involvement default. Scopes are aligned in columns so the type taxonomy reads as a visual table.
+
+### `message/searchable.rb` — a concern that owns one responsibility end-to-end via lifecycle hooks
+
+[source](https://github.com/basecamp/once-campfire/blob/8d3c2bbd2be070008a275330efbee1001fd202dc/app/models/message/searchable.rb)
+```ruby
+module Message::Searchable
+  extend ActiveSupport::Concern
+
+  included do
+    after_create_commit  :create_in_index
+    after_update_commit  :update_in_index
+    after_destroy_commit :remove_from_index
+
+    scope :search, ->(query) { joins("join message_search_index idx on messages.id = idx.rowid").where("idx.body match ?", query).ordered }
+  end
+
+  private
+    def create_in_index
+      execute_sql_with_binds "insert into message_search_index(rowid, body) values (?, ?)", id, plain_text_body
     end
 
-    def allow_bot_access(**options)
-      skip_before_action :deny_bots, **options
+    def update_in_index
+      execute_sql_with_binds "update message_search_index set body = ? where rowid = ?", plain_text_body, id
     end
 
-    def require_unauthenticated_access(**options)
-      skip_before_action :require_authentication, **options
-      before_action :restore_authentication, :redirect_signed_in_user_to_root, **options
+    def remove_from_index
+      execute_sql_with_binds "delete from message_search_index where rowid = ?", id
+    end
+
+    def execute_sql_with_binds(*statement)
+      self.class.connection.execute self.class.sanitize_sql(statement)
+    end
+end
+```
+The concern declares its full contract — create, update, destroy, and query — in one place. The lifecycle hook names (`create_in_index`, `update_in_index`, `remove_from_index`) match the SQL intent so closely that reading the `included` block gives you the full mental model without opening any private method.
+
+### `opengraph/fetch.rb` — errors as named domain exception classes; validation decomposed into single-check predicates
+
+[source](https://github.com/basecamp/once-campfire/blob/8d3c2bbd2be070008a275330efbee1001fd202dc/app/models/opengraph/fetch.rb)
+```ruby
+class Opengraph::Fetch
+  ALLOWED_DOCUMENT_CONTENT_TYPE = "text/html"
+  MAX_BODY_SIZE = 5.megabytes
+  MAX_REDIRECTS = 10
+
+  class TooManyRedirectsError < StandardError; end
+  class RedirectDeniedError < StandardError; end
+
+  def fetch_document(url, ip: RestrictedHTTP::PrivateNetworkGuard.resolve(url.host))
+    request(url, Net::HTTP::Get, ip: ip) do |response|
+      return body_if_acceptable(response)
+    end
+  end
+
+  def fetch_content_type(url, ip: RestrictedHTTP::PrivateNetworkGuard.resolve(url.host))
+    request(url, Net::HTTP::Head, ip: ip) do |response|
+      return response["Content-Type"]
     end
   end
 
   private
-    def signed_in?
-      Current.user.present?
-    end
-
-    def require_authentication
-      restore_authentication || bot_authentication || request_authentication
-    end
-
-    def restore_authentication
-      if session = find_session_by_cookie
-        resume_session session
+    def request(url, request_class, ip:)
+      MAX_REDIRECTS.times do
+        Net::HTTP.start(url.host, url.port, ipaddr: ip, use_ssl: url.scheme == "https") do |http|
+          http.request request_class.new(url) do |response|
+            if response.is_a?(Net::HTTPRedirection)
+              url, ip = resolve_redirect(response["location"])
+            else
+              yield response
+            end
+          end
+        end
       end
+
+      raise TooManyRedirectsError
     end
 
-    def bot_authentication
-      if params[:bot_key].present? && bot = User.authenticate_bot(params[:bot_key].strip)
-        Current.user = bot
-        set_authenticated_by(:bot_key)
-      end
+    def resolve_redirect(location)
+      url = URI.parse(location)
+      raise RedirectDeniedError unless url.is_a?(URI::HTTP)
+      [ url, RestrictedHTTP::PrivateNetworkGuard.resolve(url.host) ]
     end
 
-    def request_authentication
-      session[:return_to_after_authenticating] = request.url
-      redirect_to new_session_url
+    def body_if_acceptable(response)
+      size_restricted_body(response) if response_valid?(response)
+    end
+
+    def size_restricted_body(response)
+      # We've already checked the Content-Length header, to try to avoid reading
+      # the body of any large responses. But that header could be wrong or
+      # missing. To be on the safe side, we'll read the body in chunks, and bail
+      # if it runs over our size limit.
+      StringIO.new.tap do |body|
+        response.read_body do |chunk|
+          return nil if body.string.bytesize + chunk.bytesize > MAX_BODY_SIZE
+          body << chunk
+        end
+      end.string
+    end
+
+    def response_valid?(response)
+      status_valid?(response) && content_type_valid?(response) && content_length_valid?(response)
     end
 ```
-`allow_unauthenticated_access` and `allow_bot_access` are policy declarations that read like English at the call site — `SessionsController` says `allow_unauthenticated_access only: %i[ new create ]` and the concern handles everything. No boolean flags, no base-class conditionals, no repeated guard code.
+`TooManyRedirectsError` and `RedirectDeniedError` are named domain events, not rescued `StandardError`s. Validation is decomposed into three single-boolean predicates (`status_valid?`, `content_type_valid?`, `content_length_valid?`) composed by `response_valid?` — each validation predicate is exactly one line and one idea.
 
-### `message/pagination.rb` — domain vocabulary pushed into named scopes so callers just say what they want
-[source](https://github.com/basecamp/once-campfire/blob/8d3c2bbd2be070008a275330efbee1001fd202dc/app/models/message/pagination.rb)
+### `messages_controller_test.rb` — integration tests that hit the HTTP boundary with fixture identity, asserting on observable output
+
+[source](https://github.com/basecamp/once-campfire/blob/8d3c2bbd2be070008a275330efbee1001fd202dc/test/controllers/messages_controller_test.rb)
 ```ruby
-module Message::Pagination
-  extend ActiveSupport::Concern
+class MessagesControllerTest < ActionDispatch::IntegrationTest
+  setup do
+    host! "once.campfire.test"
 
-  PAGE_SIZE = 40
-
-  included do
-    scope :last_page, -> { ordered.last(PAGE_SIZE) }
-    scope :first_page, -> { ordered.first(PAGE_SIZE) }
-
-    scope :before, ->(message) { where("created_at < ?", message.created_at) }
-    scope :after, ->(message) { where("created_at > ?", message.created_at) }
-
-    scope :page_before, ->(message) { before(message).last_page }
-    scope :page_after, ->(message) { after(message).first_page }
-
-    scope :page_created_since, ->(time) { where("created_at > ?", time).first_page }
-    scope :page_updated_since, ->(time) { where("updated_at > ?", time).last_page }
+    sign_in :david
+    @room = rooms(:watercooler)
+    @messages = @room.messages.ordered.to_a
   end
 
-  class_methods do
-    def page_around(message)
-      page_before(message) + [ message ] + page_after(message)
-    end
+  test "index returns the last page by default" do
+    get room_messages_url(@room)
 
-    def paged?
-      count > PAGE_SIZE
-    end
+    assert_response :success
+    ensure_messages_present @messages.last
+  end
+
+  test "index returns a page before the specified message" do
+    get room_messages_url(@room, before: @messages.third)
+
+    assert_response :success
+    ensure_messages_present @messages.first, @messages.second
+    ensure_messages_not_present @messages.third, @messages.fourth, @messages.fifth
+  end
+
+  test "index returns a page after the specified message" do
+    get room_messages_url(@room, after: @messages.third)
+
+    assert_response :success
+    ensure_messages_present @messages.fourth, @messages.fifth
+    ensure_messages_not_present @messages.first, @messages.second, @messages.third
+  end
+
+  test "index returns no_content when there are no messages" do
+    @room.messages.destroy_all
+
+    get room_messages_url(@room)
+
+    assert_response :no_content
+  end
+
+  test "get renders a single message belonging to the user" do
+    message = @room.messages.where(creator: users(:david)).first
+
+```
+Tests are `ActionDispatch::IntegrationTest` — real HTTP, real fixture rows, real response assertions. Each test names one behavior in prose (`"ensure non-admin can't update a message belonging to another user"`), sets up identity with a fixture symbol (`sign_in :jz`), fires the endpoint, and asserts on the HTTP response or the rendered DOM. No mocks of the subject under test.
+
+### `user/role.rb` — one-method concerns; `can_administer?` as a readable policy predicate
+
+[source](https://github.com/basecamp/once-campfire/blob/8d3c2bbd2be070008a275330efbee1001fd202dc/app/models/user/role.rb)
+```ruby
+module User::Role
+  extend ActiveSupport::Concern
+
+  included do
+    enum :role, %i[ member administrator bot ]
+  end
+
+  def can_administer?(record = nil)
+    administrator? || self == record&.creator || record&.new_record?
   end
 end
 ```
-The controller calls `@room.messages.with_creator.page_before(anchor)` — a single named scope that composes two others. The pagination logic lives once, in the model, named precisely. The controller never sees `WHERE created_at < ?` or `ORDER BY` or `LIMIT`.
+The entire authorization predicate for the application is one method, eleven words. `administrator?` comes from the enum; `self == record&.creator` is "you own it"; `record&.new_record?` is "it hasn't been saved yet." No boolean columns, no permission tables, no role-checking DSL — three `||`-joined clauses that any reader can audit in one glance.

@@ -1,105 +1,306 @@
 ## Code like Mitchell Hashimoto (@mitchellh) · documented tradeoffs
 
-State machines as exhaustive tagged unions, so every case is handled or it won't compile. Every constant and struct field carries the reasoning behind its value — not just a description of what it holds, but why the number was chosen and what it costs. When a limit is empirical, he says so and names the real-world program that forced the bump. When a shortcut is taken, the comment says what was punted, what would fix it, and why it's not worth it yet.
+Hashimoto writes systems code as if the next reader is debugging a production incident at 2 AM with no git blame. Every constant records why the number was chosen and what changed it last. Every acknowledged shortcut is labeled as such: "CS101 version," "based on vibes," "punting it." Error paths don't just propagate — they restore prior state, log loudly when restoration also fails, and fall back to `unreachable` only when the invariant is genuinely impossible to violate. The type system carries the protocol structure: tagged unions for actions, exhaustive switches over every enum variant, and `comptime` checks that reject unsupported platforms before the binary exists.
 
-### `Parser.zig` — MAX constants with the real-world history behind them
+### `Parser.zig` — the state machine's core `next()` function: 3-slot return encoding exit/transition/entry
 [source](https://github.com/mitchellh/ghostty/blob/49a9181560707936c587ae121656d2d762d27849/src/terminal/Parser.zig)
 ```zig
-/// Maximum number of intermediate characters during parsing. This is
-/// 4 because we also use the intermediates array for UTF8 decoding which
-/// can be at most 4 bytes.
-pub const MAX_INTERMEDIATE = 4;
+pub fn next(self: *Parser, c: u8) [3]?Action {
+    const effect = table[c][@intFromEnum(self.state)];
 
-/// Maximum number of CSI parameters. This is arbitrary. Practically, the
-/// only CSI command that uses more than 3 parameters is the SGR command
-/// which can be infinitely long. 24 is a reasonable limit based on empirical
-/// data. This used to be 16 but Kakoune has a SGR command that uses 17
-/// parameters.
-///
-/// We could in the future make this the static limit and then allocate after
-/// but that's a lot more work and practically its so rare to exceed this
-/// number. I implore TUI authors to not use more than this number of CSI
-/// params, but I suspect we'll introduce a slow path with heap allocation
-/// one day.
-pub const MAX_PARAMS = 24;
+    // log.info("next: {x}", .{c});
 
-/// Current state of the state machine
-state: State,
+    const next_state = effect.state;
+    const action = effect.action;
 
-/// Intermediate tracking.
-intermediates: [MAX_INTERMEDIATE]u8,
-intermediates_idx: u8,
+    // After generating the actions, we set our next state.
+    defer self.state = next_state;
 
-/// Param tracking, building
-params: [MAX_PARAMS]u16,
-params_sep: Action.CSI.SepList,
-params_idx: u8,
-param_acc: u16,
-param_acc_idx: u8,
+    // When going from one state to another, the actions take place in this order:
+    //
+    // 1. exit action from old state
+    // 2. transition action
+    // 3. entry action to new state
+    return [3]?Action{
+        // Exit depends on current state
+        if (self.state == next_state) null else switch (self.state) {
+            .osc_string => if (self.osc_parser.end(c)) |cmd|
+                Action{ .osc_dispatch = cmd.* }
+            else
+                null,
+            .dcs_passthrough => Action{ .dcs_unhook = {} },
+            .sos_pm_apc_string => Action{ .apc_end = {} },
+            else => null,
+        },
 
-/// Parser for OSC sequences
-osc_parser: osc.Parser,
+        self.doAction(action, c),
+
+        // Entry depends on new state
+        if (self.state == next_state) null else switch (next_state) {
+            .escape, .dcs_entry, .csi_entry => clear: {
+                self.clear();
+                break :clear null;
+            },
+            .osc_string => osc_string: {
+                self.osc_parser.reset();
+                break :osc_string null;
+            },
+            .dcs_passthrough => dcs_hook: {
+                // Ignore too many parameters
+                if (self.params_idx >= MAX_PARAMS) break :dcs_hook null;
+                // Finalize parameters
+                if (self.param_acc_idx > 0) {
+                    self.params[self.params_idx] = self.param_acc;
+                    self.params_idx += 1;
+                }
+                break :dcs_hook .{
+                    .dcs_hook = .{
+                        .intermediates = self.intermediates[0..self.intermediates_idx],
+                        .params = self.params[0..self.params_idx],
+                        .final = c,
+                    },
+                };
+            },
+            .sos_pm_apc_string => Action{ .apc_start = {} },
+            else => null,
+        },
+    };
+}
 ```
-Every field documents what it tracks and every limit documents exactly why — including the specific application that forced a bump from 16 to 24. The reader learns the history and the residual risk in a single pass, without digging through git blame.
+The protocol spec says state transitions fire three ordered actions; the return type is literally `[3]?Action`, so the caller cannot confuse the ordering. `defer` sets the next state after the return is computed, keeping entry/exit symmetry mechanically correct.
 
-### `page.zig` — sub-allocator chunk sizes tuned with admitted heuristics
-[source](https://github.com/mitchellh/ghostty/blob/49a9181560707936c587ae121656d2d762d27849/src/terminal/page.zig)
+### `Parser.zig` — test shape: named, byte-literal input, destructuring the tagged-union result
+[source](https://github.com/mitchellh/ghostty/blob/49a9181560707936c587ae121656d2d762d27849/src/terminal/Parser.zig)
 ```zig
-/// The allocator to use for multi-codepoint grapheme data. We use
-/// a chunk size of 4 codepoints. It'd be best to set this empirically
-/// but it is currently set based on vibes. My thinking around 4 codepoints
-/// is that most skin-tone emoji are <= 4 codepoints, letter combiners
-/// are usually <= 4 codepoints, and 4 codepoints is a nice power of two
-/// for alignment.
-const grapheme_chunk_len = 4;
-const grapheme_chunk = grapheme_chunk_len * @sizeOf(u21);
-const GraphemeAlloc = BitmapAllocator(grapheme_chunk);
-const grapheme_count_default = GraphemeAlloc.bitmap_bit_size;
-pub const grapheme_bytes_default = grapheme_count_default * grapheme_chunk;
-const GraphemeMap = AutoOffsetHashMap(Offset(Cell), Offset(u21).Slice);
+test "csi: ESC [ H" {
+    var p = init();
+    _ = p.next(0x1B);
+    _ = p.next(0x5B);
 
-/// The allocator used for shared utf8-encoded strings within a page.
-/// Note the chunk size below is the minimum size of a single allocation
-/// and requires a single bit of metadata in our bitmap allocator. Therefore
-/// it should be tuned carefully (too small and we waste metadata, too large
-/// and we have fragmentation). We can probably use a better allocation
-/// strategy in the future.
-///
-/// At the time of writing this, the strings table is only used for OSC8
-/// IDs and URIs. IDs are usually short and URIs are usually longer. I chose
-/// 32 bytes as a compromise between these two since it represents single
-/// domain links quite well and is not too wasteful for short IDs. We can
-/// continue to tune this as we see how it's used.
-const string_chunk_len = 32;
-const string_chunk = string_chunk_len * @sizeOf(u8);
-const StringAlloc = BitmapAllocator(string_chunk);
-const string_count_default = StringAlloc.bitmap_bit_size;
-pub const string_bytes_default = string_count_default * string_chunk;
+    {
+        const a = p.next(0x48);
+        try testing.expect(p.state == .ground);
+        try testing.expect(a[0] == null);
+        try testing.expect(a[1].? == .csi_dispatch);
+        try testing.expect(a[2] == null);
+
+        const d = a[1].?.csi_dispatch;
+        try testing.expect(d.final == 0x48);
+        try testing.expect(d.params.len == 0);
+    }
+}
+
+test "csi: ESC [ 1 ; 4 H" {
+    var p = init();
+    _ = p.next(0x1B);
+    _ = p.next(0x5B);
+    _ = p.next(0x31); // 1
+    _ = p.next(0x3B); // ;
+    _ = p.next(0x34); // 4
+
+    {
+        const a = p.next(0x48); // H
+        try testing.expect(p.state == .ground);
+        try testing.expect(a[0] == null);
+        try testing.expect(a[1].? == .csi_dispatch);
+        try testing.expect(a[2] == null);
+
+        const d = a[1].?.csi_dispatch;
+        try testing.expect(d.final == 'H');
+        try testing.expect(d.params.len == 2);
+        try testing.expectEqual(@as(u16, 1), d.params[0]);
+        try testing.expectEqual(@as(u16, 4), d.params[1]);
+    }
+}
 ```
-"Set based on vibes" is the canonical Hashimoto move: shipping the honest answer instead of a false-precision comment. The string-chunk block then shows the flip side — when the tradeoffs are real and consequential, the fragment-vs-metadata tension is spelled out explicitly and the specific use cases that drove the number are named.
+Each test drives the state machine byte-by-byte with hex literals (comments add the ASCII glyph), then destructures all three slots of the return — checking that the unused two are null is as important as inspecting the live one. Tests are named after the wire sequence, not the method under test.
 
-### `circ_buf.zig` — implementation note explaining what was deliberately not fixed
-[source](https://github.com/mitchellh/ghostty/blob/49a9181560707936c587ae121656d2d762d27849/src/datastruct/circ_buf.zig)
+### `Screen.zig` — error recovery with `errdefer`: staged rollback with a fallback fallback
+[source](https://github.com/mitchellh/ghostty/blob/49a9181560707936c587ae121656d2d762d27849/src/terminal/Screen.zig)
 ```zig
-/// Returns a circular buffer containing type T.
-pub fn CircBuf(comptime T: type, comptime default: T) type {
+pub fn setAttribute(
+    self: *Screen,
+    attr: sgr.Attribute,
+) PageList.IncreaseCapacityError!void {
+    // If we fail to set our style for any reason, we should revert
+    // back to the old style. If we fail to do that, we revert back to
+    // the default style.
+    const old_style = self.cursor.style;
+    errdefer {
+        self.cursor.style = old_style;
+        self.manualStyleUpdate() catch |err| {
+            log.warn("setAttribute error restoring old style after failure err={}", .{err});
+            self.cursor.style = .{};
+            self.manualStyleUpdate() catch unreachable;
+        };
+    }
+
+    switch (attr) {
+        .unset => {
+            self.cursor.style = .{};
+        },
+
+        .bold => {
+            self.cursor.style.flags.bold = true;
+        },
+```
+The `errdefer` encodes a two-level recovery: restore the saved style, and if that also fails (log it loudly), reset to the default, which must succeed or the invariant is broken. The `catch unreachable` at the end is not laziness — it is a documented claim about what can go wrong.
+
+### `Screen.zig` — test shape at scale: asserting internal ref-counts, not just observable output
+[source](https://github.com/mitchellh/ghostty/blob/49a9181560707936c587ae121656d2d762d27849/src/terminal/Screen.zig)
+```zig
+test "Screen style basics" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s = try Screen.init(alloc, .{ .cols = 80, .rows = 24, .max_scrollback = 1000 });
+    defer s.deinit();
+    const page = &s.cursor.page_pin.node.data;
+    try testing.expectEqual(@as(usize, 0), page.styles.count());
+
+    // Set a new style
+    try s.setAttribute(.{ .bold = {} });
+    try testing.expect(s.cursor.style_id != 0);
+    try testing.expectEqual(@as(usize, 1), page.styles.count());
+    try testing.expect(s.cursor.style.flags.bold);
+
+    // Set another style, we should still only have one since it was unused
+    try s.setAttribute(.{ .italic = {} });
+    try testing.expect(s.cursor.style_id != 0);
+    try testing.expectEqual(@as(usize, 1), page.styles.count());
+    try testing.expect(s.cursor.style.flags.italic);
+}
+```
+The test reaches into the page's style map to assert that the ref-count is exactly 1, not 2 — proving that replacing a style releases the old entry. Hashimoto tests the memory model, not just the visible state, because the memory model is where bugs hide.
+
+### `key_encode.zig` — Options struct: each field is its DEC mode number, with a constructor that names what it can't know
+[source](https://github.com/mitchellh/ghostty/blob/49a9181560707936c587ae121656d2d762d27849/src/input/key_encode.zig)
+```zig
+/// Options that affect key encoding behavior. This is a mix of behavior
+/// from terminal state as well as application configuration.
+pub const Options = struct {
+    /// Terminal DEC mode 1
+    cursor_key_application: bool = false,
+
+    /// Terminal DEC mode 66
+    keypad_key_application: bool = false,
+
+    // DEC Backarrow Key Mode (DECBKM)
+    // See https://vt100.net/dec/ek-vt3xx-tp-002.pdf page 170
+    // If `false` (the default), `backspace` emits 0x7f
+    // If `true`, `backspace` emits 0x08
+    backarrow_key_mode: bool = false,
+
+    /// Terminal DEC mode 1035
+    ignore_keypad_with_numlock: bool = false,
+
+    /// Terminal DEC mode 1036
+    alt_esc_prefix: bool = false,
+
+    /// xterm "modifyOtherKeys mode 2". Details here:
+    /// https://invisible-island.net/xterm/modified-keys.html
+    modify_other_keys_state_2: bool = false,
+
+    /// Kitty keyboard protocol flags.
+    kitty_flags: KittyFlags = .disabled,
+
+    /// Determines whether the "option" key on macOS is treated
+    /// as "alt" or not. See the Ghostty `macos_option-as-alt` config
+    /// docs for a more detailed description of why this is needed.
+    macos_option_as_alt: OptionAsAlt = .false,
+
+    pub const default: Options = .{
+        .cursor_key_application = false,
+        .keypad_key_application = false,
+        .ignore_keypad_with_numlock = false,
+        .alt_esc_prefix = false,
+        .modify_other_keys_state_2 = false,
+        .kitty_flags = .disabled,
+        .macos_option_as_alt = .false,
+    };
+
+    /// Initialize our options from the terminal state.
+    ///
+    /// Note that `macos_option_as_alt` cannot be determined from
+    /// terminal state so it must be set manually after this call.
+    pub fn fromTerminal(t: *const Terminal) Options {
+        return .{
+            .alt_esc_prefix = t.modes.get(.alt_esc_prefix),
+            .cursor_key_application = t.modes.get(.cursor_keys),
+            .keypad_key_application = t.modes.get(.keypad_keys),
+            .backarrow_key_mode = t.modes.get(.backarrow_key_mode),
+            .ignore_keypad_with_numlock = t.modes.get(.ignore_keypad_with_numlock),
+            .modify_other_keys_state_2 = t.flags.modify_other_keys_2,
+            .kitty_flags = t.screens.active.kitty_keyboard.current(),
+
+            // These can't be known from the terminal state.
+            .macos_option_as_alt = .false,
+        };
+    }
+};
+```
+Every boolean field cites its spec number and, for less obvious ones, quotes the wire behavior. The `fromTerminal` constructor names in its comment what it deliberately cannot fill in, so callers know exactly which field to set manually — and why the constructor doesn't just accept the whole config.
+
+### `lru.zig` — admitted "CS101" implementation comment, plus a return type that surfaces eviction to the caller
+[source](https://github.com/mitchellh/ghostty/blob/49a9181560707936c587ae121656d2d762d27849/src/datastruct/lru.zig)
+```zig
+/// Note: This is a really elementary CS101 version of an LRU right now.
+/// This is done initially to get something working. Once we have it working,
+/// we can benchmark and improve if this ends up being a source of slowness.
+pub fn HashMap(
+    comptime K: type,
+    comptime V: type,
+    comptime Context: type,
+    comptime max_load_percentage: u64,
+) type {
     return struct {
         const Self = @This();
+        const Queue = std.DoublyLinkedList;
+        const Map = std.HashMapUnmanaged(
+            K,
+            *Entry,
+            Context,
+            max_load_percentage,
+        );
 
-        // Implementation note: there's a lot of unsafe addition of usize
-        // here in this implementation that can technically overflow. If someone
-        // wants to fix this and make it overflow safe (use subtractions for
-        // checks prior to additions) then I welcome it. In reality, we'd
-        // have to be a really, really large terminal screen to even worry
-        // about this so I'm punting it.
+        /// Map to maintain our entries.
+        map: Map,
 
-        storage: []T,
-        head: usize,
-        tail: usize,
+        /// Queue to maintain LRU order.
+        queue: Queue,
 
-        // We could remove this and just use math with head/tail to figure
-        // it out, but our usage of circular buffers stores so much data that
-        // this minor overhead is not worth optimizing out.
-        full: bool,
+        /// The capacity of our map. If this capacity is reached, cache
+        /// misses will begin evicting entries.
+        capacity: Map.Size,
+
+        const Entry = struct {
+            data: KV,
+            node: Queue.Node,
+
+            fn fromNode(node: *Queue.Node) *Entry {
+                return @fieldParentPtr("node", node);
+            }
+        };
+
+        pub const KV = struct {
+            key: K,
+            value: V,
+        };
+
+        /// The result of a getOrPut operation.
+        pub const GetOrPutResult = struct {
+            /// The entry that was retrieved. If found_existing is false,
+            /// then this is a pointer to allocated space to store a V.
+            /// If found_existing is true, the pointer value is valid, but
+            /// can be overwritten.
+            value_ptr: *V,
+
+            /// Whether an existing value was found or not.
+            found_existing: bool,
+
+            /// If another entry had to be evicted to make space for this
+            /// put operation, then this is the value that was evicted.
+            evicted: ?KV,
+        };
 ```
-Two consecutive design decisions — one acknowledged as a punt, one as a deliberate counter-optimization — both explained before the first field is declared. A future contributor knows exactly where the landmines are and why they were left there, with no pretense that the code is clean.
+"CS101 version" is the honest label for a hashmap + doubly-linked list — no pretense of sophistication. The `GetOrPutResult` struct then shows the flip side of that honesty: eviction is not hidden behind a silent drop, it is surfaced as a `?KV` so callers can free or log what they lost.
