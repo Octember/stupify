@@ -55,4 +55,7 @@ jobs:
           fi
 
       - name: Publish
-        run: npm publish --provenance --access public
+        # --provenance requires npm trusted-publishing configured for THIS repo; the stupif.ai→stupify rename
+        # broke that binding (PUT 404 after a valid provenance sign). Token auth alone still publishes. Re-add
+        # --provenance once trusted publishing is reconfigured for Octember/stupify on npmjs.com.
+        run: npm publish --access public
