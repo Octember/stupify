@@ -318,7 +318,7 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
   outro(pc.green("fill in the whys and you're set 🎯"))
 }
 
-async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: string }): Promise<void> {
+async function setup(argv: { repo?: string; host?: string; codexHost?: string; yes: boolean; pack?: string }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — sounds dumb, reviews sharp'))
 
@@ -413,6 +413,7 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
     .filter(Boolean)
     .join('\n')
   writeFileSync(join(HOME, 'config.env'), cfg + '\n')
+  if (host) writeCodexGatewayConfig(argv.codexHost) // exe.dev VM: route Codex through the no-key exe-llm gateway
   try {
     installCron({ ghHost: host })
   } catch (e) {
@@ -598,6 +599,44 @@ function githubIntegrationFor(repo: string): string | null {
 
 const vmNameFor = (repo: string): string => 'stupify-' + repo.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 
+/** Find the exe.dev `llm` integration that fronts Codex (the no-key gateway at `<name>.int.exe.xyz/v1`). It's
+ *  auto-installed for most exe.dev users; we need one whose openai provider is configured (that's what `codex
+ *  exec` talks to). Returns its name, or null — without it every review 401s on api.openai.com. */
+function llmIntegrationFor(): string | null {
+  const r = exe(['int', 'list', '--json'])
+  if (!r.ok) return null
+  try {
+    const list: { name: string; type: string; config?: { providers?: { openai?: { enabled?: boolean } } } }[] = JSON.parse(r.out)
+    return list.find((i) => i.type === 'llm' && i.config?.providers?.openai?.enabled)?.name ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Point Codex at the exe.dev exe-llm gateway — no keys, the integration fronts your ChatGPT/Codex plan. ONLY on
+ *  the exe.dev VM path (a local `stupify setup` leaves your own `codex login` alone). Idempotent: never clobbers an
+ *  existing `model_provider` (codex writes its own project-trust entries into this file between runs). */
+function writeCodexGatewayConfig(gatewayHost = 'llm.int.exe.xyz'): void {
+  const dir = process.env.CODEX_HOME ?? join(homedir(), '.codex')
+  const file = join(dir, 'config.toml')
+  const existing = existsSync(file) ? readFileSync(file, 'utf8') : ''
+  if (existing.includes('model_provider')) return // already wired (re-provision) — don't fight codex's own edits
+  mkdirSync(dir, { recursive: true })
+  // Top-level keys must precede any [table], so this block leads. The repo trust entry lets `codex exec` run
+  // unattended in the checkout without a trust prompt.
+  const block = `model_provider = "exe-llm"
+
+[model_providers.exe-llm]
+name = "exe-llm"
+base_url = "https://${gatewayHost}/v1"
+requires_openai_auth = false
+
+[projects."${join(HOME, 'repo')}"]
+trust_level = "trusted"
+`
+  writeFileSync(file, existing ? `${block}\n${existing}` : block)
+}
+
 async function provision(argv: { repo?: string; yes: boolean; pack?: string }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — provision a reviewer on exe.dev'))
@@ -659,6 +698,9 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
     }
   }
   const host = `${integration}.int.exe.xyz`
+  // Codex on the VM runs on the no-key exe-llm gateway, fronted by the `llm` integration (auto-installed for most
+  // exe.dev users). We point Codex at it in setup and attach it to the VM below; without it every review 401s.
+  const llm = llmIntegrationFor()
   const tasteLine = packs.length
     ? tasteLabel(packs)
     : 'your own codebase'
@@ -689,7 +731,7 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
     'export PATH="$HOME/.bun/bin:/usr/local/bin:$PATH"',
     'command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash',
     'export PATH="$HOME/.bun/bin:$PATH"',
-    `exec bunx @stupify/cli@${VERSION} setup ${repo} --host ${host} --pack ${packs.join(',') || 'own'} --yes`,
+    `exec bunx @stupify/cli@${VERSION} setup ${repo} --host ${host}${llm ? ` --codex-host ${llm}.int.exe.xyz` : ''} --pack ${packs.join(',') || 'own'} --yes`,
   ].join('\n')
   const created = exe(['new', '--name', vm, '--integration', integration, '--json', '--setup-script', '/dev/stdin'], script)
   if (!created.ok) {
@@ -704,6 +746,20 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
     /* keep the derived dest */
   }
   s3.stop(pc.green(`VM ${pc.bold(vm)} created`) + pc.dim(` (${dest})`))
+
+  // 5.5 attach the exe-llm gateway so Codex can review (creating with --integration <github> drops the auto:all llm)
+  if (llm) {
+    exe(['integrations', 'attach', llm, `vm:${vm}`])
+  } else {
+    note(
+      [
+        `Codex reviews need the exe-llm gateway and I couldn't find it on your account.`,
+        `link your ChatGPT/Codex plan once (web): ${pc.cyan('https://exe.dev/integrations')}`,
+        `then attach it: ${pc.cyan(`ssh exe.dev integrations attach llm vm:${vm}`)}`,
+      ].join('\n'),
+      'connect Codex',
+    )
+  }
 
   // 6. success
   const firstReview = packs.length
@@ -746,7 +802,8 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify --help
 
 ${pc.dim('Flags')}
-  --host <h.int.exe.xyz>  integration host (for 'setup')
+  --host <h.int.exe.xyz>  GitHub integration host (for 'setup')
+  --codex-host <h>        exe-llm gateway host (for 'setup'; default llm.int.exe.xyz)
   --pack <a,b,...>        taste packs: ${PACKS.map((p) => p.id).join(', ')}
   --force                 ('init') rebuild CORPUS.md even if it exists (your filled-in "why" lines are kept)
   --yes, -y               accept detected defaults, no prompts (for CI / scripts)
@@ -762,8 +819,11 @@ const valueFlag = (name: string) => {
   return i >= 0 ? args[i + 1] : undefined
 }
 const host = valueFlag('--host')
+const codexHost = valueFlag('--codex-host')
 const pack = valueFlag('--pack')
-const positional = args.filter((a, i) => !a.startsWith('-') && args[i - 1] !== '--host' && args[i - 1] !== '--pack')
+const positional = args.filter(
+  (a, i) => !a.startsWith('-') && args[i - 1] !== '--host' && args[i - 1] !== '--codex-host' && args[i - 1] !== '--pack',
+)
 const cmd = positional[0]
 
 if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
@@ -780,7 +840,7 @@ if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
 } else if (cmd === 'run') {
   run(args.includes('--dry'))
 } else if (cmd === 'setup') {
-  await setup({ repo: positional[1], host, yes, pack })
+  await setup({ repo: positional[1], host, codexHost, yes, pack })
 } else {
   // default (and explicit `provision`): provision an exe.dev VM
   await provision({ repo: cmd === 'provision' ? positional[1] : cmd, yes, pack })
