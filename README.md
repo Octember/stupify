@@ -1,6 +1,6 @@
 # stupify
 
-[Afraid](https://github.com/anthropics/claudes-c-compiler/issues/1) of [AI](https://github.com/RsyncProject/rsync/issues/929) [slop](https://github.com/oven-sh/bun/issues/30412)?
+Tired of [wasting your time](https://github.com/oven-sh/bun/issues/30412) reviewing [AI](https://github.com/RsyncProject/rsync/issues/929) [slop](https://github.com/anthropics/claudes-c-compiler/issues/1)?
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
