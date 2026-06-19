@@ -81,6 +81,23 @@ test('taste --pack assembles ~/.stupify/.review and nothing else (no reviewer le
   rmSync(e.cfg, { recursive: true, force: true })
 })
 
+test('--install refreshes a stale command on re-install (not just the engine file)', () => {
+  const e = env()
+  run(['prime', '--install', '--pack', 'zod'], e)
+  // simulate bun having moved since first install: rewrite the stored command to a stale path
+  // (keep the engine path so the entry is still recognized as ours)
+  const s = read(e.settings)
+  s.hooks.SessionStart[0].hooks[0].command = `/old/stale/bun ${join(e.home, 'prime.ts')}`
+  writeFileSync(e.settings, JSON.stringify(s))
+  run(['prime', '--install', '--pack', 'zod'], e)
+  const after = read(e.settings)
+  expect(after.hooks.SessionStart).toHaveLength(1) // still no duplicate
+  expect(after.hooks.SessionStart[0].hooks[0].command).not.toContain('/old/stale/bun') // stale path corrected
+  expect(after.hooks.SessionStart[0].hooks[0].command).toContain('prime.ts')
+  rmSync(e.home, { recursive: true, force: true })
+  rmSync(e.cfg, { recursive: true, force: true })
+})
+
 test('prime --install --pack assembles taste AND wires the hook in one step', () => {
   const e = env()
   run(['prime', '--install', '--pack', 'zod'], e)
