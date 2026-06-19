@@ -14,7 +14,6 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cancel, confirm, intro, isCancel, log, multiselect, note, outro, spinner, text } from '@clack/prompts'
 import pc from 'picocolors'
-import { emitPrime } from './prime'
 
 const PKG_DIR = dirname(fileURLToPath(import.meta.url))
 const PKG_ROOT = join(PKG_DIR, '..') // the published package root: holds .review/ and packs/
@@ -66,14 +65,10 @@ function progress(start: string): { stop: (msg: string) => void } {
   return { stop: (msg: string) => s.stop(msg) }
 }
 
-function which(bin: string): string | null {
-  return Bun.which(bin)
-}
-
 // A bun path the cron can rely on. Under `bunx`, the running bun lives in an EPHEMERAL /tmp/bun-node-… dir
 // that's deleted after install — so never bake that into the crontab. Prefer a stable install location.
 function stableBun(): string {
-  const running = which('bun')
+  const running = Bun.which('bun')
   if (running && !running.includes('/bun-node-') && !running.startsWith('/tmp/')) return running
   for (const c of [join(homedir(), '.bun/bin/bun'), '/opt/homebrew/bin/bun', '/home/linuxbrew/.linuxbrew/bin/bun', '/usr/local/bin/bun', '/usr/bin/bun']) {
     if (existsSync(c)) return c
@@ -324,7 +319,7 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
 
   // 1. tools
   const s = progress('checking your tools')
-  const missing = REQUIRED.filter((b) => !which(b))
+  const missing = REQUIRED.filter((b) => !Bun.which(b))
   if (missing.length) {
     s.stop(pc.red(`missing: ${missing.join(', ')}`))
     note(
@@ -489,14 +484,14 @@ const PRIME_TARGETS: PrimeTarget[] = [
     label: 'Claude Code',
     file: claudeSettingsPath,
     matcher: 'startup',
-    installed: () => which('claude') !== null || existsSync(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')),
+    installed: () => Bun.which('claude') !== null || existsSync(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')),
   },
   {
     id: 'codex',
     label: 'Codex',
     file: codexHooksPath,
     matcher: 'startup|resume',
-    installed: () => which('codex') !== null || existsSync(process.env.CODEX_HOME ?? join(homedir(), '.codex')),
+    installed: () => Bun.which('codex') !== null || existsSync(process.env.CODEX_HOME ?? join(homedir(), '.codex')),
     trust: `run ${pc.cyan('/hooks')} in Codex once to trust it — Codex won't run an untrusted hook`,
   },
 ]
@@ -624,7 +619,7 @@ function uninstallPrimeHook(): void {
 
 function run(dry: boolean): void {
   const sweep = join(HOME, 'review-sweep.ts')
-  if (!Bun.file(sweep).size) {
+  if (!existsSync(sweep)) {
     log.error(`not set up yet — run ${pc.cyan('stupify setup')} to install on this machine, or ${pc.cyan('stupify')} to provision an exe.dev VM`)
     process.exit(1)
   }
@@ -756,10 +751,16 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
       process.exit(1)
     }
   }
+  // The integration name comes back from the exe.dev API and gets baked into the VM's first-boot setup SCRIPT
+  // (which runs in a shell) and into the host. Refuse anything with shell metacharacters before interpolating it.
+  if (!integration || !validHost(integration)) {
+    die(`exe.dev returned an unexpected integration name${integration ? ` (${integration})` : ''} — refusing to build a setup script with it`)
+  }
   const host = `${integration}.int.exe.xyz`
   // Codex on the VM runs on the no-key exe-llm gateway, fronted by the `llm` integration (auto-installed for most
   // exe.dev users). We point Codex at it in setup and attach it to the VM below; without it every review 401s.
   const llm = llmIntegrationFor()
+  if (llm && !validHost(llm)) die(`exe.dev returned an unexpected exe-llm integration name (${llm}) — refusing to use it`)
   const tasteLine = packs.length
     ? tasteLabel(packs)
     : 'your own codebase'
@@ -829,8 +830,9 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
         `want your OWN taste? add a ${pc.cyan('.review/')} to ${pc.bold(repo)} — it overrides the pack.`,
       ]
     : [
-        `${pc.bold('1.')} add a ${pc.cyan('.review/')} dir to ${pc.bold(repo)} — copy this repo's .review/, point CORPUS.md at YOUR best files`,
-        `${pc.bold('2.')} open a PR → stupify reviews it in ~60s ${pc.dim('(no labels needed)')}`,
+        `${pc.yellow('⚠ dormant')} — you chose your own taste, so the reviewer no-ops every sweep until ${pc.bold(repo)} has a ${pc.cyan('.review/')}.`,
+        `${pc.bold('1.')} add a ${pc.cyan('.review/')} to ${pc.bold(repo)} — copy this repo's, point CORPUS.md at YOUR best files`,
+        `${pc.bold('2.')} push it → stupify reviews every PR in ~60s ${pc.dim('(no labels needed)')}`,
       ]
   note(
     [
@@ -901,8 +903,7 @@ if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
 } else if (cmd === 'prime') {
   if (args.includes('--install')) await installPrimeHook({ pack, agent })
   else if (args.includes('--uninstall')) uninstallPrimeHook()
-  else if (process.stdin.isTTY) die('did you mean `stupify prime --install`? (bare `prime` is the internal hook emitter)')
-  else emitPrime() // machine path: the SessionStart hook pipes this JSON payload (non-TTY)
+  else die('`stupify prime --install` to wire it up (or `--uninstall`). The hook itself runs ~/.stupify/prime.ts directly.')
 } else if (cmd === 'run') {
   run(args.includes('--dry'))
 } else if (cmd === 'setup') {
