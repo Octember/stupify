@@ -39,6 +39,7 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
+    "test": "bun test",
     "cli": "bun src/cli.ts"
   },
   "dependencies": {

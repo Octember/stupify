@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url'
 
 const KIT_DIR = dirname(fileURLToPath(import.meta.url))
 
-interface Config {
+export interface Config {
   repoDir: string // dedicated checkout we hard-reset — never a working checkout you care about
   remote: string
   slug: string
@@ -168,7 +168,7 @@ function logFail(message: string): false {
   return false
 }
 
-interface Pr {
+export interface Pr {
   number: number
   headRefOid: string
   isDraft: boolean
@@ -298,7 +298,7 @@ function markersFor(pr: Pr): { mark: string; failMark: string } {
  *  they'd arrive as tool results after model-chosen steps that vary per run, and wouldn't cache.) We inline the
  *  corpus INDEX only — its exemplars stay commit-pinned links the model opens on demand, so a review never pays to
  *  read the whole corpus. Keep ALL per-PR tokens (diff target, marker, memory) OUT of here — they go in the tail. */
-function stablePrefix(cfg: Config): string {
+export function stablePrefix(cfg: Config): string {
   const read = (f: string) => readFileSync(join(cfg.reviewDir, f), 'utf8').trim()
   return `You are a code reviewer running in an automated sweep (you have gh + git; no token needed). DO NOT modify any code.
 Everything down to the "THIS PR" line is your fixed spec and taste — identical for every PR, so treat it as standing reference.
@@ -313,7 +313,7 @@ ${read('RUBRIC.md')}
 ${read('CORPUS.md')}`
 }
 
-function reviewPrompt(cfg: Config, pr: Pr, priorThread: string): string {
+export function reviewPrompt(cfg: Config, pr: Pr, priorThread: string): string {
   const { mark } = markersFor(pr)
   const outPath = `/tmp/review-${pr.number}.md`
   const memory = priorThread
@@ -518,4 +518,4 @@ function main(): void {
   log(`sweep done — scope=${cfg.scope} reviewed=${reviewed} tokens~${tokens}`)
 }
 
-main()
+if (import.meta.main) main() // run only when invoked directly (cron / `stupify run`); stays importable for tests
