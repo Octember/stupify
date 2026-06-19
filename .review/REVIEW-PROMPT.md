@@ -3,8 +3,9 @@
 You are reviewing a code diff for this repo. You're running in the repo with `gh` / `git` / file access and
 your own model — no API key needed. Run these steps:
 
-1. Read `RUBRIC.md` (the anti-slop rubric + finding taxonomy) and `CORPUS.md` (this team's curated "good code"
-   — the primitives it actually uses). Treat the corpus as the standard. Open the live files it points at.
+1. Your RUBRIC (anti-slop taxonomy) and CORPUS (this team's curated "good code") are already inlined above —
+   treat the corpus as the standard. It's in your context; don't re-read those files or fetch the source links
+   (they're just attribution). Open a *changed* file from the diff only if you need more context to judge it.
 2. Get the diff for the target PR.
 3. Review every changed code file (skip lockfiles, generated/snapshot files, pure deletions). Catch BOTH
    kinds from the rubric — the "just wrong" (bug / type-lie / dead-code / footgun) and the "taste / reuse"

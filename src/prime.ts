@@ -37,13 +37,22 @@ ${rubric}
 
 ## The code yours should look like — match it (CORPUS)
 `
-  // A SessionStart hook's additionalContext is silently truncated above ~12KB, and the corpus lands LAST, so a
-  // big .review/ would inject the rubric but drop all the code. Trim the corpus at a whole-section boundary to
-  // stay under budget — the agent always gets real code; the reviewer reads the full CORPUS.md from disk.
+  // A SessionStart hook's additionalContext is silently truncated above the cap, and the corpus lands LAST. A
+  // multi-pack corpus easily exceeds the room — and a naive trim would keep only the FIRST pack and silently
+  // drop the rest. Instead, give every pack a FAIR SHARE of the room so each picked taste is represented (the
+  // reviewer reads the full CORPUS.md from disk and is unaffected). CORPUS.md is `intro --- pack1 --- pack2 …`;
+  // a single-section corpus (e.g. from `stupify init`) degrades to a plain trim of that one section.
   const room = BUDGET - head.length
   if (corpus.length > room) {
-    const cut = Math.max(corpus.lastIndexOf('\n\n---\n\n', room), corpus.lastIndexOf('\n### ', room))
-    corpus = `${cut > 0 ? corpus.slice(0, cut) : corpus.slice(0, room)}\n\n_(more exemplars in .review/CORPUS.md — trimmed here to fit the session-start budget)_`
+    const [intro = '', ...packs] = corpus.split('\n\n---\n\n')
+    const trimNote = '\n\n_(trimmed per pack to fit the session-start budget — full corpus in .review/CORPUS.md)_'
+    const per = Math.max(400, (room - intro.length - trimNote.length) / Math.max(1, packs.length))
+    const trimSection = (p: string) => {
+      if (p.length <= per) return p
+      const cut = Math.max(p.lastIndexOf('\n### ', per), p.lastIndexOf('\n```\n', per)) // whole exemplars only
+      return cut > 0 ? p.slice(0, cut) : p.slice(0, per)
+    }
+    corpus = `${[intro, ...packs.map(trimSection)].join('\n\n---\n\n')}${trimNote}`
   }
   return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: head + corpus } })
 }

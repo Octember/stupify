@@ -18,6 +18,7 @@ import { emitPrime } from './prime'
 
 const PKG_DIR = dirname(fileURLToPath(import.meta.url))
 const PKG_ROOT = join(PKG_DIR, '..') // the published package root: holds .review/ and packs/
+const VERSION = (JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')) as { version: string }).version
 const HOME = process.env.STUPIFY_HOME ?? join(homedir(), '.stupify')
 const STATE = join(HOME, 'state')
 const REQUIRED = ['bun', 'gh', 'codex', 'git'] as const
@@ -74,7 +75,7 @@ function which(bin: string): string | null {
 function stableBun(): string {
   const running = which('bun')
   if (running && !running.includes('/bun-node-') && !running.startsWith('/tmp/')) return running
-  for (const c of [join(homedir(), '.bun/bin/bun'), '/usr/local/bin/bun', '/usr/bin/bun']) {
+  for (const c of [join(homedir(), '.bun/bin/bun'), '/opt/homebrew/bin/bun', '/home/linuxbrew/.linuxbrew/bin/bun', '/usr/local/bin/bun', '/usr/bin/bun']) {
     if (existsSync(c)) return c
   }
   return running ?? 'bun'
@@ -108,6 +109,12 @@ function normalizeRepo(input: string): string {
     .replace(/^git@github\.com:/i, '')
     .replace(/\.git$/i, '')
     .replace(/\/+$/, '')
+}
+
+// An exe.dev integration host is interpolated into config.env AND the crontab line (which cron runs via /bin/sh),
+// so gate it like the repo slug — hostname chars only, no spaces/newlines/metacharacters.
+function validHost(h: string): boolean {
+  return /^[\w.-]+$/.test(h)
 }
 
 function installCron(opts: { ghHost: string }): string {
@@ -165,10 +172,8 @@ function assembleReview(packs: string[]): void {
   mkdirSync(out, { recursive: true })
   copyFileSync(join(PKG_ROOT, '.review', 'RUBRIC.md'), join(out, 'RUBRIC.md'))
   copyFileSync(join(PKG_ROOT, '.review', 'REVIEW-PROMPT.md'), join(out, 'REVIEW-PROMPT.md'))
-  if (packs.length === 0) {
-    copyFileSync(join(PKG_ROOT, '.review', 'CORPUS.template.md'), join(out, 'CORPUS.md')) // the bring-your-own template
-    return
-  }
+  if (packs.length === 0) return // no packs → no global corpus; reviewer/prime honestly no-op until you add taste
+  // (the bring-your-own template is scaffolded into a repo by `stupify init`, never written as a usable global corpus)
   const header = `# Good-code reference — taste packs\n\nJudge every diff against the standards below. When you flag slop, name the principle (or the linked file) the change should have followed. Each entry inlines real code from the named programmer, with a commit-pinned source link.\n\n---\n\n`
   const body = packs.map((id) => readFileSync(join(PKG_ROOT, 'packs', `${id}.md`), 'utf8').trim()).join('\n\n---\n\n')
   writeFileSync(join(out, 'CORPUS.md'), `${header}${body}\n`)
@@ -292,6 +297,8 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
     const tail = total > CORPUS_CAP ? `\n\n_(first ${CORPUS_CAP} of ${total} lines — trim to the part that matters)_` : ''
     return `### \`${rel}\` — ${priorWhy.get(rel) ?? WHY_PLACEHOLDER}\n\`\`\`${langOf(f)}\n${body}\n\`\`\`${tail}`
   })
+  // a path outside the repo would commit a non-portable ../ reference — reject it rather than write a broken corpus
+  if (outside.length) die(`outside the repo root (${root}): ${outside.join(', ')} — name files inside the repo`)
   const header = `# Good-code reference — your corpus\n\nHand-picked from this repo: the code you wish all your code looked like. Replace each ⟨why⟩ with one line on what makes that file the standard — that one line is the taste the reviewer and prime hold every diff to.\n\n---\n\n`
   writeFileSync(corpusPath, `${header}${picked.join('\n\n')}\n`)
 
@@ -299,7 +306,6 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
     [
       `built ${pc.cyan(corpusPath)} from ${pc.bold(String(argv.files.length))} file(s)${priorWhy.size ? pc.dim(` (kept ${priorWhy.size} of your “why” lines)`) : ''}.`,
       truncated.length ? pc.yellow(`truncated to ${CORPUS_CAP} lines: ${truncated.join(', ')} — a tighter exemplar reads better`) : '',
-      outside.length ? pc.yellow(`outside the repo (won't be portable): ${outside.join(', ')}`) : '',
       ``,
       `${pc.bold('1.')} edit the ${pc.cyan('⟨why⟩')} line on each block ${pc.dim('(that one line is your taste)')}`,
       inGit ? `${pc.bold('2.')} commit ${pc.cyan('.review/')} ${pc.dim('— version it with your code')}` : '',
@@ -368,6 +374,7 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
     bail(answer)
     host = answer.trim()
   }
+  if (host && !validHost(host)) die(`'${host}' is not a valid host — hostname characters only (e.g. acme.int.exe.xyz)`)
 
   // 3.5 taste — pick a pack (or your own code)
   const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
@@ -562,7 +569,7 @@ function run(dry: boolean): void {
     process.exit(1)
   }
   const env = { ...process.env, ...(dry ? { DRY_RUN: '1' } : {}) }
-  const r = spawnSync('bun', [sweep], { stdio: 'inherit', env })
+  const r = spawnSync(stableBun(), [sweep], { stdio: 'inherit', env }) // same bun the cron uses, not ambient PATH
   process.exit(r.status ?? 1)
 }
 
@@ -573,6 +580,7 @@ function exe(args: string[], input = ''): { ok: boolean; out: string } {
     input,
     encoding: 'utf8',
     maxBuffer: 8 * 1024 * 1024,
+    timeout: 180_000, // ConnectTimeout only caps the handshake; cap the whole call so a stalled VM op can't hang the CLI
   })
   return { ok: r.status === 0, out: (r.stdout ?? '') + (r.stderr ?? '') }
 }
@@ -681,7 +689,7 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
     'export PATH="$HOME/.bun/bin:/usr/local/bin:$PATH"',
     'command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash',
     'export PATH="$HOME/.bun/bin:$PATH"',
-    `exec bunx github:Octember/stupify setup ${repo} --host ${host} --pack ${packs.join(',') || 'own'} --yes`,
+    `exec bunx @stupify/cli@${VERSION} setup ${repo} --host ${host} --pack ${packs.join(',') || 'own'} --yes`,
   ].join('\n')
   const created = exe(['new', '--name', vm, '--integration', integration, '--json', '--setup-script', '/dev/stdin'], script)
   if (!created.ok) {
