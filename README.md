@@ -31,6 +31,20 @@
 - **It remembers.** Reads the PR thread, won't re-raise what you fixed or waved off, posts `no new blocking issues ✅` when there's nothing left.
 - **It's funny.** `oof, yeah this'll break:`. Turn it off if you hate joy.
 
+## Screenshots
+
+> ok so. two contract wrinkles:
+>
+> 🟠 **`pipeline/contracts/run-config.ts:20`** · bug · conf 0.74
+> `metadata` is accepted as any JSON object at the run-config boundary, so a malformed `steps[].conditions` gets persisted and only explodes later when the scheduler parses it. That makes the stored contract looser than the runtime contract this PR adds.
+> **→ Fix:** validate the `steps` namespace with `RunStepSchema` while preserving passthrough metadata — or move that schema to the contract owner and reuse it here (`pipeline/contracts/step.ts`)
+>
+> 🟡 **`pipeline/contracts/step.ts:72`** · slop · conf 0.67
+> `required` is accepted on every step and rendered into the plan, but validation still demands each step id exactly once regardless of the flag. A dead config seam — `required: false` looks meaningful but can't change behavior.
+> **→ Fix:** drop `required` until optional-step semantics exist, or make `validateRunConfig` honor it explicitly (`pipeline/contracts/step.ts`)
+>
+> _— stupify, against the good-code corpus_
+
 ## Prime your agent (instant, local, no servers)
 
 The best slop is the slop never written. `prime` wires a Claude Code [SessionStart hook](https://docs.claude.com/en/docs/claude-code/hooks) that injects your taste into every session — so the agent holds your standard *before* it touches a line. Pure file read, ~30ms, no model call.
