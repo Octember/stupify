@@ -5,6 +5,8 @@
 
 # stupify
 
+**AI agents are rats in a maze — they reach for what they know.** And unless you teach them better, what they know is slop: most software is garbage, and they'll happily imitate it.
+
 Tired of [wasting your time](https://github.com/thesysdev/openui/issues/517) reviewing [AI](https://github.com/RsyncProject/rsync/issues/929) [slop](https://github.com/anthropics/claudes-c-compiler/issues/1)?
 
 [![npm](https://img.shields.io/npm/v/@stupify/cli?color=cb3837&label=%40stupify%2Fcli)](https://www.npmjs.com/package/@stupify/cli)
