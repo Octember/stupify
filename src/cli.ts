@@ -136,7 +136,7 @@ function assembleReview(packs: string[]): void {
     copyFileSync(join(PKG_ROOT, '.review', 'CORPUS.template.md'), join(out, 'CORPUS.md')) // the bring-your-own template
     return
   }
-  const header = `# Good-code reference — taste packs\n\nJudge every diff against the standards below. When you flag slop, name the principle (or the linked file) the change should have followed. The links are commit-pinned exemplars — open them when you need detail.\n\n---\n\n`
+  const header = `# Good-code reference — taste packs\n\nJudge every diff against the standards below. When you flag slop, name the principle (or the linked file) the change should have followed. Each entry inlines real code from the named programmer, with a commit-pinned source link.\n\n---\n\n`
   const body = packs.map((id) => readFileSync(join(PKG_ROOT, 'packs', `${id}.md`), 'utf8').trim()).join('\n\n---\n\n')
   writeFileSync(join(out, 'CORPUS.md'), `${header}${body}\n`)
 }
