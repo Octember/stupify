@@ -86,6 +86,18 @@ function validRepo(r: string): boolean {
   return /^[\w.-]+\/[\w.-]+$/.test(r)
 }
 
+// Reduce the forms people actually paste — @owner/repo, a full github URL, an ssh URL, a trailing .git/slash —
+// to the bare owner/repo. validRepo (the security gate) still runs on the result.
+function normalizeRepo(input: string): string {
+  return input
+    .trim()
+    .replace(/^@/, '')
+    .replace(/^https?:\/\/(www\.)?github\.com\//i, '')
+    .replace(/^git@github\.com:/i, '')
+    .replace(/\.git$/i, '')
+    .replace(/\/+$/, '')
+}
+
 function installCron(opts: { ghHost: string }): string {
   const bun = stableBun()
   const prefix = opts.ghHost ? `GH_HOST=${opts.ghHost} ` : ''
@@ -210,11 +222,12 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
     const answer = await text({
       message: 'GitHub repo to review',
       placeholder: 'owner/repo',
-      validate: (v) => (validRepo((v ?? '').trim()) ? undefined : 'expected owner/repo'),
+      validate: (v) => (validRepo(normalizeRepo(v ?? '')) ? undefined : 'expected owner/repo (e.g. acme/widgets)'),
     })
     bail(answer)
-    repo = answer.trim()
+    repo = answer
   }
+  repo = normalizeRepo(repo)
   if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo`)
 
   // 3. integration host (exe.dev) — can't be detected
@@ -472,11 +485,12 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
     const answer = await text({
       message: 'GitHub repo to review',
       placeholder: 'owner/repo',
-      validate: (v) => (validRepo((v ?? '').trim()) ? undefined : 'expected owner/repo'),
+      validate: (v) => (validRepo(normalizeRepo(v ?? '')) ? undefined : 'expected owner/repo (e.g. acme/widgets)'),
     })
     bail(answer)
-    repo = answer.trim()
+    repo = answer
   }
+  repo = normalizeRepo(repo)
   if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo`)
 
   // 2.5 taste — pick a pack (or your own code); the VM installs it on first boot
