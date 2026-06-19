@@ -15,6 +15,9 @@ Tired of [wasting your time](https://github.com/thesysdev/openui/issues/517) rev
 of slop (the clever, over-abstracted, *"I'll-be-smart-about-this"* kind), in *your* voice, and names the
 boring primitive they should've reused. Not generic "best practices." Yours.
 
+Not another bot spraying `consider renaming this` on every line — it's opinionated, it speaks in your voice,
+and it only comments when it's actually found something (and shuts up when it hasn't).
+
 > uhhhh ummm a couple things 👇
 >
 > 🔴 **`src/checkout/session.ts:88`** · footgun · conf 0.9
