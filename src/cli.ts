@@ -102,6 +102,10 @@ function installCron(opts: { ghHost: string }): string {
   return line
 }
 
+// The short human label for a set of picked packs, e.g. "Sindre Sorhus + Anton Kropp" — for plan/success notes.
+const tasteLabel = (packs: string[]): string =>
+  PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' — ')[0]).join(' + ')
+
 // Returns the chosen pack ids. `--pack a,b` (or 'own'/'' = your own codebase) skips the prompt; with --yes and
 // no flag it defaults to the devshorts pack so a fresh repo reviews immediately.
 async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<string[]> {
@@ -157,7 +161,7 @@ async function taste(argv: { pack?: string }): Promise<void> {
     return
   }
   assembleReview(packs)
-  const tasteLine = PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' — ')[0]).join(' + ')
+  const tasteLine = tasteLabel(packs)
   note(
     [
       `assembled ${pc.cyan(join(HOME, '.review'))} against ${pc.bold(tasteLine)}.`,
@@ -229,7 +233,7 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
   // 3.5 taste — pick a pack (or your own code)
   const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
   const tasteLine = packs.length
-    ? PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' — ')[0]).join(' + ')
+    ? tasteLabel(packs)
     : 'your own codebase'
 
   // 4. plan + confirm
@@ -324,7 +328,7 @@ async function installPrimeHook(argv: { pack?: string }): Promise<void> {
     const packs = await pickPacks({ yes: false, packArg: argv.pack })
     if (packs.length > 0) {
       assembleReview(packs)
-      const tasteLine = PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' — ')[0]).join(' + ')
+      const tasteLine = tasteLabel(packs)
       log.success(`global taste assembled → ${pc.cyan(join(HOME, '.review'))} ${pc.dim(`(${tasteLine})`)}`)
     } else if (!haveHomeTaste) {
       log.warn(`no global taste yet — the hook will no-op until a repo has its own ${pc.cyan('.review/')} or you run ${pc.cyan('stupify taste')}`)
@@ -346,15 +350,19 @@ async function installPrimeHook(argv: { pack?: string }): Promise<void> {
   }
   const hooks = (settings.hooks ??= {}) as Record<string, HookEntry[]>
   const sessionStart = (hooks.SessionStart ??= [])
-  const already = sessionStart.some(isOurHook)
-  if (!already) sessionStart.push({ matcher: 'startup', hooks: [{ type: 'command', command }] })
+  const existing = sessionStart.find(isOurHook)
+  // Refresh the command on re-install too — `command` carries the resolved bun path, which can move (a new bun
+  // install, a Homebrew relocation). Updating only the engine file but leaving a stale path would silently break.
+  if (existing) existing.hooks = [{ type: 'command', command }]
+  else sessionStart.push({ matcher: 'startup', hooks: [{ type: 'command', command }] })
+  const already = existing !== undefined
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`)
 
   note(
     [
       already
-        ? `already wired in ${pc.cyan(path)} ${pc.dim('(refreshed the engine)')}`
+        ? `already wired in ${pc.cyan(path)} ${pc.dim('(refreshed engine + command)')}`
         : `added a ${pc.bold('SessionStart')} hook to ${pc.cyan(path)}`,
       `every new Claude Code session now opens primed with your taste ${pc.dim('(~30ms, no-op if a repo has none)')}.`,
       ``,
@@ -495,7 +503,7 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
   }
   const host = `${integration}.int.exe.xyz`
   const tasteLine = packs.length
-    ? PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' — ')[0]).join(' + ')
+    ? tasteLabel(packs)
     : 'your own codebase'
 
   // 4. plan + confirm
