@@ -45,6 +45,8 @@
 >
 > _— stupify, against the good-code corpus_
 
+More, on real PRs — a billing bug a human then fixed, and stupify catching the *incomplete* fix: **[stupify in the wild →](docs/PROOF.md)**
+
 ## Prime your agent (instant, local, no servers)
 
 The best slop is the slop never written. `prime` wires a Claude Code [SessionStart hook](https://docs.claude.com/en/docs/claude-code/hooks) that injects your taste into every session — so the agent holds your standard *before* it touches a line. Pure file read, ~30ms, no model call.
