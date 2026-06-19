@@ -173,7 +173,7 @@ export interface Pr {
   number: number
   headRefOid: string
   isDraft: boolean
-  author: { login: string } | null
+  author: { login: string; is_bot: boolean } | null // is_bot flags GitHub App bots (app/dependabot) the [bot] suffix misses
   labels: { name: string }[]
 }
 
@@ -217,8 +217,10 @@ function isLabel(raw: unknown): raw is { name: string } {
   return typeof raw === 'object' && raw !== null && 'name' in raw && typeof raw.name === 'string'
 }
 
-function isAuthor(raw: unknown): raw is { login: string } | null {
-  return raw === null || (typeof raw === 'object' && 'login' in raw && typeof raw.login === 'string')
+function isAuthor(raw: unknown): raw is { login: string; is_bot: boolean } | null {
+  if (raw === null) return true
+  if (typeof raw !== 'object') return false
+  return 'login' in raw && typeof raw.login === 'string' && 'is_bot' in raw && typeof raw.is_bot === 'boolean'
 }
 
 function hasReviewLabel(pr: Pr, cfg: Config): boolean {
@@ -227,7 +229,9 @@ function hasReviewLabel(pr: Pr, cfg: Config): boolean {
 
 function inScope(pr: Pr, cfg: Config): boolean {
   if (pr.isDraft) return false
-  if ((pr.author?.login ?? '').endsWith('[bot]')) return false // never review bot PRs, in EITHER scope
+  // Never review bot PRs, in EITHER scope. gh's is_bot catches GitHub App bots (login `app/dependabot`) that
+  // the `[bot]` suffix misses; keep the suffix check as a belt-and-suspenders fallback.
+  if (pr.author?.is_bot === true || (pr.author?.login ?? '').endsWith('[bot]')) return false
   if (cfg.scope === 'label') return hasReviewLabel(pr, cfg)
   return true // auto: any non-draft, non-bot PR
 }
