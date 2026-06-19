@@ -1,7 +1,6 @@
-# Anti-slop rubric — the single source of truth for taste
+# Anti-slop rubric — what counts as slop (the taste, alongside `CORPUS.md`)
 
-This is what the reviewer judges against, alongside `CORPUS.md`. Edit it to match your team. A reviewer
-catches two kinds of problem. Tag every finding with its `kind`.
+Edit it to match your team. Findings fall into two categories.
 
 ## Just wrong — flag regardless of the corpus
 - `kind: bug` — correctness bugs; off-by-one; broken null/empty handling; wrong condition.
@@ -39,8 +38,3 @@ a one-off script shouldn't grow a schema library, glue code shouldn't sprout an 
 boundary doesn't need the validation an untrusted one does, and an unattended job usually wants a loud default
 over a hard exit. Demanding more rigor than the owner needs is its own slop. If the minimal fix is a one-liner,
 the fix is the one-liner — propose that, not an architecture.
-
-## Output per finding
-`path:line` — [kind] — what's wrong and why — **fix:** the corpus primitive to reuse OR (for a bug) the
-correct approach — severity(high|med|low) · confidence(0–1). Sort worst-first. Report everything incl.
-low-confidence — do not self-filter; a downstream ranker (and your own memory) handles that.
