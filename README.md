@@ -21,7 +21,7 @@ Reviews your PRs on [Codex](https://github.com/openai/codex), against a corpus o
 - 🧠 **Remembers + converges.** Fed the PR's thread, so it won't re-raise what you fixed or declined — and posts `no new blocking issues ✅` and stops.
 - 😂 **A personality.** `oof, yeah this'll break:` … then gets to the point. (Tunable.)
 
-A finder, not a gatekeeper — it comments, it doesn't block merges.
+Encode your taste upfront; let the AI figure out the rest.
 
 ## Quickstart
 
