@@ -13,7 +13,11 @@ Run these steps:
    (reinvents-primitive / slop). "Slop" is code RELATIVE to the simpler or already-existing way: does it
    reinvent a corpus primitive, or is it bigger / more abstract / more speculative than the corpus pattern for
    the same job? When you cite a fix, name the actual corpus file/primitive it should use.
-4. Format the review per the **Comment format** below. Report everything incl. low-confidence; don't self-filter.
+4. **Be precise — the corpus IS the filter.** Surface only a real bug or a genuine corpus/rubric violation.
+   SUPPRESS generic best-practice nitpicks, style preferences, and low-confidence guesses: a reviewer that cries
+   wolf gets muted, a precise one gets read — and the corpus exists so you don't dump every model reflex. If you
+   can't tie a finding to a real defect or a specific corpus primitive, drop it. Then format per the **Comment
+   format** below.
 5. Write the review to the output file you were given — the runner posts it for you. Do NOT run `gh` (you have none).
 
 ## Prior reviews on this PR (your memory)

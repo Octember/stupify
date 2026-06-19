@@ -45,12 +45,15 @@ A cron job runs the sweep every minute (`*/1 * * * *`); the sweep self-locks so 
    opt-in (only labelled PRs). Bot and draft authors are skipped in *either* scope (`gh`'s `is_bot` flag). The
    JSON is fully validated at the boundary (`isPr`) — a malformed shape skips cleanly instead of throwing mid-loop.
 3. **Dedup.** For each candidate it reads the PR's comments and skips if one already contains the hidden marker
-   `<!-- stupify:<headSHA> -->` (reviewed) or `<!-- stupify-failed:<headSHA> -->` (failed) for the
-   *current* head. A new push moves the SHA → markers no longer match → it re-reviews. **One review per head.**
+   `<!-- stupify:<headSHA> -->` for the *current* head. A new push moves the SHA → the marker no longer matches →
+   it re-reviews. **One review per head.** (Failures aren't posted — see *Safety* — so there's no fail marker;
+   failed heads are throttled in local state instead.) The marker check falls back to "any comment" when
+   `gh api user` is unavailable (a GitHub-App integration 403s on it), so dedup never silently re-reviews forever.
 4. **Build memory** from the remaining comments (see below).
-5. **Review.** It runs `codex exec` with a prompt pointing at `.review/*` and the diff, in a `workspace-write`
-   sandbox restricted to `/tmp` with network on. Codex reads the rubric + corpus, writes the review to a temp
-   file ending in the marker, and posts it with `gh pr comment`.
+5. **Review.** The *runner* fetches the diff (`gh pr diff`) and feeds it to `codex exec` over **stdin**, in a
+   `workspace-write` sandbox restricted to `/tmp` with **network off and no `gh`**. Codex reads the rubric +
+   corpus + the inlined diff and writes the review to a temp file ending in the marker; the *runner* — not Codex —
+   posts it with `gh pr comment`.
 6. **Cap.** `MAX_PRS` limits PRs *actually reviewed* per sweep — counted only after the cheap dedup skips, so a
    backlog of already-reviewed PRs at the front of the list can't starve later ones.
 
@@ -79,33 +82,42 @@ to stop."** Feed the conversation back in and both go away.
 
 ## Safety & failure handling
 
-- **Loud, never silent.** If `codex` can't run (provider down, out of credits, timeout, ENOENT), the sweep posts
-  a short error comment with the captured cause *and* stamps a `stupify-failed` marker so it doesn't
-  re-hammer the dead provider every minute. `spawnSync`'s `signal`/`error` are folded into the captured output
-  so a timeout surfaces as "killed by SIGTERM", not "no output".
+- **Failures stay off the PR.** If `codex` can't run (provider down, usage limit, timeout, ENOENT), the sweep
+  LOGS the captured cause (operator-facing) and records the failed head in local state so it doesn't re-hammer
+  the dead provider every minute — it does *not* post a "couldn't review" comment, because that's noise the PR
+  author can't act on. **Only real reviews ever reach the PR.** `spawnSync`'s `signal`/`error` are folded into
+  the captured output so a timeout surfaces as "killed by SIGTERM", not "no output".
 - **Config fails toward safe.** Knobs validate and warn on garbage (`MAX_PRS=15lol` → logged, default used).
   `DRY_RUN` is the exception that fails *safe*: a set-but-invalid value (`DRY_RUN=ture`) falls back to preview,
   never live — a typo'd safety switch must not start posting.
-- **Bounded spend.** `SCOPE=label` (opt-in) + `MAX_PRS` + the per-head dedup cap what gets reviewed; `DRY_RUN`
-  lets you see what *would* be reviewed before spending a token.
+- **Bounded spend.** `SCOPE=label` (opt-in) + `MAX_PRS` (per sweep) + `MAX_REVIEWS_PER_DAY` (the daily ceiling) +
+  per-head dedup cap what gets reviewed; a usage/rate-limit ends the sweep early instead of failing every
+  remaining PR; `DRY_RUN` lets you see what *would* be reviewed before spending a token.
 - **Single-flight.** The sweep takes its own `state/sweep.lock` (O_EXCL create; a lock older than 30 min is
   treated as stale from a crash and stolen) — no `flock` dependency, so it runs anywhere `bun` does.
 
 ## Codex specifics
 
-The engine calls, in full:
+The engine calls, in full — the prompt (rubric + corpus + the **inlined diff**) arrives on **stdin**, not argv, so
+a big diff can't blow `ARG_MAX`:
 
 ```
+gh pr diff <N> --repo <slug>                              # the RUNNER fetches the diff
 codex exec --cd <STUPIFY_HOME>/repo --sandbox workspace-write \
   -c model_reasoning_effort=<CODEX_EFFORT> \
-  -c sandbox_workspace_write.network_access=true \
-  -c 'sandbox_workspace_write.writable_roots=["/tmp"]'
+  -c sandbox_workspace_write.network_access=false \
+  -c 'sandbox_workspace_write.writable_roots=["/tmp"]' \
+  -                                                        # prompt (diff inlined) on stdin
+gh pr comment <N> --repo <slug> --body-file <review>      # the RUNNER posts
 ```
 
-(`--cd` points it at the dedicated checkout, network is on so it can run `gh`, and only `/tmp` is writable.)
-It does *not* pin a provider or model by default — Codex uses whatever auth you've
-configured. `CODEX_PROVIDER` (`-c model_provider=…`) and `CODEX_MODEL` (`-c model=…`) let you point it at a
-specific gateway or model. There's no API key in stupify itself; credentials are Codex's concern.
+Codex runs **locked down**: no network and no `gh` of its own — the runner does all GitHub I/O and hands Codex the
+diff in the prompt. The PR diff and the prior-review thread are *attacker-controlled* (any contributor can push
+code or comment), so this matters: a prompt-injected diff or comment can at worst make Codex write a junk *review
+file*; it can't exfiltrate, reach the network, or touch the GitHub token. (`--cd` points it at the dedicated
+checkout for read-only context; only `/tmp` is writable.) It does *not* pin a provider or model by default — Codex
+uses whatever auth you've configured. `CODEX_PROVIDER` (`-c model_provider=…`) and `CODEX_MODEL` (`-c model=…`) let
+you point it at a specific gateway or model. There's no API key in stupify itself; credentials are Codex's concern.
 
 ## Why curated, not inferred
 
