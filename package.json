@@ -17,10 +17,10 @@
   "homepage": "https://stupif.ai",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Octember/stupif.ai.git"
+    "url": "git+https://github.com/Octember/stupify.git"
   },
   "bugs": {
-    "url": "https://github.com/Octember/stupif.ai/issues"
+    "url": "https://github.com/Octember/stupify/issues"
   },
   "keywords": [
     "code-review",

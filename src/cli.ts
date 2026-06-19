@@ -387,7 +387,7 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
     'export PATH="$HOME/.bun/bin:/usr/local/bin:$PATH"',
     'command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash',
     'export PATH="$HOME/.bun/bin:$PATH"',
-    `exec bunx github:Octember/stupif.ai setup ${repo} --host ${host} --pack ${packs.join(',') || 'own'} --yes`,
+    `exec bunx github:Octember/stupify setup ${repo} --host ${host} --pack ${packs.join(',') || 'own'} --yes`,
   ].join('\n')
   const created = exe(['new', '--name', vm, '--integration', integration, '--json', '--setup-script', '/dev/stdin'], script)
   if (!created.ok) {
