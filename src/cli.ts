@@ -10,7 +10,7 @@
 import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cancel, confirm, intro, isCancel, log, multiselect, note, outro, spinner, text } from '@clack/prompts'
 import pc from 'picocolors'
@@ -138,7 +138,7 @@ const tasteLabel = (packs: string[]): string =>
 // no flag it defaults to the devshorts pack so a fresh repo reviews immediately.
 async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<string[]> {
   if (opts.packArg !== undefined) {
-    const requested = opts.packArg.split(',').map((s) => s.trim()).filter(Boolean)
+    const requested = opts.packArg.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
     const known = (id: string) => PACKS.some((p) => p.id === id)
     const unknown = requested.filter((id) => id !== 'own' && !known(id))
     if (unknown.length) log.warn(`unknown pack(s): ${pc.bold(unknown.join(', '))} — valid: ${PACKS.map((p) => p.id).join(', ')}`)
@@ -215,9 +215,10 @@ const LANG: Record<string, string> = {
 const langOf = (p: string): string => LANG[p.split('.').pop()?.toLowerCase() ?? ''] ?? ''
 
 // The repo root (where the reviewer's checkout keeps .review/), so `init` from a subdir still lands at the top.
-function repoRoot(): string {
+function repoRoot(): { root: string; inGit: boolean } {
   const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' })
-  return r.status === 0 ? (r.stdout ?? '').trim() || process.cwd() : process.cwd()
+  const root = r.status === 0 ? (r.stdout ?? '').trim() : ''
+  return root ? { root, inGit: true } : { root: process.cwd(), inGit: false }
 }
 
 const CORPUS_CAP = 150 // lines: a single exemplar past this gets truncated (a corpus is shapes, not whole files)
@@ -225,10 +226,17 @@ const CORPUS_CAP = 150 // lines: a single exemplar past this gets truncated (a c
 // `stupify init [files…]` — scaffold a BYO `.review/` in THIS repo from your own best files (no famous-coder
 // pack). Writes the rubric + review spec (defaults, kept if already present) and builds CORPUS.md by inlining
 // each file you name with a one-line "why" for you to fill — the only hand-work, and the irreducible taste part.
+const WHY_PLACEHOLDER = '⟨why is this good? one line — e.g. "fail-fast at the boundary"⟩'
+
 async function init(argv: { files: string[]; force: boolean }): Promise<void> {
+  // validate paths FIRST — before any UI or writes — so a bad path fails clean (no open frame, no partial .review/)
+  const missing = argv.files.filter((f) => !existsSync(f))
+  if (missing.length) die(`file(s) not found: ${missing.join(', ')} (paths are relative to your current directory)`)
+
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' — encode your own taste (.review/ in this repo)'))
-  const dir = join(repoRoot(), '.review')
+  const { root, inGit } = repoRoot()
+  const dir = join(root, '.review')
   mkdirSync(dir, { recursive: true })
 
   // rubric + review spec: defaults, written only if missing so we never clobber edits
@@ -237,8 +245,14 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
   }
 
   const corpusPath = join(dir, 'CORPUS.md')
-  if (existsSync(corpusPath) && !argv.force) {
-    note(`${pc.cyan(corpusPath)} already exists — re-run with ${pc.cyan('--force')} to rebuild it (you'll re-add your “why” lines).`, 'corpus exists')
+  const corpusExists = existsSync(corpusPath)
+  if (corpusExists && !argv.force) {
+    note(
+      argv.files.length
+        ? `${pc.cyan(corpusPath)} already exists. ${pc.cyan('--force')} rebuilds it from ${pc.bold(argv.files.join(', '))} ${pc.dim('— your filled-in “why” lines are kept')}.`
+        : `${pc.cyan(corpusPath)} already exists — name files + ${pc.cyan('--force')} to rebuild it, or edit it by hand.`,
+      'corpus exists',
+    )
     outro(pc.dim('nothing overwritten.'))
     return
   }
@@ -248,7 +262,7 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
     note(
       [
         `scaffolded ${pc.cyan(`${dir}/`)} ${pc.dim('(RUBRIC + REVIEW-PROMPT + a CORPUS template)')}.`,
-        `fill it straight from your best files: ${pc.cyan('stupify init src/foo.ts src/bar.ts')}`,
+        `fill it from your best files: ${pc.cyan('stupify init path/to/your-best.ts another.ts')}`,
         `…or edit ${pc.cyan('CORPUS.md')} by hand.`,
       ].join('\n'),
       'next',
@@ -257,28 +271,39 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
     return
   }
 
-  const missing = argv.files.filter((f) => !existsSync(f))
-  if (missing.length) die(`file(s) not found: ${pc.bold(missing.join(', '))}`)
+  // preserve any "why" lines already filled in, so --force / adding a file never erases the taste work
+  const priorWhy = new Map<string, string>()
+  if (corpusExists) {
+    for (const m of readFileSync(corpusPath, 'utf8').matchAll(/^### `([^`]+)` — (.+)$/gm)) {
+      const [, path, why] = m
+      if (path && why && !why.startsWith('⟨')) priorWhy.set(path, why)
+    }
+  }
 
+  const truncated: string[] = []
+  const outside: string[] = []
   const picked = argv.files.map((f) => {
+    const rel = relative(root, resolve(f)) || f // repo-root-relative, so the path is correct + portable
+    if (rel.startsWith('..')) outside.push(rel)
     const content = readFileSync(f, 'utf8').replace(/\n+$/, '')
     const total = content.split('\n').length
+    if (total > CORPUS_CAP) truncated.push(rel)
     const body = total > CORPUS_CAP ? content.split('\n').slice(0, CORPUS_CAP).join('\n') : content
     const tail = total > CORPUS_CAP ? `\n\n_(first ${CORPUS_CAP} of ${total} lines — trim to the part that matters)_` : ''
-    return `### \`${f}\` — ⟨why is this good? one line — e.g. "fail-fast at the boundary, types make illegal states unrepresentable"⟩\n\`\`\`${langOf(f)}\n${body}\n\`\`\`${tail}`
+    return `### \`${rel}\` — ${priorWhy.get(rel) ?? WHY_PLACEHOLDER}\n\`\`\`${langOf(f)}\n${body}\n\`\`\`${tail}`
   })
   const header = `# Good-code reference — your corpus\n\nHand-picked from this repo: the code you wish all your code looked like. Replace each ⟨why⟩ with one line on what makes that file the standard — that one line is the taste the reviewer and prime hold every diff to.\n\n---\n\n`
   writeFileSync(corpusPath, `${header}${picked.join('\n\n')}\n`)
 
-  const truncated = argv.files.filter((f) => readFileSync(f, 'utf8').split('\n').length > CORPUS_CAP)
   note(
     [
-      `built ${pc.cyan(corpusPath)} from ${pc.bold(String(argv.files.length))} file(s).`,
+      `built ${pc.cyan(corpusPath)} from ${pc.bold(String(argv.files.length))} file(s)${priorWhy.size ? pc.dim(` (kept ${priorWhy.size} of your “why” lines)`) : ''}.`,
       truncated.length ? pc.yellow(`truncated to ${CORPUS_CAP} lines: ${truncated.join(', ')} — a tighter exemplar reads better`) : '',
+      outside.length ? pc.yellow(`outside the repo (won't be portable): ${outside.join(', ')}`) : '',
       ``,
       `${pc.bold('1.')} edit the ${pc.cyan('⟨why⟩')} line on each block ${pc.dim('(that one line is your taste)')}`,
-      `${pc.bold('2.')} commit ${pc.cyan('.review/')} ${pc.dim('— version it with your code')}`,
-      `${pc.bold('3.')} ${pc.cyan('stupify prime --install')} ${pc.dim('— prime your agent against it')}`,
+      inGit ? `${pc.bold('2.')} commit ${pc.cyan('.review/')} ${pc.dim('— version it with your code')}` : '',
+      `${pc.bold(inGit ? '3.' : '2.')} ${pc.cyan('stupify prime --install')} ${pc.dim('— prime your agent against it')}`,
     ]
       .filter(Boolean)
       .join('\n'),
@@ -441,17 +466,19 @@ async function installPrimeHook(argv: { pack?: string }): Promise<void> {
   // 0. ensure GLOBAL taste exists for the hook to inject. The hook runs in EVERY repo; a repo's own .review/
   //    wins, but ~/.stupify/.review is the fallback, so without it the hook would no-op everywhere. Assemble it
   //    here (explicit --pack always (re)assembles; otherwise pick only when none exists) so install just works.
-  const haveHomeTaste = existsSync(join(HOME, '.review', 'RUBRIC.md')) && existsSync(join(HOME, '.review', 'CORPUS.md'))
-  let primed = haveHomeTaste
-  if (argv.pack !== undefined || !haveHomeTaste) {
+  const hasTaste = (d: string) => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md'))
+  const haveHomeTaste = hasTaste(join(HOME, '.review'))
+  const haveRepoTaste = hasTaste(join(repoRoot().root, '.review')) // a BYO .review/ in the repo you're standing in
+  let primed = haveHomeTaste || haveRepoTaste
+  if (argv.pack !== undefined || !primed) {
     const packs = await pickPacks({ yes: false, packArg: argv.pack })
     if (packs.length > 0) {
       assembleReview(packs)
       primed = true
       const tasteLine = tasteLabel(packs)
       log.success(`global taste assembled → ${pc.cyan(join(HOME, '.review'))} ${pc.dim(`(${tasteLine})`)}`)
-    } else if (!haveHomeTaste) {
-      log.warn(`no global taste yet — the hook will no-op until a repo has its own ${pc.cyan('.review/')} or you run ${pc.cyan('stupify taste')}`)
+    } else if (!primed) {
+      log.warn(`no taste yet — the hook will no-op until this repo has a ${pc.cyan('.review/')} (${pc.cyan('stupify init')}) or you run ${pc.cyan('stupify taste')}`)
     }
   }
 
@@ -713,6 +740,7 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
 ${pc.dim('Flags')}
   --host <h.int.exe.xyz>  integration host (for 'setup')
   --pack <a,b,...>        taste packs: ${PACKS.map((p) => p.id).join(', ')}
+  --force                 ('init') rebuild CORPUS.md even if it exists (your filled-in "why" lines are kept)
   --yes, -y               accept detected defaults, no prompts (for CI / scripts)
 
 ${pc.dim("Provisioning rides exe.dev — onboard once with 'ssh exe.dev', then one command does the rest.")} https://stupif.ai`)

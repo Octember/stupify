@@ -8,6 +8,7 @@
  * node_modules. Pure file read — no model, no network. It must NEVER break session start: any miss or error
  * emits nothing and exits 0. stdout is ONLY the JSON payload (a stray byte makes Claude Code drop it).
  */
+import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -18,9 +19,11 @@ const BUDGET = 9000 // max bytes of injected additionalContext — measured: Ses
 /** Resolve taste like the reviewer does (the repo you're coding in wins, else the pack taste setup assembled)
  *  and build the SessionStart payload. Returns null when no taste is set up — caller emits nothing. */
 export function primePayload(cwd: string = process.cwd(), home: string = HOME): string | null {
-  const dir = [join(cwd, '.review'), join(home, '.review')].find(
-    (d) => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md')),
-  )
+  // A repo's .review/ lives at its git ROOT — so a session opened in a subdir still finds it (cwd → root → home).
+  const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' })
+  const root = r.status === 0 ? (r.stdout ?? '').trim() : ''
+  const candidates = [join(cwd, '.review'), ...(root && root !== cwd ? [join(root, '.review')] : []), join(home, '.review')]
+  const dir = candidates.find((d) => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md')))
   if (dir === undefined) return null
   const rubric = readFileSync(join(dir, 'RUBRIC.md'), 'utf8').trim()
   let corpus = readFileSync(join(dir, 'CORPUS.md'), 'utf8').trim()
