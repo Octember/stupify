@@ -1,73 +1,44 @@
-# Good-code reference — YOUR curated exemplars (template)
+# Good-code reference — taste packs
 
-> This is a template. **Replace it with 3–6 files from your own codebase that you'd point a new hire at** —
-> the code you wish all your code looked like. The reviewer treats these as the standard and measures every
-> diff against them. Taste can't be auto-extracted: hand-pick these, and say *why* each is good. A vague
-> corpus produces vague reviews; a sharp one produces sharp ones.
-
-How to write an entry:
-- **Name the file** (a real path in this repo) and **one sentence on what makes it good** — the principle it
-  embodies (e.g. "complexity tamed by decomposition", "type makes illegal states unrepresentable",
-  "fail-fast at the boundary"). The reviewer opens the live file; the excerpt just shows the shape.
-- Keep a short code excerpt that captures the pattern. The point is the *principle*, not the lines.
-- Group loosely (e.g. "complex but readable", "clean service boundary") so the reviewer can cite the right one.
-
-Pick principles you actually care about. Common ones worth encoding:
-**dependency injection** (collaborators injected, never `new`d inline; config read only at a composition root),
-**type-system-first invariants** (`satisfies`, discriminated unions, schemas at boundaries — illegal states
-hard to represent), **fail fast and loud** (no silent fallback), **small single-responsibility units**,
-**declarative over imperative**, **readable signatures** (≤3 positional params → options object).
+Judge every diff against the standards below. When you flag slop, name the principle (or the linked file) the change should have followed. The links are commit-pinned exemplars — open them when you need detail.
 
 ---
 
-## A. Complex, kept readable
+## Code like Sindre Sorhus (@sindresorhus) · one file, one job
 
-### 1. `src/path/to/your-exemplar.ts` — one line on why it's good
-`src/path/to/your-exemplar.ts`
+Radical minimalism: each module does exactly one thing and is small enough to read in five minutes. A function
+where a class would do; no surprise dependencies; inputs validated eagerly at the top so failures are loud and
+early. Tiny public surface, deep comments on the *why*. If it can't be read top-to-bottom in one sitting, it's
+too big.
 
-Say what makes it the standard — e.g. the complexity (optimistic UI, retries, sync) is tamed by decomposition:
-the orchestrator only *coordinates*; every concern is a small focused unit, and every operation is the same
-shape, so N of them read like one.
+- [`p-limit/index.js`](https://github.com/sindresorhus/p-limit/blob/42599ebbbb1228a5bdab381fcf8f4ac20eb8d551/index.js) — a whole concurrency limiter in one short, obvious file.
+- [`execa/options.js`](https://github.com/sindresorhus/execa/blob/f3a2e8481a1e9138de3895827895c834078b9456/lib/arguments/options.js) — careful, explicit input normalization before anything runs.
+- [`chalk/index.js`](https://github.com/sindresorhus/chalk/blob/aa06bb5ac3f14df9fda8cfb54274dfc165ddfdef/source/index.js) — a clean, composable API with a minimal surface.
 
-```ts
-// a short excerpt that shows the pattern — the shape, not the whole file
-export function handle(input: Input): Result {
-  const state = read()
-  const ops = compute(state, input)   // pure
-  return apply(ops)                   // effectful shell
-}
-```
-
-### 2. `src/path/to/another.ts` — composition + named pieces
-`src/path/to/another.ts`
-
-e.g. pure composition — each piece a named small component, conditions become named type-guards, not inline
-boolean soup.
-
-```ts
-function hasMeasuredWidth(width: number | undefined): width is number {
-  return width !== undefined && width > 0
-}
-```
 
 ---
 
-## B. Clean boundary / DI
+## Code like Anton Kropp (@devshorts) · DI + branded types
 
-### `src/path/to/service.ts` — injected collaborator + composition-root factory
-`src/path/to/service.ts`
+The Startup Architecture house style: every domain concept gets its own tiny wrapper type (a `QueueName`,
+never a raw `String`), so a primitive never leaks across a boundary. Dependencies are wired through small,
+single-purpose DI modules listed explicitly at one auditable composition root. Interfaces are single-method
+contracts. `Clock` is injected so tests can move time. Fail fast and loud; no silent fallbacks.
 
-e.g. constructor injection — the collaborator is never `new`d inline; a small factory is the composition root;
-the method parses input at the boundary, logs with structured context, and **fails loud** (catch → log → rethrow).
+- [`QueueName.java`](https://github.com/paradoxical-io/cassieq/blob/3856962f13e5f7d84893a2ef274d08016b2c828b/model/src/main/java/io/paradoxical/cassieq/model/QueueName.java) — a branded value type: a raw string can't masquerade as a `QueueName`.
+- [`DefaultApplicationModules.java`](https://github.com/paradoxical-io/cassieq/blob/3856962f13e5f7d84893a2ef274d08016b2c828b/core/src/main/java/io/paradoxical/cassieq/modules/DefaultApplicationModules.java) — the composition root: one explicit list of named DI modules, no magic scanning.
+- [`ClockModule.java`](https://github.com/paradoxical-io/cassieq/blob/3856962f13e5f7d84893a2ef274d08016b2c828b/core/src/main/java/io/paradoxical/cassieq/modules/ClockModule.java) — one module, one concern (binds `Clock`), trivially swapped in tests.
 
-```ts
-export function createService() {
-  const scope = container.createChildContainer()
-  scope.register(CLIENT, { useValue: makeClient() })
-  return scope.resolve(Service)
-}
-```
 
 ---
 
-> Add a "Fine — do NOT flag" set of your own here too, if there are patterns reviewers keep wrongly dinging.
+## Code like Colin McDonnell (@colinhacks) · parse, don't validate
+
+Data never enters the system as an unvalidated primitive — it's parsed at the boundary and the parsed type
+guarantees its shape. Schemas are immutable values (methods return new instances). Errors are discriminated
+unions with a `code`, so every branch is exhaustive and typed. `parse` throws (fail fast); `safeParse` returns
+a typed result for callers that want to branch. Composable validators replace hand-rolled type guards.
+
+- [`parse.ts`](https://github.com/colinhacks/zod/blob/912f0f51b0ced654d0069741e7160834dca742ee/packages/zod/src/v4/core/parse.ts) — symmetric `parse`/`safeParse` with the sync/async boundary enforced; the error class is injected, not hardcoded.
+- [`errors.ts`](https://github.com/colinhacks/zod/blob/912f0f51b0ced654d0069741e7160834dca742ee/packages/zod/src/v4/core/errors.ts) — a discriminated-union error type, every field `readonly`, a `path[]` for nested location.
+- [`schemas.ts`](https://github.com/colinhacks/zod/blob/912f0f51b0ced654d0069741e7160834dca742ee/packages/zod/src/v4/core/schemas.ts) — distinct compile-time types per schema kind: illegal states are unrepresentable.

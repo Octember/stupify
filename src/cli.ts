@@ -130,7 +130,7 @@ function assembleReview(packs: string[]): void {
   copyFileSync(join(PKG_ROOT, '.review', 'RUBRIC.md'), join(out, 'RUBRIC.md'))
   copyFileSync(join(PKG_ROOT, '.review', 'REVIEW-PROMPT.md'), join(out, 'REVIEW-PROMPT.md'))
   if (packs.length === 0) {
-    copyFileSync(join(PKG_ROOT, '.review', 'CORPUS.md'), join(out, 'CORPUS.md')) // the bring-your-own template
+    copyFileSync(join(PKG_ROOT, '.review', 'CORPUS.template.md'), join(out, 'CORPUS.md')) // the bring-your-own template
     return
   }
   const header = `# Good-code reference — taste packs\n\nJudge every diff against the standards below. When you flag slop, name the principle (or the linked file) the change should have followed. The links are commit-pinned exemplars — open them when you need detail.\n\n---\n\n`
