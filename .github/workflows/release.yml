@@ -55,7 +55,8 @@ jobs:
           fi
 
       - name: Publish
-        # --provenance requires npm trusted-publishing configured for THIS repo; the stupif.ai→stupify rename
-        # broke that binding (PUT 404 after a valid provenance sign). Token auth alone still publishes. Re-add
-        # --provenance once trusted publishing is reconfigured for Octember/stupify on npmjs.com.
-        run: npm publish --access public
+        # @stupify/cli uses npm trusted publishing (OIDC) — it's bound to a specific GitHub repo on npmjs.com.
+        # The stupif.ai→stupify rename broke that binding, so the OIDC identity no longer matches → PUT 404.
+        # Fix is on npmjs.com (package → Settings → Trusted Publisher): point it at Octember/stupify. No token
+        # needed once it matches.
+        run: npm publish --provenance --access public
