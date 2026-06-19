@@ -28,7 +28,7 @@ interface Pack {
   label: string
 }
 const PACKS: Pack[] = [
-  { id: 'anton-kropp', label: 'Anton Kropp (devshorts) — DI + branded types' },
+  { id: 'devshorts', label: 'devshorts — DI + branded types' },
   { id: 'zod', label: 'Colin McDonnell / Zod — parse, don’t validate' },
   { id: 'sindre-sorhus', label: 'Sindre Sorhus — one file, one job' },
   { id: 'rich-harris', label: 'Rich Harris / Svelte — compiler-grade precision' },
@@ -101,7 +101,7 @@ function installCron(opts: { ghHost: string }): string {
   return line
 }
 
-// The short human label for a set of picked packs, e.g. "Sindre Sorhus + Anton Kropp" — for plan/success notes.
+// The short human label for a set of picked packs, e.g. "Sindre Sorhus + devshorts" — for plan/success notes.
 const tasteLabel = (packs: string[]): string =>
   PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' — ')[0]).join(' + ')
 
@@ -111,7 +111,7 @@ async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<stri
   if (opts.packArg !== undefined) {
     return opts.packArg.split(',').map((s) => s.trim()).filter((id) => id && id !== 'own' && PACKS.some((p) => p.id === id))
   }
-  if (opts.yes) return ['anton-kropp']
+  if (opts.yes) return ['devshorts']
   if (!process.stdin.isTTY) return [] // non-interactive (CI, scripts, the install hook): never block on a picker
   const choice = await multiselect({
     message: 'Whose code should yours look like? (pick any — or your own)',
@@ -589,7 +589,7 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
 
 ${pc.dim('Flags')}
   --host <h.int.exe.xyz>  integration host (for 'setup')
-  --pack <a,b,...>        taste packs to review against (e.g. anton-kropp,zod); 'own' = bring your own .review/
+  --pack <a,b,...>        taste packs to review against (e.g. devshorts,zod); 'own' = bring your own .review/
   --yes, -y               accept detected defaults, no prompts (for CI / scripts)
 
 ${pc.dim("Provisioning rides exe.dev — onboard once with 'ssh exe.dev', then one command does the rest.")} https://stupif.ai`)
