@@ -27,6 +27,7 @@ stupify stays quiet until it finds something real — then says it in one senten
 ### What you get
 
 - **Your taste, not the model's.** Everything is judged against a `CORPUS.md` — a [taste pack](#taste-packs) ("code like dtolnay / DHH / antirez …") or your own best files. Nothing to write to start.
+- **On your Codex plan, not a metered API key.** Reviews run on [Codex](https://github.com/openai/codex) — log in with your ChatGPT account and they draw on the Codex usage in the plan you already pay for, instead of stacking a per-token API bill (or a per-seat SaaS fee) on top the way hosted reviewers do.
 - **Slop, named.** `RUBRIC.md` is your list of what counts as slop: reinvented primitives, speculative abstraction, fallbacks the types already guarantee. It keeps the fix small.
 - **Both ends of the loop.** The *same* `.review/` primes the agent before it writes (prevention) and reviews the PR after (detection). The best review is the one you didn't need.
 - **It remembers.** Reads the PR thread, won't re-raise what you fixed or waved off, posts `no new blocking issues ✅` when there's nothing left.
@@ -71,10 +72,11 @@ bunx @stupify/cli setup                 # run the reviewer on this machine inste
 ssh exe.dev rm stupify-<owner>-<repo>   # tear it down
 ```
 
-The keyless story is the exe.dev path — the VM ships a `gh`-authed GitHub integration and a `codex` gateway. On
-the local `setup` path you bring your own (`gh auth login` + a Codex login). Either way the reviewer is a cron
-that shells out to [Codex](https://github.com/openai/codex); set `CODEX_PROVIDER`/`CODEX_MODEL` to point it
-elsewhere.
+Why exe.dev: an always-on VM with a `gh`-authed GitHub integration and a Codex gateway, cheaper and nicer to
+run than wiring this through GitHub Actions yourself — no keys, no workflow YAML, no runner minutes. Prefer your
+own machine? `stupify setup` runs the same cron locally; you bring `gh auth login` + your Codex login. Either
+way the reviewer is a cron that shells out to [Codex](https://github.com/openai/codex) on your own plan; set
+`CODEX_PROVIDER`/`CODEX_MODEL` to point it elsewhere.
 
 ## Taste packs
 
