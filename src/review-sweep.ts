@@ -239,7 +239,7 @@ function inScope(pr: Pr, cfg: Config): boolean {
   return true // auto: any non-draft, non-bot PR
 }
 
-interface Comment {
+export interface Comment {
   login: string
   body: string
 }
@@ -274,14 +274,27 @@ function toComment(c: unknown): Comment {
 // fed back into the prompt so it stops re-litigating settled points and knows when to converge. The GitHub
 // thread IS the durable store (survives restarts, already holds the replies); we just read it back.
 const MEMORY_COMMENTS = 20 // recent thread context, bounded so the prompt can't balloon on a chatty PR
+const MEMORY_BYTE_CAP = 16_000 // hard backstop: even 20 essays can't blow the prompt (and cached prefix) past this
 
-function priorReviewThread(comments: Comment[]): string {
-  return comments
+// The thread is UNTRUSTED PR-comment content that gets inlined inside a <prior_reviews> fence. Strip hidden
+// markers AND neutralize any literal fence tag in the body, so a comment can't CLOSE the fence early and smuggle
+// instructions in as if they were the runner's. This is the HARD boundary; the prompt's SECURITY note is the soft
+// one — relying on the model to be obedient is not a security control.
+function defang(body: string): string {
+  return body
+    .replace(/<!--[\s\S]*?-->/g, '') // hidden markers (incl. our own stupify: markers)
+    .replace(/<(\/?)\s*prior_reviews\s*>/gi, '‹$1prior_reviews›') // can't break out of the fence
+    .trim()
+}
+
+export function priorReviewThread(comments: Comment[]): string {
+  const thread = comments
     .filter((c) => !c.login.endsWith('[bot]')) // drop CI bots; keep prior reviews + human/agent replies
     .slice(-MEMORY_COMMENTS)
-    .map((c) => `@${c.login}:\n${c.body.replace(/<!--[\s\S]*?-->/g, '').trim()}`) // strip hidden markers
+    .map((c) => `@${c.login}:\n${defang(c.body)}`)
     .filter((entry) => entry.length > 0)
     .join('\n\n---\n\n')
+  return thread.length > MEMORY_BYTE_CAP ? thread.slice(-MEMORY_BYTE_CAP) : thread // keep the most recent context
 }
 
 // null = couldn't read the diff. The caller skips (auto) or notes it (dry-run) rather than treating an
