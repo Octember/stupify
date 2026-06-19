@@ -260,6 +260,36 @@ async function setup(argv: { repo?: string; host?: string; yes: boolean; pack?: 
   outro(pc.green('stupify is watching ') + pc.bold(repo) + pc.green(' 👀'))
 }
 
+// `stupify prime` — emit the pre-decided taste (rubric + corpus index) as a Claude Code SessionStart hook
+// payload, so a coding session opens already holding your standard. Pure file read — no model, no network, so
+// it stays instant — and it must NEVER disrupt a session: any miss or error emits nothing and exits 0.
+// stdout MUST stay pure JSON (a stray byte makes Claude Code drop the whole payload), so this writes nothing else.
+function prime(): void {
+  try {
+    // Same resolution as the reviewer: the repo you're coding in wins; else the pack taste `stupify` assembled.
+    const dir = [join(process.cwd(), '.review'), join(HOME, '.review')].find(
+      (d) => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md')),
+    )
+    if (!dir) return // no taste set up yet → no-op (never break session start)
+    const rubric = readFileSync(join(dir, 'RUBRIC.md'), 'utf8').trim()
+    const corpus = readFileSync(join(dir, 'CORPUS.md'), 'utf8').trim()
+    const additionalContext = `# Your taste, loaded by stupify — write to this standard
+
+You're about to write or change code in this repo. Hold every edit to the standard below BEFORE you write it —
+it's the same taste stupify reviews against, so matching it now is a clean review later.
+
+## What counts as slop here — don't ship it (RUBRIC)
+${rubric}
+
+## The code yours should look like (CORPUS)
+The links are commit-pinned exemplars — open one only if a finding needs the detail; never paste them in wholesale.
+${corpus}`
+    process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext } }))
+  } catch {
+    /* a hook must never break session start — emit nothing on any failure */
+  }
+}
+
 function run(dry: boolean): void {
   const sweep = join(HOME, 'review-sweep.ts')
   if (!Bun.file(sweep).size) {
@@ -437,6 +467,7 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify <owner/repo>    provision for a specific repo
   stupify setup [repo]    install on THIS machine instead of provisioning a VM
   stupify run [--dry]     run one review sweep now (where stupify is installed)
+  stupify prime           print your taste for a Claude Code SessionStart hook (prime the agent before it codes)
   stupify --help
 
 ${pc.dim('Flags')}
@@ -461,6 +492,8 @@ const cmd = positional[0]
 
 if (args.includes('-h') || args.includes('--help')) {
   help()
+} else if (cmd === 'prime') {
+  prime() // machine-called by a Claude Code SessionStart hook — must print only the JSON payload
 } else if (cmd === 'run') {
   run(args.includes('--dry'))
 } else if (cmd === 'setup') {
