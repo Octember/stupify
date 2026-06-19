@@ -89,4 +89,4 @@ present). The whole design — including why it *remembers* instead of debouncin
 
 ## License
 
-[MIT](LICENSE) © Noah Lindner. `stupif.ai` — read it "stupify". PRs welcome — it'll review them 😈
+[MIT](LICENSE) © Noah Lindner. Built by the team at [Bevyl](https://bevyl.ai). `stupif.ai` — read it "stupify". PRs welcome — it'll review them 😈
