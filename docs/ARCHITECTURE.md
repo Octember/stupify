@@ -1,13 +1,12 @@
 # Architecture
 
 stupify is two dependency-free Bun engines (`review-sweep.ts`, `prime.ts`) plus a CLI (`cli.ts`) that wires
-them up, all driving the same three markdown files that encode taste. This doc covers how the pieces fit and
-*why* — the design decisions are the interesting part.
+them up, all driving the same three markdown files that encode taste. This doc covers how the pieces fit, and why.
 
 ## Two halves: engine vs taste
 
-The hardest part of an AI reviewer isn't the loop — it's *what it reviews against*. So the two concerns are
-split: generic engines, and the taste they read.
+The hard part of an AI reviewer is what it reviews against, not the loop. So the two concerns are split: the
+generic engines, and the taste they read.
 
 | | Lives in | Is |
 |---|---|---|
@@ -31,7 +30,7 @@ The same taste drives two engines at opposite ends of the coding loop:
   stdout is *only* the JSON payload (a stray byte makes Claude Code drop it).
 - **`review-sweep.ts` — detection.** The cron reviewer below catches whatever drifted, against the same taste.
 
-Encoding taste once and enforcing it at both ends is the whole idea: the best review is the one you didn't need.
+Encode taste once, enforce it at both ends. The best review is the one you didn't need.
 
 ## The sweep loop
 
@@ -77,8 +76,8 @@ The GitHub thread **is** the memory store — it survives restarts, and it alrea
 instead of repeating — which is what debounce was really for. So debounce became pure latency and was deleted.
 A push now gets reviewed within ~60s, and the Nth review of a PR is short because it only covers the delta.
 
-This is the core trick: **statelessness was the root cause of both "re-litigates forever" and "never knows when
-to stop."** Feed the conversation back in and both go away.
+The root cause was statelessness: it made the reviewer both re-litigate forever and never know when to stop.
+Feed the conversation back in and both problems go away.
 
 ## Safety & failure handling
 

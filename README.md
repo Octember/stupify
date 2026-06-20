@@ -10,9 +10,9 @@
 [![npm](https://img.shields.io/npm/v/@stupify/cli?color=cb3837&label=%40stupify%2Fcli)](https://www.npmjs.com/package/@stupify/cli)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-![A real stupify review on a billing-critical PR: four worst-first findings — a feature flag never read client-side, a server path that fails open to a full-res render, a reuse bug, and a double-submit race — each naming the fix to apply](docs/proof/01-catch.png)
+![A real stupify review on a billing-critical PR. Four findings, worst first: a feature flag never read on the client, a server path that fails open to a full-res render, a reuse bug, and a double-submit race. Each names the fix.](docs/proof/01-catch.png)
 
-*Real review, real PR. The engineer then fixed all four — and stupify caught that one fix was still incomplete.* **[see the full thread →](docs/PROOF.md)**
+*A real PR: stupify found four bugs, the author fixed them, and it caught that one fix was still incomplete.* **[the full thread →](docs/PROOF.md)**
 
 ### What you get
 
