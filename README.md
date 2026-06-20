@@ -17,7 +17,7 @@
 ### What you get
 
 - **Your taste, not the model's.** Everything is judged against a `CORPUS.md` — a [taste pack](#taste-packs) ("code like dtolnay / DHH / antirez …") or your own best files. Nothing to write to start.
-- **On your Codex plan, not a metered API key.** Reviews run on [Codex](https://github.com/openai/codex) — log in with your ChatGPT account and they draw on the Codex usage in the plan you already pay for, instead of stacking a per-token API bill (or a per-seat SaaS fee) on top the way hosted reviewers do.
+- **On your Codex plan, not a metered API key.** Reviews run on [Codex](https://github.com/openai/codex) — log in with your ChatGPT account and they spend the Codex headroom in the plan you already pay for. Here's the part the labs keep off the pricing page: a flat-rate $200 plan is worth *thousands* in API-rate tokens — the top tiers run 40–70× their sticker — subsidized because almost nobody touches their limit. An all-day reviewer is exactly the workload that finally cashes that in: no per-token API bill, no per-seat SaaS fee.
 - **Slop, named.** `RUBRIC.md` is your list of what counts as slop: reinvented primitives, speculative abstraction, fallbacks the types already guarantee. It keeps the fix small.
 - **Both ends of the loop.** The *same* `.review/` primes the agent before it writes (prevention) and reviews the PR after (detection). The best review is the one you didn't need.
 - **It remembers.** Reads the PR thread, won't re-raise what you fixed or waved off, posts `no new blocking issues ✅` when there's nothing left.
