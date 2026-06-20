@@ -17,7 +17,7 @@
 ### What you get
 
 - **Your taste, not the model's.** Everything is judged against a `CORPUS.md` — a [taste pack](#taste-packs) ("code like dtolnay / DHH / antirez …") or your own best files. Nothing to write to start.
-- **On your personal Codex plan, not a metered API key.** stupify reviews with [Codex](https://github.com/openai/codex), running on the $20–$200/month plan. API usage is roughly 50× more expensive — enjoy the subsidized tokens while you can.
+- **On your personal Codex plan, not a metered API key.** stupify reviews with [Codex](https://github.com/openai/codex), running on the $20-$200/month plan. API usage is roughly 50x more expensive, enjoy the subsidized tokens while you can.
 - **Slop, named.** `RUBRIC.md` is your list of what counts as slop: reinvented primitives, speculative abstraction, fallbacks the types already guarantee. It keeps the fix small.
 - **Both ends of the loop.** The *same* `.review/` primes the agent before it writes (prevention) and reviews the PR after (detection). The best review is the one you didn't need.
 - **It remembers.** Reads the PR thread, won't re-raise what you fixed or waved off, posts `no new blocking issues ✅` when there's nothing left.
