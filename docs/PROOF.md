@@ -6,12 +6,12 @@ stupify catching it on real PRs, each finding naming the corpus primitive to use
 
 ---
 
-### It knows the library already does this
+### It catches a named helper dissolved into call sites
 
-![stupify flags a second abort race hand-built around the AWS SDK's own cancellation, which also races wrong and bails while S3 cleanup is still running.](proof/slop-sdk.png)
+![stupify flags an inlined buildGenerationGroup that makes the call site manually re-remember a whole construction contract the corpus keeps in one named unit.](proof/slop-inlined.png)
 
-A second abort race hand-built around the AWS SDK's own cancellation. The reinvention also races wrong: the task
-bails to failure handling while S3 cleanup is still in flight. Taste and a real bug in one finding.
+A helper got inlined, so the call site now manually remembers a whole construction contract: sorted clips, zeroed
+counts, active flag, superseded count. That is the kind of named unit the corpus keeps out of orchestration code.
 
 ---
 
@@ -24,12 +24,12 @@ more ways to get the finish ordering wrong, for no new behavior.
 
 ---
 
-### It catches the config seam that does nothing
+### It catches duplicated data that is already drifting
 
-![stupify flags a 'required' flag that is accepted and rendered but ignored by validation, so it cannot change behavior.](proof/slop-seam.png)
+![stupify flags a prompt that hand-copied a phrase list which is already out of sync with the schema and the eval guard.](proof/slop-dup.png)
 
-`required` is accepted and rendered into the prompt, but validation ignores it. It looks meaningful; it cannot
-change behavior. Most reviewers skim right past it.
+A phrase list got hand-copied into a prompt instead of rendered from the one exported source, and it is already
+out of sync with the schema and the eval guard. Two copies, one of them already wrong.
 
 ---
 

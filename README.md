@@ -10,9 +10,9 @@
 [![npm](https://img.shields.io/npm/v/@stupify/cli?color=cb3837&label=%40stupify%2Fcli)](https://www.npmjs.com/package/@stupify/cli)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-![A real stupify review on a PR that inlined four named helpers. stupify flags each one as slop and names the corpus primitive to restore.](docs/proof/00-slop.png)
+![A real stupify review with four kinds of finding in one pass: a high-confidence bug, a fail-open footgun, a reinvented SDK primitive, and a dead config seam.](docs/proof/00-slop.png)
 
-*A real PR quietly inlined four of its named helpers. stupify flagged each one against the corpus, with the exact primitive to put back.* **[more catches, on real PRs →](docs/PROOF.md)**
+*One review, four kinds of finding: a bug, a fail-open footgun, a reinvented SDK primitive, and a dead config seam. Most reviewers stop at the first one.* **[more catches, on real PRs →](docs/PROOF.md)**
 
 ### What you get
 
