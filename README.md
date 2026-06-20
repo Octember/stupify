@@ -10,17 +10,9 @@
 [![npm](https://img.shields.io/npm/v/@stupify/cli?color=cb3837&label=%40stupify%2Fcli)](https://www.npmjs.com/package/@stupify/cli)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-> uhhhh ummm this cleanup got a little cleanup-y:
->
-> 🟠 **`server/checkout.ts:40`** · slop · conf 0.82
-> you inlined `validateCart` and `applyDiscounts` into the handler, so it's branch soup with two mutable `let`s now, instead of validate → price → charge. those weren't throwaway wrappers, they were the steps.
-> **→ Fix:** put the named steps back. the handler should orchestrate, not do all of it.
->
-> 🟡 **`server/checkout.ts:12`** · slop · conf 0.7
-> `order?.total ?? order.cart.total` — `order` is required here, so the `?.` never fires and the fallback is dead code cosplaying as safety. it's `order.total`.
-> **→ Fix:** drop the `?.` and the `??`. if order's actually optional, fix the type, don't paper over it.
->
-> _— stupify, against the good-code corpus_
+![A real stupify review on a billing-critical PR: four worst-first findings — a feature flag never read client-side, a server path that fails open to a full-res render, a reuse bug, and a double-submit race — each naming the fix to apply](docs/proof/01-catch.png)
+
+*Real review, real PR. The engineer then fixed all four — and stupify caught that one fix was still incomplete.* **[see the full thread →](docs/PROOF.md)**
 
 ### What you get
 
@@ -30,22 +22,6 @@
 - **Both ends of the loop.** The *same* `.review/` primes the agent before it writes (prevention) and reviews the PR after (detection). The best review is the one you didn't need.
 - **It remembers.** Reads the PR thread, won't re-raise what you fixed or waved off, posts `no new blocking issues ✅` when there's nothing left.
 - **It's funny.** `oof, yeah this'll break:`. Turn it off if you hate joy.
-
-## Screenshots
-
-> ok so. two contract wrinkles:
->
-> 🟠 **`pipeline/contracts/run-config.ts:20`** · bug · conf 0.74
-> `metadata` is accepted as any JSON object at the run-config boundary, so a malformed `steps[].conditions` gets persisted and only explodes later when the scheduler parses it. That makes the stored contract looser than the runtime contract this PR adds.
-> **→ Fix:** validate the `steps` namespace with `RunStepSchema` while preserving passthrough metadata — or move that schema to the contract owner and reuse it here (`pipeline/contracts/step.ts`)
->
-> 🟡 **`pipeline/contracts/step.ts:72`** · slop · conf 0.67
-> `required` is accepted on every step and rendered into the plan, but validation still demands each step id exactly once regardless of the flag. A dead config seam — `required: false` looks meaningful but can't change behavior.
-> **→ Fix:** drop `required` until optional-step semantics exist, or make `validateRunConfig` honor it explicitly (`pipeline/contracts/step.ts`)
->
-> _— stupify, against the good-code corpus_
-
-More, on real PRs — a billing bug a human then fixed, and stupify catching the *incomplete* fix: **[stupify in the wild →](docs/PROOF.md)**
 
 ## Prime your agent (instant, local, no servers)
 
@@ -61,8 +37,8 @@ falls back to the taste you assembled. `bunx @stupify/cli prime --uninstall` rem
 
 ## Add the reviewer (rides exe.dev — no keys, no servers *you* run)
 
-From your laptop, **one command** provisions a VM that reviews your repo's PRs. No API keys, no tokens — you
-never even SSH anywhere.
+From your laptop, **one command** provisions a VM that reviews your repo's PRs — no API keys or tokens to manage,
+and once it's running you never touch the VM.
 
 ```bash
 bunx @stupify/cli
@@ -86,11 +62,10 @@ bunx @stupify/cli setup                 # run the reviewer on this machine inste
 ssh exe.dev rm stupify-<owner>-<repo>   # tear it down
 ```
 
-Why exe.dev: an always-on VM with a `gh`-authed GitHub integration and a Codex gateway, cheaper and nicer to
-run than wiring this through GitHub Actions yourself — no keys, no workflow YAML, no runner minutes. Prefer your
-own machine? `stupify setup` runs the same cron locally; you bring `gh auth login` + your Codex login. Either
-way the reviewer is a cron that shells out to [Codex](https://github.com/openai/codex) on your own plan; set
-`CODEX_PROVIDER`/`CODEX_MODEL` to point it elsewhere.
+Why exe.dev: an always-on VM with a `gh`-authed GitHub integration and a Codex gateway — cheaper and nicer than
+wiring this through GitHub Actions (no workflow YAML, no runner minutes). Prefer your own machine? `stupify setup`
+runs the same cron locally; you bring `gh auth login` + your Codex login. Either way it's a cron shelling out to
+Codex; point it elsewhere with `CODEX_PROVIDER`/`CODEX_MODEL`.
 
 ## Taste packs
 
@@ -122,8 +97,8 @@ review  cron (~60s) → review-sweep.ts → codex exec → gh pr comment
           feed the PR's thread back as memory · review against .review/* · post
 ```
 
-Both halves read the same `.review/` (a repo's own wins; else the pack taste you assembled). The CLI
-(`src/cli.ts`) sets things up; the engines (`src/prime.ts` and `src/review-sweep.ts`) are dependency-free Bun.
+Both halves read the same `.review/`. The CLI (`src/cli.ts`) sets things up; the engines (`src/prime.ts` and
+`src/review-sweep.ts`) are dependency-free Bun.
 The whole design — including why it *remembers* instead of debouncing — is in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
