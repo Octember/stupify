@@ -12,7 +12,7 @@
 
 ![A real stupify review with four kinds of finding in one pass: a high-confidence bug, a fail-open footgun, a reinvented SDK primitive, and a dead config seam.](docs/proof/00-slop.png)
 
-*One review, four kinds of finding: a bug, a fail-open footgun, a reinvented SDK primitive, and a dead config seam. Most reviewers stop at the first one.* **[more catches, on real PRs →](docs/PROOF.md)**
+*Your linter had no notes.* **[more catches, on real PRs →](docs/PROOF.md)**
 
 ### What you get
 
