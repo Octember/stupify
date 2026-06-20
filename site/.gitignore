@@ -1,0 +1,13 @@
+# build output
+dist/
+.astro/
+
+# deps
+node_modules/
+
+# cloudflare
+.wrangler/
+
+# env
+.env
+.env.production

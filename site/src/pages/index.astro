@@ -1,0 +1,332 @@
+---
+import '../styles/global.css';
+
+const GH = 'https://github.com/Octember/stupify';
+const NPM = 'https://www.npmjs.com/package/@stupify/cli';
+const INSTALL = 'npx @stupify/cli';
+
+const features = [
+  {
+    title: 'Your taste, not the model’s',
+    body: 'Every diff is judged against a <code>CORPUS.md</code>: a taste pack ("code like dtolnay / DHH / antirez…") or your own best files. Nothing to write to start.',
+  },
+  {
+    title: 'On your Codex plan',
+    body: 'Reviews with Codex on the $20–$200/mo plan, not a metered API key. API usage costs roughly 50× more. Enjoy the subsidized tokens while they last.',
+  },
+  {
+    title: 'Slop, named',
+    body: 'A <code>RUBRIC.md</code> lists what counts: reinvented primitives, speculative abstraction, fallbacks the types already guarantee. It keeps the fix small.',
+  },
+  {
+    title: 'Both ends of the loop',
+    body: 'The same <code>.review/</code> primes the agent before it writes and reviews the PR after. The best review is the one you didn’t need.',
+  },
+  {
+    title: 'It remembers',
+    body: 'Reads the PR thread, won’t re-raise what you fixed or waved off, posts <code>no new blocking issues ✅</code> when there’s nothing left.',
+  },
+  {
+    title: 'It’s funny',
+    body: '<code>oof, yeah this’ll break:</code> It talks like an idiot and catches real bugs. Mute the jokes if you’d rather it didn’t.',
+  },
+];
+
+const gallery = [
+  {
+    img: '/proof/slop-inlined.png',
+    title: 'A named helper dissolved into call sites',
+    caption: 'A helper got inlined, so the call site now manually re-remembers a whole construction contract: sorted clips, zeroed counts, active flag. The corpus keeps that as one named unit.',
+  },
+  {
+    img: '/proof/slop-statemachine.png',
+    title: 'A hand-rolled state machine',
+    caption: 'A WriteStream and three boolean flags to do what fluent-ffmpeg’s .output(path) already does, in the same file. Bigger, more ways to get the ordering wrong, for no new behavior.',
+  },
+  {
+    img: '/proof/slop-dup.png',
+    title: 'Duplicated data that’s already drifting',
+    caption: 'A phrase list hand-copied into a prompt instead of rendered from the one exported source. It’s already out of sync with the schema and the eval guard. Two copies, one wrong.',
+  },
+  {
+    img: '/proof/slop-types.png',
+    title: 'States that can’t go wrong',
+    caption: 'Two parallel nullable fields let the schema hold an impossible half-link. One nullable object makes the malformed state impossible to write in the first place.',
+  },
+  {
+    img: '/proof/04-converge.png',
+    title: 'And it stops when the work is done',
+    caption: 'The whole PR thread is its memory, so once the findings are addressed it posts one line and goes quiet. The opposite of a bot that re-nags on every push.',
+  },
+];
+
+const packs = [
+  ['dtolnay', 'dtolnay.md'],
+  ['DHH', 'dhh.md'],
+  ['antirez', 'antirez.md'],
+  ['Sindre Sorhus', 'sindre-sorhus.md'],
+  ['Rich Harris', 'rich-harris.md'],
+  ['zod', 'zod.md'],
+  ['Mitchell Hashimoto', 'mitchell-hashimoto.md'],
+  ['Tanner Linsley', 'tanner-linsley.md'],
+  ['Simon Willison', 'simon-willison.md'],
+  ['Jarred Sumner', 'jarred-sumner.md'],
+];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <script is:inline>document.documentElement.classList.add('js');</script>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" />
+    <title>stupify: anti-slop code review, grounded in code you respect</title>
+    <meta
+      name="description"
+      content="An open-source CLI that reviews your PRs against a corpus of code you actually respect, names the AI slop, and tells the agent exactly how to fix it. Runs on your own Codex plan."
+    />
+    <meta property="og:title" content="stupify: anti-slop code review" />
+    <meta
+      property="og:description"
+      content="Reviews every PR against a corpus of code you respect, names the slop, tells the agent how to fix it. Runs on your Codex plan."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://stupif.ai" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=Newsreader:opsz,wght@18..72,400..500&display=swap"
+    />
+  </head>
+  <body>
+    <nav class="nav">
+      <div class="wrap">
+        <a class="brand" href="/"><span class="mark">🧙</span> stupify</a>
+        <div class="nav-links">
+          <a class="hide-sm" href="#proof">Examples</a>
+          <a class="hide-sm" href="#packs">Taste packs</a>
+          <a href={NPM} target="_blank" rel="noopener">npm</a>
+          <a href={GH} target="_blank" rel="noopener">GitHub ↗</a>
+        </div>
+      </div>
+    </nav>
+
+    <header class="hero">
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">Anti-slop code review</p>
+          <h1>Your taste. Not the model’s.</h1>
+          <p class="lede">
+            AI agents are rats in a maze. They reach for what they know, and what they know is
+            <strong>slop</strong>. stupify reviews every PR against a corpus of code you actually
+            respect, names the slop, and tells the agent how to fix it.
+          </p>
+          <div class="install">
+            <div class="cmd">
+              <span class="prompt">$</span><code id="install-cmd">{INSTALL}</code>
+              <button class="copy" data-copy={INSTALL} type="button">Copy</button>
+            </div>
+            <a class="btn btn-ghost" href={GH} target="_blank" rel="noopener">View on GitHub ↗</a>
+          </div>
+          <p class="subnote">
+            Runs on your own Codex plan. No API keys, no servers you run. <code>MIT</code> licensed.
+          </p>
+        </div>
+        <figure class="hero-art">
+          <div class="frame">
+            <div class="bar">
+              <span class="dots"><i></i><i></i><i></i></span>
+              <span class="bar-label">stupify · pr review</span>
+            </div>
+            <div class="viewport">
+              <img
+                class="shot"
+                src="/proof/00-slop.png"
+                alt="A stupify review surfacing four kinds of finding in one pass: a bug, a fail-open footgun, a reinvented SDK primitive, and a dead config seam."
+                loading="eager"
+                width="1400"
+                height="900"
+              />
+            </div>
+          </div>
+        </figure>
+      </div>
+    </header>
+
+    <section id="features" class="band-paper">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <p class="eyebrow">What you get</p>
+          <h2>A reviewer that holds your standard, on both ends of the loop.</h2>
+        </div>
+        <div class="features">
+          {
+            features.map((f, i) => (
+              <div class="feature reveal" style={`transition-delay:${i * 60}ms`}>
+                <h3><span class="dot">•</span> <Fragment set:html={f.title} /></h3>
+                <p set:html={f.body} />
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <section id="gallery">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">In the wild</p>
+          <h2 class="progressive">
+            {
+              'Stuff you recognize before you can explain why it feels bad.'
+                .split(' ')
+                .map((w) => (
+                  <>
+                    <span class="word">{w}</span>{' '}
+                  </>
+                ))
+            }
+          </h2>
+          <p>
+            A linter can’t see slop, because nothing is technically wrong. It compiles, passes a
+            skim, and quietly rots. stupify catches it on real PRs, each finding naming the primitive
+            to use instead.
+          </p>
+        </div>
+        <div class="rows">
+          {
+            gallery.map((g, i) => (
+              <figure class="row">
+                <div class="row-media reveal">
+                  <img class="shot" src={g.img} alt={g.title} loading="lazy" width="1200" height="700" />
+                </div>
+                <div class="row-text reveal" style="transition-delay:.22s">
+                  <h3><span class="num">{String(i + 1).padStart(2, '0')} / {String(gallery.length).padStart(2, '0')}</span>{g.title}</h3>
+                  <p>{g.caption}</p>
+                </div>
+              </figure>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <section id="packs" class="band-paper">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <p class="eyebrow">Taste packs</p>
+          <h2>No corpus yet? Borrow one.</h2>
+          <p>
+            Pick a programmer whose code you’d point a new hire at, or compose several. Each pack is
+            concrete principles plus commit-pinned exemplar files. Or bring your own best files.
+          </p>
+        </div>
+        <div class="packs">
+          {
+            packs.map(([name, file]) => (
+              <a class="pack" href={`${GH}/blob/main/packs/${file}`} target="_blank" rel="noopener">
+                {name}
+              </a>
+            ))
+          }
+          <a class="pack" href={`${GH}/tree/main/packs`} target="_blank" rel="noopener">browse all →</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="cta band-dark">
+      <div class="wrap reveal">
+        <p class="eyebrow">Get started</p>
+        <h2>Stop shipping slop.</h2>
+        <p>One command. Open Claude Code primed, or open a PR and let it review.</p>
+        <div class="install">
+          <div class="cmd">
+            <span class="prompt">$</span><code>{INSTALL}</code>
+            <button class="copy" data-copy={INSTALL} type="button">Copy</button>
+          </div>
+          <a class="btn btn-primary" href={GH} target="_blank" rel="noopener">Star on GitHub</a>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      <div class="wrap">
+        <p class="meta">
+          <code>MIT</code> © Noah Lindner · built by the team at
+          <a href="https://bevyl.ai" target="_blank" rel="noopener">Bevyl</a> ·
+          <code>stupif.ai</code>, read it “stupify”.
+        </p>
+        <div class="links">
+          <a href={GH} target="_blank" rel="noopener">GitHub</a>
+          <a href={NPM} target="_blank" rel="noopener">npm</a>
+          <a href={`${GH}/blob/main/docs/ARCHITECTURE.md`} target="_blank" rel="noopener">Architecture</a>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      document.querySelectorAll('.copy').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const text = btn.getAttribute('data-copy') ?? '';
+          await navigator.clipboard.writeText(text);
+          const prev = btn.textContent;
+          btn.textContent = 'Copied';
+          setTimeout(() => (btn.textContent = prev), 1400);
+        });
+      });
+
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        // reveal sections as they scroll into view
+        const io = new IntersectionObserver(
+          (entries) => {
+            for (const e of entries) {
+              if (e.isIntersecting) {
+                e.target.classList.add('in');
+                io.unobserve(e.target);
+              }
+            }
+          },
+          { rootMargin: '0px 0px -10% 0px', threshold: 0.12 },
+        );
+        document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+        // scroll-driven motion: hero parallax + progressive heading reveal
+        const shot = document.querySelector('.hero-art .viewport .shot');
+        const heading = document.querySelector('.progressive');
+        const words = heading ? Array.from(heading.querySelectorAll('.word')) : [];
+        const clamp = (n) => Math.min(Math.max(n, 0), 1);
+        let ticking = false;
+        const update = () => {
+          if (shot) {
+            const y = Math.min(window.scrollY, 700);
+            shot.style.transform = `translateY(${(-y * 0.14).toFixed(1)}px)`;
+          }
+          if (words.length) {
+            const rect = heading.getBoundingClientRect();
+            const vh = window.innerHeight;
+            const start = vh * 0.9;
+            const end = vh * 0.4;
+            const lit = clamp((start - rect.top) / (start - end)) * words.length;
+            words.forEach((w, i) => {
+              w.style.opacity = (0.18 + 0.82 * clamp(lit - i)).toFixed(3);
+            });
+          }
+          ticking = false;
+        };
+        update();
+        window.addEventListener(
+          'scroll',
+          () => {
+            if (!ticking) {
+              ticking = true;
+              requestAnimationFrame(update);
+            }
+          },
+          { passive: true },
+        );
+      }
+    </script>
+  </body>
+</html>
