@@ -1,42 +1,50 @@
 # stupify in the wild
 
-These are verbatim reviews from one real PR thread. The PR added a billing-critical feature: a free-trial
-export watermark and a 720p cap. stupify reviewed it from the first push to the last, the author fixed what it
-found, and it stopped once the work was done.
+Slop is the code that compiles fine, passes a human skim, and quietly rots: a primitive reinvented, a helper
+inlined, a config seam that does nothing. A linter cannot see it because nothing is technically wrong. Here is
+stupify catching it on real PRs, each finding naming the corpus primitive to use instead.
 
 ---
 
-### 1 · It catches real bugs
+### It knows the library already does this
 
-![stupify's review: four findings, worst first. A feature flag sits in the schema but nothing reads it on the client (conf 0.98). A server path fails open to a full-res render. A reuse path returns the wrong file. Two exports can race. Each finding names the fix.](proof/01-catch.png)
+![stupify flags a second abort race hand-built around the AWS SDK's own cancellation, which also races wrong and bails while S3 cleanup is still running.](proof/slop-sdk.png)
 
-Four findings, worst first. A feature flag reached the schema but nothing read it on the client, so trial users
-would get clean exports instead of watermarked ones. A server path failed open to a full-res render. A reuse
-path handed back the wrong file. Two exports could race. Each finding names the corpus primitive to use for the
-fix.
+A second abort race hand-built around the AWS SDK's own cancellation. The reinvention also races wrong: the task
+bails to failure handling while S3 cleanup is still in flight. Taste and a real bug in one finding.
 
 ---
 
-### 2 · The author fixes them
+### It spots a hand-rolled state machine
 
-![The PR author replies that all four findings are addressed, with a short explanation of each fix.](proof/02-addressed.png)
+![stupify flags a WriteStream plus three boolean flags doing what fluent-ffmpeg's .output(path) already does in the same file.](proof/slop-statemachine.png)
 
-All four, addressed.
-
----
-
-### 3 · It catches the incomplete fix
-
-![stupify re-reviews the fix and flags two that remain: the reuse path is still blind to runtime settings (conf 0.94), and an error branch defaults to a clean treatment.](proof/03-caught.png)
-
-This is the part most AI reviewers miss. stupify re-reads the fix and sees that the reuse path is still blind to
-runtime settings (conf 0.94). It tracks each finding across pushes until the code is right.
+A `WriteStream` and three boolean flags to do what `.output(path)` already does, in the same file. Bigger, with
+more ways to get the finish ordering wrong, for no new behavior.
 
 ---
 
-### 4 · It stops when the work is done
+### It catches the config seam that does nothing
 
-![stupify posts "no new blocking issues — prior items addressed" with a checkmark.](proof/04-converge.png)
+![stupify flags a 'required' flag that is accepted and rendered but ignored by validation, so it cannot change behavior.](proof/slop-seam.png)
 
-Once the findings are addressed, stupify posts one line and stops. The whole PR thread is its memory, so each new
-review covers only what changed. Most teams mute review bots because the bots never shut up. This one does.
+`required` is accepted and rendered into the prompt, but validation ignores it. It looks meaningful; it cannot
+change behavior. Most reviewers skim right past it.
+
+---
+
+### It pushes for states that can't go wrong
+
+![stupify flags two parallel nullable fields that let the schema hold an impossible half-link, and asks for one object so the bad state is unrepresentable.](proof/slop-types.png)
+
+Two parallel nullable fields let the schema hold an impossible half-link. One nullable object makes the malformed
+state impossible to write in the first place.
+
+---
+
+### And it stops when the work is done
+
+![stupify posts 'no new blocking issues, prior items addressed' with a checkmark.](proof/04-converge.png)
+
+The whole PR thread is its memory, so once the findings are addressed it posts one line and goes quiet. The
+opposite of a bot that re-nags on every push.
