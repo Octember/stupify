@@ -12,7 +12,7 @@
 
 ![A real stupify review with four kinds of finding in one pass: a high-confidence bug, a fail-open footgun, a reinvented SDK primitive, and a dead config seam.](docs/proof/00-slop.png)
 
-*Actual issues, each telling your coding agent exactly what to fix and how.* **[more catches, on real PRs →](docs/PROOF.md)**
+*actual issues, tells the coding agent exactly how + what to fix* **[more catches, on real PRs →](docs/PROOF.md)**
 
 ### What you get
 
