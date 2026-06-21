@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, isRateLimited, type Pr, priorReviewThread, reviewPrompt, stablePrefix } from './review-sweep'
+import { type Config, isNoopReview, isRateLimited, NOOP_TOKEN, noopNote, type Pr, priorReviewThread, reviewPrompt, stablePrefix } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -86,6 +86,31 @@ test('a malicious PR comment cannot break out of the <prior_reviews> fence', () 
 test('priorReviewThread caps total size so a chatty PR cannot balloon the prompt', () => {
   const huge = Array.from({ length: 20 }, (_, i) => ({ login: `u${i}`, body: 'x'.repeat(5000) }))
   expect(priorReviewThread(huge).length).toBeLessThanOrEqual(16_000)
+})
+
+// The convergence contract: codex emits a token for "nothing new" so the runner can tell it from a real review
+// and post the ✅ note ONCE instead of on every commit. The token is primary; a finding-free body is the backstop
+// (the model paraphrases the human note, so its prose is not a reliable signal — its lack of findings is).
+test('isNoopReview: the token and finding-free text both converge; a real finding does not', () => {
+  expect(isNoopReview(NOOP_TOKEN)).toBe(true)
+  expect(isNoopReview('ok so. no new ones beyond the prior review; those items still stand.')).toBe(true) // paraphrased clean
+  const finding = '🟠 **`src/x.ts:30`** · bug · conf 0.88\nit breaks here\n**→ Fix:** reuse the corpus primitive (`src/y.ts`)'
+  expect(isNoopReview(finding)).toBe(false) // a severity emoji / `· conf` / `→ Fix:` means there IS something to say
+})
+
+test('noopNote carries the convergence text, the noop tag, AND the per-head marker', () => {
+  const note = noopNote(pr(7, 'd'.repeat(40)))
+  expect(note).toContain('no new blocking issues ✅')
+  expect(note).toContain('<!-- stupify:noop -->') // how a later sweep knows we already converged → stays silent
+  expect(note).toContain(`<!-- stupify:${'d'.repeat(40)} -->`) // per-head marker so ordinary dedup still catches it
+  expect(isNoopReview(note)).toBe(true) // the runner's own note must read as a no-op, never as findings
+})
+
+test('the no-op token is instructed in the prompt, and adding it kept the prefix stable across PRs', () => {
+  expect(prompts[0]).toContain(NOOP_TOKEN) // codex is told to emit it for a clean diff
+  // The token text is static (spec + tail), so it does NOT thrash the cache: the prefix is still byte-identical
+  // across every PR (the dedicated cache-invariant test above proves size===1). Belt here: no per-PR drift.
+  expect(prefixes[0]).toBe(prefixes[2])
 })
 
 // Plan-exhaustion ends the sweep early (spend control); a normal review failure does not.
