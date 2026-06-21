@@ -5,33 +5,6 @@ const GH = 'https://github.com/Octember/stupify';
 const NPM = 'https://www.npmjs.com/package/@stupify/cli';
 const INSTALL = 'npx @stupify/cli';
 
-const features = [
-  {
-    title: 'Your taste, not the model’s',
-    body: 'Every diff is judged against a <code>CORPUS.md</code>: a taste pack ("code like dtolnay / DHH / antirez…") or your own best files. Nothing to write to start.',
-  },
-  {
-    title: 'On your Codex plan',
-    body: 'Reviews with Codex on the $20–$200/mo plan, not a metered API key. API usage costs roughly 50× more. Enjoy the subsidized tokens while they last.',
-  },
-  {
-    title: 'Slop, named',
-    body: 'A <code>RUBRIC.md</code> lists what counts: reinvented primitives, speculative abstraction, fallbacks the types already guarantee. It keeps the fix small.',
-  },
-  {
-    title: 'Both ends of the loop',
-    body: 'The same <code>.review/</code> primes the agent before it writes and reviews the PR after. The best review is the one you didn’t need.',
-  },
-  {
-    title: 'It remembers',
-    body: 'Reads the PR thread, won’t re-raise what you fixed or waved off, posts <code>no new blocking issues ✅</code> when there’s nothing left.',
-  },
-  {
-    title: 'It’s funny',
-    body: '<code>oof, yeah this’ll break:</code> It talks like an idiot and catches real bugs. Mute the jokes if you’d rather it didn’t.',
-  },
-];
-
 const gallery = [
   {
     img: '/proof/slop-inlined.png',
@@ -66,7 +39,7 @@ const packs = [
   ['antirez', 'antirez.md'],
   ['Sindre Sorhus', 'sindre-sorhus.md'],
   ['Rich Harris', 'rich-harris.md'],
-  ['zod', 'zod.md'],
+  ['colinhacks', 'zod.md'],
   ['Mitchell Hashimoto', 'mitchell-hashimoto.md'],
   ['Tanner Linsley', 'tanner-linsley.md'],
   ['Simon Willison', 'simon-willison.md'],
@@ -116,12 +89,17 @@ const packs = [
     <header class="hero">
       <div class="wrap hero-grid">
         <div class="hero-copy">
-          <p class="eyebrow">Anti-slop code review</p>
-          <h1>Your taste. Not the model’s.</h1>
+          <h1>Your taste,<br />not the model’s</h1>
           <p class="lede">
             AI agents are rats in a maze. They reach for what they know, and what they know is
-            <strong>slop</strong>. stupify reviews every PR against a corpus of code you actually
-            respect, names the slop, and tells the agent how to fix it.
+            <strong>slop</strong>.
+          </p>
+          <p class="lede-sub">
+            stupify reviews every PR against a corpus of code
+            <a class="ilink" href={`${GH}/blob/main/packs/dtolnay.md`} target="_blank" rel="noopener">you</a>
+            <a class="ilink" href={`${GH}/blob/main/packs/antirez.md`} target="_blank" rel="noopener">actually</a>
+            <a class="ilink" href={`${GH}/blob/main/packs/dhh.md`} target="_blank" rel="noopener">respect</a>, names
+            the slop, and tells you how to fix it.
           </p>
           <div class="install">
             <div class="cmd">
@@ -135,41 +113,32 @@ const packs = [
           </p>
         </div>
         <figure class="hero-art">
-          <div class="frame">
-            <div class="bar">
-              <span class="dots"><i></i><i></i><i></i></span>
-              <span class="bar-label">stupify · pr review</span>
-            </div>
-            <div class="viewport">
-              <img
-                class="shot"
-                src="/proof/00-slop.png"
-                alt="A stupify review surfacing four kinds of finding in one pass: a bug, a fail-open footgun, a reinvented SDK primitive, and a dead config seam."
-                loading="eager"
-                width="1400"
-                height="900"
-              />
-            </div>
-          </div>
+          <img
+            class="shot"
+            src="/proof/00-slop.png"
+            alt="A stupify review surfacing four kinds of finding in one pass: a bug, a fail-open footgun, a reinvented SDK primitive, and a dead config seam."
+            loading="eager"
+            width="1400"
+            height="900"
+          />
         </figure>
       </div>
     </header>
 
-    <section id="features" class="band-paper">
+    <section id="what">
       <div class="wrap">
-        <div class="section-head reveal">
-          <p class="eyebrow">What you get</p>
-          <h2>A reviewer that holds your standard, on both ends of the loop.</h2>
-        </div>
-        <div class="features">
-          {
-            features.map((f, i) => (
-              <div class="feature reveal" style={`transition-delay:${i * 60}ms`}>
-                <h3><span class="dot">•</span> <Fragment set:html={f.title} /></h3>
-                <p set:html={f.body} />
-              </div>
-            ))
-          }
+        <div class="prose-wrap reveal">
+        <p class="lead">
+          stupify holds your standard on both ends of the loop. The same <code>.review/</code> primes
+          your agent before it writes a line and reviews the pull request after, so the best catch is
+          the slop that never ships.
+        </p>
+        <p>
+          Every diff is judged against a corpus you choose: a taste pack (code like dtolnay, DHH, or
+          antirez) or your own best files, with a rubric that names what counts as slop and keeps the
+          fix small. It runs on your own Codex plan, not a metered key, so a careful review costs a
+          fraction of the API.
+        </p>
         </div>
       </div>
     </section>
@@ -177,18 +146,7 @@ const packs = [
     <section id="gallery">
       <div class="wrap">
         <div class="section-head">
-          <p class="eyebrow">In the wild</p>
-          <h2 class="progressive">
-            {
-              'Stuff you recognize before you can explain why it feels bad.'
-                .split(' ')
-                .map((w) => (
-                  <>
-                    <span class="word">{w}</span>{' '}
-                  </>
-                ))
-            }
-          </h2>
+          <h2>Stuff you recognize before you can explain why it <span class="flag">feels bad</span></h2>
           <p>
             A linter can’t see slop, because nothing is technically wrong. It compiles, passes a
             skim, and quietly rots. stupify catches it on real PRs, each finding naming the primitive
@@ -213,11 +171,10 @@ const packs = [
       </div>
     </section>
 
-    <section id="packs" class="band-paper">
+    <section id="packs">
       <div class="wrap">
         <div class="section-head reveal">
-          <p class="eyebrow">Taste packs</p>
-          <h2>No corpus yet? Borrow one.</h2>
+          <h2>No corpus yet? Borrow one</h2>
           <p>
             Pick a programmer whose code you’d point a new hire at, or compose several. Each pack is
             concrete principles plus commit-pinned exemplar files. Or bring your own best files.
@@ -236,10 +193,9 @@ const packs = [
       </div>
     </section>
 
-    <section class="cta band-dark">
+    <section class="closing">
       <div class="wrap reveal">
-        <p class="eyebrow">Get started</p>
-        <h2>Stop shipping slop.</h2>
+        <h2>Stop shipping slop</h2>
         <p>One command. Open Claude Code primed, or open a PR and let it review.</p>
         <div class="install">
           <div class="cmd">
@@ -278,7 +234,7 @@ const packs = [
       });
 
       if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        // reveal sections as they scroll into view
+        // sections fade up as they enter view
         const io = new IntersectionObserver(
           (entries) => {
             for (const e of entries) {
@@ -291,41 +247,6 @@ const packs = [
           { rootMargin: '0px 0px -10% 0px', threshold: 0.12 },
         );
         document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
-
-        // scroll-driven motion: hero parallax + progressive heading reveal
-        const shot = document.querySelector('.hero-art .viewport .shot');
-        const heading = document.querySelector('.progressive');
-        const words = heading ? Array.from(heading.querySelectorAll('.word')) : [];
-        const clamp = (n) => Math.min(Math.max(n, 0), 1);
-        let ticking = false;
-        const update = () => {
-          if (shot) {
-            const y = Math.min(window.scrollY, 700);
-            shot.style.transform = `translateY(${(-y * 0.14).toFixed(1)}px)`;
-          }
-          if (words.length) {
-            const rect = heading.getBoundingClientRect();
-            const vh = window.innerHeight;
-            const start = vh * 0.9;
-            const end = vh * 0.4;
-            const lit = clamp((start - rect.top) / (start - end)) * words.length;
-            words.forEach((w, i) => {
-              w.style.opacity = (0.18 + 0.82 * clamp(lit - i)).toFixed(3);
-            });
-          }
-          ticking = false;
-        };
-        update();
-        window.addEventListener(
-          'scroll',
-          () => {
-            if (!ticking) {
-              ticking = true;
-              requestAnimationFrame(update);
-            }
-          },
-          { passive: true },
-        );
       }
     </script>
   </body>
