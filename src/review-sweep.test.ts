@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, isNoopReview, isRateLimited, NOOP_TOKEN, noopNote, type Pr, priorReviewThread, reviewPrompt, stablePrefix } from './review-sweep'
+import { type Config, isNoopReview, isRateLimited, NOOP_TOKEN, noopNote, type Pr, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -88,14 +88,15 @@ test('priorReviewThread caps total size so a chatty PR cannot balloon the prompt
   expect(priorReviewThread(huge).length).toBeLessThanOrEqual(16_000)
 })
 
-// The convergence contract: codex emits a token for "nothing new" so the runner can tell it from a real review
-// and post the ✅ note ONCE instead of on every commit. The token is primary; a finding-free body is the backstop
-// (the model paraphrases the human note, so its prose is not a reliable signal — its lack of findings is).
-test('isNoopReview: the token and finding-free text both converge; a real finding does not', () => {
+// The convergence contract: codex emits an EXACT token for "nothing new" so the runner converges instead of
+// re-posting a clean note every commit. Detection is token-ONLY: a paraphrase is NOT treated as clean — it gets
+// posted (visible), never silently swallowed. This is the guard against overwriting a real review with "LGTM ✅".
+test('isNoopReview: ONLY the exact token converges; a paraphrase or a finding is posted, not hidden', () => {
   expect(isNoopReview(NOOP_TOKEN)).toBe(true)
-  expect(isNoopReview('ok so. no new ones beyond the prior review; those items still stand.')).toBe(true) // paraphrased clean
-  const finding = '🟠 **`src/x.ts:30`** · bug · conf 0.88\nit breaks here\n**→ Fix:** reuse the corpus primitive (`src/y.ts`)'
-  expect(isNoopReview(finding)).toBe(false) // a severity emoji / `· conf` / `→ Fix:` means there IS something to say
+  expect(isNoopReview('`STUPIFY_NO_NEW_ISSUES`')).toBe(true) // markdown/whitespace around the token is fine
+  expect(isNoopReview('ok so. no new ones; those items still stand.')).toBe(false) // a paraphrase must be POSTED, not converged away
+  const finding = '🟠 **`src/x.ts:30`** · bug · conf 0.88\nit breaks\n**→ Fix:** reuse the corpus primitive (`src/y.ts`)'
+  expect(isNoopReview(finding)).toBe(false)
 })
 
 test('noopNote: "LGTM" on a first-pass-clean PR, "no new blocking issues" once there were prior findings', () => {
@@ -107,8 +108,20 @@ test('noopNote: "LGTM" on a first-pass-clean PR, "no new blocking issues" once t
   for (const note of [first, later]) {
     expect(note).toContain('<!-- stupify:noop -->') // how a later sweep knows we already converged → stays silent
     expect(note).toContain(`<!-- stupify:${'d'.repeat(40)} -->`) // per-head marker so ordinary dedup still catches it
-    expect(isNoopReview(note)).toBe(true) // the runner's own note must read as a no-op, never as findings
+    expect(note).not.toContain('good-code corpus') // no sign-off on the runner's note
   }
+})
+
+// The runner strips a model-added sign-off so a posted review never carries an attribution line (spec says none,
+// but the model isn't a guarantee). Findings and the hidden marker survive; only the signature goes.
+test('stripSignoff removes a model-added attribution line, keeps the findings and the marker', () => {
+  const signed = '🔴 **`a.ts:1`** · bug · conf 0.9\nbad\n**→ Fix:** do x (`b.ts`)\n\n_— stupify, against the good-code corpus_\n<!-- stupify:abc123 -->'
+  const out = stripSignoff(signed)
+  expect(out).not.toContain('good-code corpus')
+  expect(out).not.toMatch(/—\s*stupify/)
+  expect(out).toContain('🔴 **`a.ts:1`**') // the finding is untouched
+  expect(out).toContain('**→ Fix:** do x') // ...including a legit line that mentions a fix
+  expect(out).toContain('<!-- stupify:abc123 -->') // the dedup marker (starts with <!--, not a dash) survives
 })
 
 test('the no-op token is instructed in the prompt, and adding it kept the prefix stable across PRs', () => {

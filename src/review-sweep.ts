@@ -92,7 +92,7 @@ function loadConfig(): Config {
     diffLineCap: int('DIFF_LINE_CAP', 5000, 1), // generous by design — only skips genuinely huge PRs; override via config.env
     dryRun: bool('DRY_RUN', false, true), // unset = live (cron's normal mode); garbage = preview (never post on a typo)
     maxPrs: int('MAX_PRS', 15, 1),
-    maxReviewsPerDay: int('MAX_REVIEWS_PER_DAY', 40, 0), // spend ceiling; 0 = unlimited. Protects the plan from runaway/backlog bursts
+    maxReviewsPerDay: int('MAX_REVIEWS_PER_DAY', 0, 0), // daily cap; 0 = OFF (default). Per-head dedup + MAX_PRS/sweep + the rate-limit early-exit already bound spend; set a number for a hard daily ceiling.
     failRetryMs: int('FAIL_RETRY_MIN', 60, 1) * 60_000, // after a failed review, don't re-attempt that head for this long
     stateDir,
     codexEffort: pick('CODEX_EFFORT', 'high'),
@@ -316,16 +316,14 @@ const diffLineCount = (diff: string): number => (diff ? diff.split('\n').length 
 // no fail marker; they're throttled via local state instead.
 const markFor = (pr: Pr): string => `<!-- stupify:${pr.headRefOid} -->`
 
-// codex writes EXACTLY this token to the review file when it finds nothing new (instead of a paraphrased note),
-// so the runner can RELIABLY tell "clean" from a real review and stop re-posting the same note on every head —
-// the model demonstrably paraphrases the human one-liner, so matching its prose is not a contract.
+// codex writes EXACTLY this token to the review file when it finds nothing new, so the runner can converge to
+// silence instead of re-posting a clean note every head. Detection is token-ONLY (formatting stripped): anything
+// with real content is posted as a review. We deliberately do NOT infer "clean" from the absence of finding
+// markers — that once let a real-but-oddly-formatted review get silently overwritten with "LGTM ✅", and a
+// reviewer must fail toward SURFACING findings, never toward hiding them. If the model paraphrases instead of
+// emitting the token, its note gets posted (visible, fixable) rather than swallowed.
 export const NOOP_TOKEN = 'STUPIFY_NO_NEW_ISSUES'
-// Backstop for when codex paraphrases instead of emitting the token: a real finding block always carries a
-// severity emoji (🔴/🟠/🟡), a `· conf` score, and a `→ Fix:` line (the spec's Comment format). None of those ⇒
-// nothing was flagged. Belt-and-suspenders so a model slip degrades to "stay quiet", never to spam.
-const hasFindings = (review: string): boolean =>
-  /[\u{1F534}\u{1F7E0}\u{1F7E1}]/u.test(review) || /→ Fix:/.test(review) || /·\s*conf\b/i.test(review)
-export const isNoopReview = (review: string): boolean => review === NOOP_TOKEN || !hasFindings(review)
+export const isNoopReview = (review: string): boolean => review.replace(/[`*\s]/g, '') === NOOP_TOKEN // strip markdown/whitespace wrappers, NOT the token's own underscores
 
 // The hidden tag the runner stamps on its convergence note, so a later sweep recognizes "we already went clean
 // here" and stays silent instead of re-posting. The note carries the head marker too (for normal per-head dedup).
@@ -335,6 +333,17 @@ const noopTag = '<!-- stupify:noop -->'
 // PR; "no new blocking issues" only once there were prior findings to clear (saying "no NEW" implies a prior).
 export const noopNote = (pr: Pr, firstReview: boolean): string =>
   `${firstReview ? 'LGTM ✅' : 'no new blocking issues ✅'}\n${noopTag}\n${markFor(pr)}\n`
+
+// The spec says "no sign-off", but model adherence isn't a guarantee — so the runner strips any attribution line
+// before posting. A posted review never carries a `— stupify` / "good-code corpus" signature (the bot author
+// already shows it's the auto-reviewer). The hidden `<!-- stupify:… -->` marker starts with `<!--`, not a dash,
+// so it's never matched. Belt to the spec's suspenders.
+export const stripSignoff = (review: string): string =>
+  review
+    .split('\n')
+    .filter((line) => !/against the good-code corpus/i.test(line) && !/^\s*_*\s*[—–-]\s*(stupify|codex)\b/i.test(line))
+    .join('\n')
+    .trimEnd()
 
 /** Per-VM record of PRs we tried and FAILED (number → {head, at}). Since failures are NEVER posted to the PR (that
  *  was operator noise), this local file is how a sweep avoids re-running codex on the same failing head every
@@ -517,8 +526,9 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, lastPo
     return 'noop'
   }
 
-  // A real review with findings — guarantee the head marker (so dedup is reliable even if codex forgot), then POST.
-  writeFileSync(outPath, `${review.includes(mark) ? review : `${review}\n${mark}`}\n`)
+  // A real review — strip any sign-off the model slipped in (spec says none), guarantee the head marker, then POST.
+  const body = stripSignoff(review)
+  writeFileSync(outPath, `${body.includes(mark) ? body : `${body}\n${mark}`}\n`)
   if (!exec('gh', ['pr', 'comment', String(pr.number), '--repo', cfg.slug, '--body-file', outPath]).ok) {
     log(`  couldn't post #${pr.number} (gh down?) — leaving it unmarked so the next sweep retries`)
     return null
