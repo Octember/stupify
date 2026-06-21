@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, FIXED_TOKEN, fixedNote, isFixedReview, isNoopReview, isRateLimited, lgtmNote, NOOP_TOKEN, type Pr, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
+import { type Config, diffRightLines, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -115,22 +115,13 @@ test('isNoopReview: ONLY the exact token converges; a paraphrase or a finding is
   expect(isNoopReview(finding)).toBe(false)
 })
 
-// The fixed token is the OTHER no-content signal: codex's prior findings are now resolved. The runner turns it into
-// a one-time "nice, all fixed ✅" (gated on there having been open findings); "nothing new" stays silent.
-test('isFixedReview and fixedNote: the resolved signal is distinct from "nothing new"', () => {
+// The fixed token is the OTHER no-content signal (prior findings resolved → runner resolves the threads), distinct
+// from "nothing new". They must never be interchangeable.
+test('isFixedReview vs isNoopReview: the resolved signal is distinct from "nothing new"', () => {
   expect(isFixedReview(FIXED_TOKEN)).toBe(true)
   expect(isFixedReview('`STUPIFY_FIXED`')).toBe(true)
-  expect(isFixedReview(NOOP_TOKEN)).toBe(false) // the two tokens are not interchangeable
+  expect(isFixedReview(NOOP_TOKEN)).toBe(false)
   expect(isNoopReview(FIXED_TOKEN)).toBe(false)
-  const note = fixedNote(pr(7, 'd'.repeat(40)))
-  expect(note).toContain('nice, all fixed ✅') // the ✅ is honest here — the issues are actually fixed
-  expect(note).toContain(`<!-- stupify:${'d'.repeat(40)} -->`) // head marker for dedup
-})
-
-test('lgtmNote: the first-pass all-clear carries the head marker', () => {
-  const note = lgtmNote(pr(7, 'e'.repeat(40)))
-  expect(note).toContain('LGTM ✅') // posted once on a genuinely-clean PR stupify has never flagged
-  expect(note).toContain(`<!-- stupify:${'e'.repeat(40)} -->`)
 })
 
 
@@ -160,6 +151,48 @@ test('the no-op token is instructed in the prompt, and adding it kept the prefix
   // The token text is static (spec + tail), so it does NOT thrash the cache: the prefix is still byte-identical
   // across every PR (the dedicated cache-invariant test above proves size===1). Belt here: no per-PR drift.
   expect(prefixes[0]).toBe(prefixes[2])
+})
+
+// Inline review comments can only anchor to RIGHT-side lines the diff actually touches — get this wrong and the
+// whole review 422s. Added + context lines count; the removed line's number does not.
+test('diffRightLines: anchorable lines are the new-file added/context lines', () => {
+  const diff = [
+    'diff --git a/src/x.ts b/src/x.ts',
+    'index a..b 100644',
+    '--- a/src/x.ts',
+    '+++ b/src/x.ts',
+    '@@ -10,3 +10,4 @@ function foo() {',
+    ' const a = 1',
+    '-const b = 2',
+    '+const b = 3',
+    '+const c = 4',
+    ' return a',
+  ].join('\n')
+  const lines = diffRightLines(diff)
+  expect([...(lines.get('src/x.ts') ?? new Set())].sort((a, b) => a - b)).toEqual([10, 11, 12, 13])
+})
+
+// codex's markdown review parses back into per-line findings (so each becomes an anchored thread) plus the opener.
+test('parseFindings: opener + per-line findings, marker stripped', () => {
+  const review = [
+    'oof, a couple things 👇',
+    '',
+    '🟡 **`src/x.ts:30`** · slop · conf 0.86',
+    'speculative seam',
+    '**→ Fix:** inline it (`a.ts`)',
+    '',
+    '🔴 **`src/y.ts:5`** · bug · conf 0.9',
+    'breaks on empty',
+    '**→ Fix:** guard it',
+    '<!-- stupify:abc123 -->',
+  ].join('\n')
+  const { opener, findings } = parseFindings(review)
+  expect(opener).toBe('oof, a couple things 👇')
+  expect(findings).toHaveLength(2)
+  expect(findings[0]).toMatchObject({ path: 'src/x.ts', line: 30 })
+  expect(findings[0]?.body).toContain('speculative seam')
+  expect(findings[1]).toMatchObject({ path: 'src/y.ts', line: 5 })
+  expect(findings[1]?.body).not.toContain('<!-- stupify') // the marker codex tacked on is dropped from the thread body
 })
 
 // Plan-exhaustion ends the sweep early (spend control); a normal review failure does not.
