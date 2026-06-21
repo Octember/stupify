@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, diffRightLines, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
+import { type Config, dismissedFindings, diffRightLines, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -122,6 +122,26 @@ test('isFixedReview vs isNoopReview: the resolved signal is distinct from "nothi
   expect(isFixedReview('`STUPIFY_FIXED`')).toBe(true)
   expect(isFixedReview(NOOP_TOKEN)).toBe(false)
   expect(isNoopReview(FIXED_TOKEN)).toBe(false)
+})
+
+// Re-raise on silent dismissal: a finding the author RESOLVED without replying isn't a reasoned decline. We detect
+// it from the threads we already fetch — every stupify finding carries the hidden tag, a human reply doesn't — so
+// "tagged comment, no untagged one, resolved" is the signal. A reply (reasoned decline) or an open thread is left be.
+test('dismissedFindings: resolved + stupify-only → dismissed; with a human reply → settled; open → neither', () => {
+  const TAG = '<!-- stupify -->'
+  const finding = '🟠 **`src/x.ts:30`** · bug · conf 0.8\nit breaks\n**→ Fix:** reuse (`src/y.ts`)'
+  const thread = (isResolved: boolean, bodies: string[]) => ({ isResolved, comments: { nodes: bodies.map((body) => ({ body })) } })
+  const ours = `${finding}\n${TAG}`
+  const reply = 'nah — intentional, see the PR body'
+  const out = dismissedFindings([
+    thread(true, [ours]), // resolved, no reply → silently dismissed
+    thread(true, [ours, reply]), // resolved WITH a reply → reasoned decline, leave it
+    thread(false, [ours]), // still open → not dismissed (it's in openThreadIds instead)
+    thread(true, [reply]), // a resolved thread that isn't even ours → ignore
+  ])
+  expect(out.length).toBe(1)
+  expect(out[0]).toContain('src/x.ts:30')
+  expect(out[0]).not.toContain(TAG) // the hidden tag is stripped before the finding goes back to codex
 })
 
 // The sweep lock steals a held lock only when the holder is dead. pidAlive must answer that without throwing on a
