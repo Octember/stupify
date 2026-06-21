@@ -628,6 +628,24 @@ function run(dry: boolean): void {
   process.exit(r.status ?? 1)
 }
 
+// `stupify review <pr-url | owner/repo#123 | #123>` — review ONE PR on demand via the bundled engine (no `setup`
+// needed, just taste). Prints the review to stdout; `--post` comments it on the PR. A bare `#123` resolves against
+// the repo you're standing in.
+function cmdReview(ref: string | undefined, post: boolean): void {
+  if (!ref) die('usage: stupify review <pr-url | owner/repo#123 | #123> [--post]')
+  let target = ref
+  if (/^#?\d+$/.test(ref)) {
+    const repo = detectRepo()
+    if (!repo) die(`'${ref}' is just a number — run this inside the target repo, or pass owner/repo#${ref.replace(/^#/, '')}`)
+    target = `${repo}#${ref.replace(/^#/, '')}`
+  }
+  const engine = join(PKG_DIR, 'review-sweep.ts') // the bundled engine, run directly — review needs no install
+  // STUPIFY_HOME points the engine at ~/.stupify (assembled home taste + logs), not the package's own src/ dir.
+  const env = { ...process.env, STUPIFY_HOME: HOME, REVIEW_PR: target, ...(post ? { REVIEW_POST: '1' } : {}) }
+  const r = spawnSync(stableBun(), [engine], { stdio: 'inherit', env })
+  process.exit(r.status ?? 1)
+}
+
 // --- provision: spin up an exe.dev VM that runs stupify, from your laptop ---
 
 function exe(args: string[], input = ''): { ok: boolean; out: string } {
@@ -856,6 +874,7 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify <owner/repo>    provision for a specific repo
   stupify setup [repo]    install on THIS machine instead of provisioning a VM
   stupify run [--dry]     run one review sweep now (where stupify is installed)
+  stupify review <pr> [--post]  review ONE pull request on demand (a URL or owner/repo#123); prints it, --post comments it
   stupify taste [--pack a,b]  borrow a taste pack (assembles ~/.stupify/.review); packs below
   stupify init [files…]       encode YOUR OWN taste: scaffold .review/ from your best files in this repo
   stupify prime --install     prime Claude Code + Codex with your taste every session (SessionStart hook)
@@ -906,6 +925,8 @@ if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
   else die('`stupify prime --install` to wire it up (or `--uninstall`). The hook itself runs ~/.stupify/prime.ts directly.')
 } else if (cmd === 'run') {
   run(args.includes('--dry'))
+} else if (cmd === 'review') {
+  cmdReview(positional[1], args.includes('--post'))
 } else if (cmd === 'setup') {
   await setup({ repo: positional[1], host, codexHost, yes, pack })
 } else {

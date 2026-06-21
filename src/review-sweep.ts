@@ -74,7 +74,8 @@ function loadConfig(): Config {
   LOG = join(stateDir, 'sweep.log') // set before parsing knobs so config warnings reach sweep.log, not just cron.log
 
   const slug = pick('REPO_SLUG', '').trim()
-  if (!slug) {
+  if (!slug && !process.env.REVIEW_PR) {
+    // `stupify review <pr>` carries the repo in the PR ref, so it doesn't need a configured REPO_SLUG; the sweep does.
     log('config: REPO_SLUG is required (owner/repo) — aborting. Run `stupify setup` to install locally.')
     process.exit(1)
   }
@@ -415,9 +416,15 @@ function bumpDaily(cfg: Config, daily: { date: string; count: number }): void {
   }
 }
 
-// codex's sandbox only allows writes under /tmp, so the review file lives there — but key it by repo slug so two
-// stupify instances reviewing same-numbered PRs in different repos on one machine never clobber each other.
-const reviewOutPath = (cfg: Config, pr: Pr): string => `/tmp/stupify-${cfg.slug.replace(/\//g, '-')}-${pr.number}.md`
+// codex's sandbox only allows writes under /tmp, so the review file lives there — keyed by a HASH of the repo slug,
+// not the slug itself, so two repos with the same PR number never clobber AND the path has no real words for codex
+// to "helpfully" autocorrect (it once rewrote an `Octember/…` path to `October/…` and the handoff silently broke).
+const slugKey = (slug: string): string => {
+  let h = 5381
+  for (let i = 0; i < slug.length; i++) h = ((h << 5) + h + slug.charCodeAt(i)) >>> 0
+  return h.toString(36)
+}
+const reviewOutPath = (cfg: Config, pr: Pr): string => `/tmp/stupify-review-${pr.number}-${slugKey(cfg.slug)}.md`
 
 /** The taste prefix: instructions + the spec, rubric, and the FULL corpus (code inlined verbatim). It's
  *  byte-identical for every PR in a repo, so it forms a stable prompt PREFIX the provider caches across diff
@@ -471,17 +478,25 @@ The runner posts that file for you — do NOT run gh. Keep it terse; no preamble
 ${diff}`
 }
 
-/** Run one review. Returns the tokens used on a posted findings review, `'noop'` when codex found nothing new
- *  (the runner posts the convergence note ONCE, then stays silent — `lastPostedWasNoop` is how it knows it
- *  already converged here), `'limit'` on plan exhaustion, or null when codex couldn't produce a review (logged,
- *  never posted — the caller throttles retries). The runner — not codex — does ALL gh I/O, and codex runs with NO
- *  network, so a prompt-injected diff/thread can at worst make it write a junk review file: it cannot exfiltrate,
- *  touch the gh token, or run commands. */
-function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, lastPostedWasNoop: boolean, firstReview: boolean): number | 'limit' | 'noop' | null {
-  const mark = markFor(pr)
+// Resolve a `.review/` that has the full taste set (spec + rubric + corpus). Both the sweep and `stupify review`
+// gate on it; a partial dir (e.g. CORPUS without the spec) reads as absent so the caller falls back cleanly.
+const hasMachinery = (dir: string): boolean =>
+  existsSync(join(dir, 'CORPUS.md')) && existsSync(join(dir, 'REVIEW-PROMPT.md')) && existsSync(join(dir, 'RUBRIC.md'))
+
+/** The outcome of running codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
+ *  the ad-hoc `stupify review` prints it or `--post`s it. */
+export type ReviewOutcome =
+  | { kind: 'limit'; reason: string } // plan/credit exhaustion — the caller should STOP, not retry every PR
+  | { kind: 'fail'; reason: string } // codex couldn't produce a review (down, timeout, wrote nothing)
+  | { kind: 'noop'; tokens: number | null } // codex emitted the no-new-issues token
+  | { kind: 'review'; text: string; tokens: number | null } // a real review, sign-off already stripped (no marker yet)
+
+/** Run codex over one PR's diff and classify the result. Does NO gh I/O and NO posting — codex runs sandboxed with
+ *  no network of its own and /tmp-only writes, so a prompt-injected diff can at worst make it write a junk review
+ *  file: it cannot exfiltrate, touch the gh token, or run commands. Callers decide what to do with the outcome. */
+export function runReview(cfg: Config, pr: Pr, priorThread: string, diff: string): ReviewOutcome {
   const outPath = reviewOutPath(cfg, pr)
-  log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)}`)
-  rmSync(outPath, { force: true }) // clear any stale file so we never post a previous run's review
+  rmSync(outPath, { force: true }) // clear any stale file so we never read a previous run's review
   const codexArgs = [
     'exec',
     '--cd',
@@ -491,7 +506,7 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, lastPo
     '-c',
     `model_reasoning_effort=${cfg.codexEffort}`,
     '-c',
-    'sandbox_workspace_write.network_access=false', // locked down: the diff is in the prompt; the runner owns all gh I/O
+    'sandbox_workspace_write.network_access=false', // locked down: the diff is in the prompt; the caller owns all gh I/O
     '-c',
     'sandbox_workspace_write.writable_roots=["/tmp"]',
   ]
@@ -501,22 +516,31 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, lastPo
 
   const cx = exec('codex', codexArgs, { cwd: cfg.repoDir, timeoutMs: 1_200_000, input: reviewPrompt(cfg, pr, priorThread, diff) })
   appendFileSync(LOG, `${cx.combined}\n`)
-
   const review = cx.ok && existsSync(outPath) ? readFileSync(outPath, 'utf8').trim() : ''
-
-  // Codex couldn't produce a review (provider down, usage limit, timeout, wrote nothing). This is an OPERATOR
-  // problem the PR author can't act on, so we do NOT comment on the PR — "couldn't review" notes are pure noise on
-  // someone's thread (and used to pile up). Log it for the operator; the caller throttles re-attempts via local
-  // state so a persistently-failing PR isn't re-run every sweep. Only real reviews ever reach the PR.
   if (review.length === 0) {
-    log(`  review FAILED for #${pr.number} — ${failureReason(cx.combined)}`)
-    return isRateLimited(cx.combined) ? 'limit' : null // 'limit' tells the sweep to STOP — the rest will fail the same way
+    const reason = failureReason(cx.combined)
+    return isRateLimited(cx.combined) ? { kind: 'limit', reason } : { kind: 'fail', reason }
   }
+  const tokens = parseTokens(cx.combined)
+  if (isNoopReview(review)) return { kind: 'noop', tokens }
+  return { kind: 'review', text: stripSignoff(review), tokens } // strip any sign-off the model slipped in (spec says none)
+}
 
+/** Run one SWEEP review and act on it: post findings, converge to the ✅ note once, or stay silent. Returns tokens
+ *  on a posted review, 'noop' when clean, 'limit' on exhaustion, or null on a failure the caller throttles. Only
+ *  real reviews ever reach the PR — failures are logged for the operator, never posted (that was noise). */
+function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, lastPostedWasNoop: boolean, firstReview: boolean): number | 'limit' | 'noop' | null {
+  const mark = markFor(pr)
+  const outPath = reviewOutPath(cfg, pr)
+  log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)}`)
+  const r = runReview(cfg, pr, priorThread, diff)
+  if (r.kind === 'limit' || r.kind === 'fail') {
+    log(`  review FAILED for #${pr.number} — ${r.reason}`)
+    return r.kind === 'limit' ? 'limit' : null // 'limit' tells the sweep to STOP — the rest will fail the same way
+  }
   // Nothing new: converge to SILENCE. Post the ✅ note the FIRST time a PR goes clean, then stay quiet on later
-  // clean heads (a new finding re-arms it). Re-posting it on every head was the spam. Either way the caller records
-  // this head in local state so the next sweep doesn't re-run codex on an unchanged, already-converged head.
-  if (isNoopReview(review)) {
+  // clean heads (a new finding re-arms it). The caller records the head either way so we don't re-run codex on it.
+  if (r.kind === 'noop') {
     if (lastPostedWasNoop) {
       log(`  #${pr.number} still clean — staying quiet (already converged)`)
       return 'noop'
@@ -529,17 +553,78 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, lastPo
     log(`  #${pr.number} converged — posted ✅ once`)
     return 'noop'
   }
-
-  // A real review — strip any sign-off the model slipped in (spec says none), guarantee the head marker, then POST.
-  const body = stripSignoff(review)
-  writeFileSync(outPath, `${body.includes(mark) ? body : `${body}\n${mark}`}\n`)
+  // A real review — guarantee the head marker (so dedup is reliable even if codex forgot), then POST.
+  writeFileSync(outPath, `${r.text.includes(mark) ? r.text : `${r.text}\n${mark}`}\n`)
   if (!exec('gh', ['pr', 'comment', String(pr.number), '--repo', cfg.slug, '--body-file', outPath]).ok) {
     log(`  couldn't post #${pr.number} (gh down?) — leaving it unmarked so the next sweep retries`)
     return null
   }
-  const tokens = parseTokens(cx.combined)
-  log(`  #${pr.number} done (${tokens ?? '?'} tokens)`)
-  return tokens ?? 0
+  log(`  #${pr.number} done (${r.tokens ?? '?'} tokens)`)
+  return r.tokens ?? 0
+}
+
+/** `stupify review <pr>` — review ONE pull request on demand (no cron, no checkout) and print it, or `--post` it.
+ *  Reviews from the inlined diff with a FRESH perspective (no prior-review memory), so you always get the full take.
+ *  Accepts a PR URL or `owner/repo#123` (the CLI resolves a bare `#123` against the cwd repo before calling here). */
+function reviewOne(cfg: Config, ref: string, post: boolean): void {
+  const url = ref.match(/github\.com\/([^/\s]+\/[^/\s]+)\/(?:pull|issues)\/(\d+)/i)
+  const short = ref.match(/^([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)[#/](\d+)$/)
+  const slug = url?.[1] ?? short?.[1] ?? ''
+  const number = Number(url?.[2] ?? short?.[2] ?? 0)
+  if (!slug || !number) {
+    console.error(`stupify review: couldn't parse '${ref}'. Pass a PR URL or owner/repo#123.`)
+    process.exit(1)
+  }
+  cfg.slug = slug
+  // Taste: this repo's own .review/ if you're standing in it, else the home taste the CLI assembled from packs.
+  const cwdReview = join(process.cwd(), '.review')
+  cfg.reviewDir = hasMachinery(cwdReview) ? cwdReview : cfg.homeReviewDir
+  if (!hasMachinery(cfg.reviewDir)) {
+    console.error('stupify review: no taste found. Run `stupify taste` (or add a .review/ to this repo) first.')
+    process.exit(1)
+  }
+  // No checkout for an ad-hoc review — codex reviews from the inlined diff. Run it in the current directory (codex
+  // needs a real workspace to operate in); if you're standing in the target repo it gets useful file context for free.
+  cfg.repoDir = process.cwd()
+  const head = exec('gh', ['pr', 'view', String(number), '--repo', slug, '--json', 'headRefOid'])
+  if (!head.ok) {
+    console.error(`stupify review: couldn't read ${slug}#${number} via gh (auth? does it exist?).`)
+    process.exit(1)
+  }
+  let headRefOid = ''
+  try {
+    headRefOid = (JSON.parse(head.stdout) as { headRefOid?: string }).headRefOid ?? ''
+  } catch {
+    /* the marker just won't carry a real SHA — harmless for a one-off */
+  }
+  const pr: Pr = { number, headRefOid, isDraft: false, author: { login: '', is_bot: false }, labels: [] }
+  const diff = getDiff(cfg, number)
+  if (diff === null) {
+    console.error(`stupify review: couldn't fetch the diff for ${slug}#${number}.`)
+    process.exit(1)
+  }
+  console.error(`reviewing ${slug}#${number} …`) // progress on stderr; stdout stays just the review
+  const r = runReview(cfg, pr, '', diff) // no memory: a manual review is always a fresh, full take
+  if (r.kind === 'limit' || r.kind === 'fail') {
+    console.error(`stupify review: ${r.kind === 'limit' ? 'codex is out of credits / rate-limited' : "codex couldn't produce a review"} — ${r.reason}`)
+    process.exit(1)
+  }
+  if (r.kind === 'noop') {
+    console.log('LGTM ✅  (no blocking issues)')
+    return
+  }
+  if (!post) {
+    console.log(r.text)
+    return
+  }
+  const outPath = reviewOutPath(cfg, pr)
+  const mark = markFor(pr)
+  writeFileSync(outPath, `${r.text.includes(mark) ? r.text : `${r.text}\n${mark}`}\n`)
+  if (!exec('gh', ['pr', 'comment', String(number), '--repo', slug, '--body-file', outPath]).ok) {
+    console.error('stupify review: the review ran but posting it failed (gh).')
+    process.exit(1)
+  }
+  console.log(`posted to ${slug}#${number} ✅`)
 }
 
 // Plan/credit/gateway exhaustion (vs a one-off bad review). When the whole plan is tapped EVERY remaining PR will
@@ -596,6 +681,8 @@ function acquireLock(path: string): boolean {
 
 function main(): void {
   const cfg = loadConfig() // also mkdirs stateDir and sets LOG, so config warnings are already captured
+  const ref = process.env.REVIEW_PR
+  if (ref) return reviewOne(cfg, ref, process.env.REVIEW_POST === '1') // `stupify review <pr>` — one-shot, no sweep/lock/checkout
 
   const lockPath = join(cfg.stateDir, 'sweep.lock')
   if (!acquireLock(lockPath)) {
@@ -615,8 +702,6 @@ function main(): void {
   // home taste the CLI assembled from packs (~/.stupify/.review). Either way cfg.reviewDir becomes ABSOLUTE.
   // Select on the FULL 3-file set, not just CORPUS.md — a partial repo .review/ (e.g. CORPUS without the spec)
   // then gracefully falls back to the home taste instead of being picked and dead-ending at "no machinery".
-  const hasMachinery = (d: string) =>
-    existsSync(join(d, 'CORPUS.md')) && existsSync(join(d, 'REVIEW-PROMPT.md')) && existsSync(join(d, 'RUBRIC.md'))
   const repoReview = join(cfg.repoDir, cfg.reviewDir)
   cfg.reviewDir = hasMachinery(repoReview) ? repoReview : cfg.homeReviewDir
   if (!hasMachinery(cfg.reviewDir)) {
