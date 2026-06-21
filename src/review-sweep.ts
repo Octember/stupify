@@ -326,14 +326,6 @@ const markFor = (pr: Pr): string => `<!-- stupify:${pr.headRefOid} -->`
 export const NOOP_TOKEN = 'STUPIFY_NO_NEW_ISSUES'
 export const isNoopReview = (review: string): boolean => review.replace(/[`*\s]/g, '') === NOOP_TOKEN // strip markdown/whitespace wrappers, NOT the token's own underscores
 
-// The hidden tag the runner stamps on its convergence note, so a later sweep recognizes "we already went clean
-// here" and stays silent instead of re-posting. The note carries the head marker too (for normal per-head dedup).
-const noopTag = '<!-- stupify:noop -->'
-// The convergence note the runner posts ONCE when a PR goes clean (then it stays quiet until a new finding
-// re-arms it). No sign-off — the bot author already shows it's the auto-reviewer. "LGTM" on a first-pass-clean
-// PR; "no new blocking issues" only once there were prior findings to clear (saying "no NEW" implies a prior).
-export const noopNote = (pr: Pr, firstReview: boolean): string =>
-  `${firstReview ? 'LGTM ✅' : 'no new blocking issues ✅'}\n${noopTag}\n${markFor(pr)}\n`
 
 // The spec says "no sign-off", but model adherence isn't a guarantee — so the runner strips any attribution line
 // before posting. A posted review never carries a `— stupify` / "good-code corpus" signature (the bot author
@@ -526,10 +518,11 @@ export function runReview(cfg: Config, pr: Pr, priorThread: string, diff: string
   return { kind: 'review', text: stripSignoff(review), tokens } // strip any sign-off the model slipped in (spec says none)
 }
 
-/** Run one SWEEP review and act on it: post findings, converge to the ✅ note once, or stay silent. Returns tokens
- *  on a posted review, 'noop' when clean, 'limit' on exhaustion, or null on a failure the caller throttles. Only
- *  real reviews ever reach the PR — failures are logged for the operator, never posted (that was noise). */
-function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, lastPostedWasNoop: boolean, firstReview: boolean): number | 'limit' | 'noop' | null {
+/** Run one SWEEP review and act on it: post findings, or stay SILENT when there's nothing new. Returns tokens on a
+ *  posted review, 'noop' when clean, 'limit' on exhaustion, or null on a failure the caller throttles. Only real
+ *  findings ever reach the PR — a clean result and a failure are both logged for the operator, never posted: a
+ *  "nothing new" note is pure noise on the thread (and a ✅ next to still-open findings reads as a false approval). */
+function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string): number | 'limit' | 'noop' | null {
   const mark = markFor(pr)
   const outPath = reviewOutPath(cfg, pr)
   log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)}`)
@@ -538,19 +531,8 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, lastPo
     log(`  review FAILED for #${pr.number} — ${r.reason}`)
     return r.kind === 'limit' ? 'limit' : null // 'limit' tells the sweep to STOP — the rest will fail the same way
   }
-  // Nothing new: converge to SILENCE. Post the ✅ note the FIRST time a PR goes clean, then stay quiet on later
-  // clean heads (a new finding re-arms it). The caller records the head either way so we don't re-run codex on it.
   if (r.kind === 'noop') {
-    if (lastPostedWasNoop) {
-      log(`  #${pr.number} still clean — staying quiet (already converged)`)
-      return 'noop'
-    }
-    writeFileSync(outPath, noopNote(pr, firstReview))
-    if (!exec('gh', ['pr', 'comment', String(pr.number), '--repo', cfg.slug, '--body-file', outPath]).ok) {
-      log(`  couldn't post #${pr.number} convergence note (gh down?) — will retry next sweep`)
-      return null
-    }
-    log(`  #${pr.number} converged — posted ✅ once`)
+    log(`  #${pr.number} nothing new — staying silent`) // the caller records the head so we don't re-run codex on it
     return 'noop'
   }
   // A real review — guarantee the head marker (so dedup is reliable even if codex forgot), then POST.
@@ -740,11 +722,6 @@ function main(): void {
       log(`skip #${pr.number} — couldn't read it from gh (failed/malformed); will retry next sweep`)
       continue
     }
-    // Our prior review comments (marker-bearing), trusted from OUR login when known. The LAST one tells us whether
-    // we already converged here: if it carries the noop tag, a fresh no-op should stay silent, not re-post.
-    const ourReviews = self ? comments.filter((c) => c.login === self && c.body.includes('<!-- stupify:')) : comments.filter((c) => c.body.includes('<!-- stupify:'))
-    const lastPostedWasNoop = ourReviews.at(-1)?.body.includes(noopTag) ?? false
-    const firstReview = ourReviews.length === 0 // no prior stupify comment → a clean verdict is "LGTM", not "no NEW issues"
     // Already reviewed THIS head? A posted review leaves a thread marker (durable, survives VM recreation); a
     // SUPPRESSED no-op posts nothing, so it's caught by local state instead. Either skip — don't re-run codex.
     const reviewedHead =
@@ -782,7 +759,7 @@ function main(): void {
       continue
     }
 
-    const used = reviewPr(cfg, pr, priorReviewThread(comments), diff, lastPostedWasNoop, firstReview)
+    const used = reviewPr(cfg, pr, priorReviewThread(comments), diff)
     if (used === 'limit') {
       log('codex plan is rate-limited — ending this sweep early (the rest would fail the same way); retries next sweep')
       recordFailure(cfg, failures, pr) // throttle this head too so the next sweep doesn't immediately re-hit the wall

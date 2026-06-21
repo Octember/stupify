@@ -68,8 +68,9 @@ real fix for "don't spam me" is **memory**, not delay:
   and passes the recent thread (bounded to the last 20) into the prompt as *"your past reviews and the author's
   replies."*
 - The prompt's **"Prior reviews on this PR"** rules tell the model: don't re-raise resolved or
-  reasoned-declined items, report only what's genuinely new, and if nothing new remains post the one-line
-  `no new blocking issues — prior items addressed ✅` and stop.
+  reasoned-declined items, and report only what's genuinely new. If nothing new remains it emits the
+  `STUPIFY_NO_NEW_ISSUES` token and the runner posts **nothing** — a "nothing new" note is pure noise (and a ✅
+  next to still-open findings reads as a false approval). Silence means clean; a comment always means a finding.
 
 The GitHub thread **is** the memory store. It survives restarts, and it already contains the author's replies
 (a separate state file wouldn't). With memory, a mid-burst re-review *sees its prior reviews and converges*
