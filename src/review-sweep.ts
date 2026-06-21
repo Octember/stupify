@@ -331,9 +331,8 @@ export const isNoopReview = (review: string): boolean => review === NOOP_TOKEN |
 // here" and stays silent instead of re-posting. The note carries the head marker too (for normal per-head dedup).
 const noopTag = '<!-- stupify:noop -->'
 // The convergence note the runner posts ONCE when a PR goes clean (then it stays quiet until a new finding
-// re-arms it). The runner renders this, not codex, so the wording and attribution are consistent.
-export const noopNote = (pr: Pr): string =>
-  `no new blocking issues ✅\n\n_— stupify, against the good-code corpus_\n${noopTag}\n${markFor(pr)}\n`
+// re-arms it). No sign-off — the bot author already shows it's the auto-reviewer.
+export const noopNote = (pr: Pr): string => `no new blocking issues ✅\n${noopTag}\n${markFor(pr)}\n`
 
 /** Per-VM record of PRs we tried and FAILED (number → {head, at}). Since failures are NEVER posted to the PR (that
  *  was operator noise), this local file is how a sweep avoids re-running codex on the same failing head every

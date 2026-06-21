@@ -53,7 +53,7 @@ past reviews and the author's replies. You are CONTINUING that thread, not start
   - line 2: what's wrong and why (1–2 sentences, plain — describe the code, don't scold)
   - line 3: `**→ Fix:** <corpus primitive to reuse, or the correct approach> (`<reference file>`)`
 - Severity emoji: 🔴 high · 🟠 med · 🟡 low.
-- Close with a quiet attribution on its own line so it's clearly the auto-reviewer, not a person:
-  `_— stupify, against the good-code corpus_`
+- **No sign-off and no attribution line.** Don't end with `— stupify` or "against the good-code corpus" or any
+  signature — the comment's bot author already makes clear it's the auto-reviewer. Stop after the last finding.
 - No tables, no nested bullets, no preamble before the opener. End the comment with the exact hidden marker
   line you were given.
