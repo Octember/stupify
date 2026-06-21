@@ -71,8 +71,10 @@ real fix for "don't spam me" is **memory**, not delay:
   reasoned-declined items, and report only what's genuinely new. When there's no new finding it emits one of two
   tokens: `STUPIFY_FIXED` if the issues it raised earlier are now resolved by the diff (the runner posts a
   one-time **"nice, all fixed ✅"**, gated on there having actually been open findings, so it can't repeat or fire
-  on a never-flagged PR), or `STUPIFY_NO_NEW_ISSUES` otherwise (clean first pass, or prior items still open → the
-  runner stays **silent**). A ✅ only ever appears when issues are genuinely fixed; otherwise silence means quiet.
+  on a never-flagged PR), or `STUPIFY_NO_NEW_ISSUES` otherwise (clean, or prior items still open). On that second
+  token the runner posts a one-time **`LGTM ✅`** if it's a clean PR stupify has never flagged (so "reviewed and
+  good" is visible, not indistinguishable from "not run yet"), and stays silent on every other clean head. Every
+  ✅ it posts is honest: a first-pass LGTM has no open findings to belie it, and "all fixed" means actually fixed.
 
 The GitHub thread **is** the memory store. It survives restarts, and it already contains the author's replies
 (a separate state file wouldn't). With memory, a mid-burst re-review *sees its prior reviews and converges*

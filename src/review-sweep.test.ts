@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, FIXED_TOKEN, fixedNote, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, type Pr, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
+import { type Config, FIXED_TOKEN, fixedNote, isFixedReview, isNoopReview, isRateLimited, lgtmNote, NOOP_TOKEN, type Pr, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -109,6 +109,12 @@ test('isFixedReview and fixedNote: the resolved signal is distinct from "nothing
   const note = fixedNote(pr(7, 'd'.repeat(40)))
   expect(note).toContain('nice, all fixed ✅') // the ✅ is honest here — the issues are actually fixed
   expect(note).toContain(`<!-- stupify:${'d'.repeat(40)} -->`) // head marker for dedup
+})
+
+test('lgtmNote: the first-pass all-clear carries the head marker', () => {
+  const note = lgtmNote(pr(7, 'e'.repeat(40)))
+  expect(note).toContain('LGTM ✅') // posted once on a genuinely-clean PR stupify has never flagged
+  expect(note).toContain(`<!-- stupify:${'e'.repeat(40)} -->`)
 })
 
 

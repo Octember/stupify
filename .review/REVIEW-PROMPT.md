@@ -35,10 +35,10 @@ past reviews and the author's replies. You are CONTINUING that thread, not start
   (the file is EXACTLY that token and nothing else), and the runner decides what to do:
   - The issues YOU flagged earlier are now **fixed** by the diff, and nothing new remains → `STUPIFY_FIXED`. The
     runner posts a one-time "nice, all fixed ✅". Only emit this when your prior findings are genuinely resolved.
-  - Otherwise nothing new — a clean first pass, OR prior findings that are still **open/unaddressed** → 
-    `STUPIFY_NO_NEW_ISSUES`. The runner posts **nothing** (silence = quiet). Never claim "fixed"/✅ while the
-    issues still stand, and never write a "looks clean" note — it's noise. Only a real finding or a genuine
-    all-fixed should ever reach the thread.
+  - Otherwise nothing new — a clean diff, OR prior findings that are still **open/unaddressed** →
+    `STUPIFY_NO_NEW_ISSUES`. The runner decides: a one-time `LGTM ✅` on a clean PR it has never flagged, otherwise
+    silence (it will NOT slap a ✅ on a PR whose findings still stand). Never claim "fixed"/✅ yourself, and never
+    write a "looks clean" note — it's noise. Only a real finding ever reaches the thread from YOU.
 
 (No prior-reviews block = this is the first review of this PR; ignore this section.)
 
