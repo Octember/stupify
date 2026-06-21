@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, diffRightLines, FIXED_TOKEN, fixedNote, isFixedReview, isNoopReview, isRateLimited, lgtmNote, NOOP_TOKEN, parseFindings, type Pr, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
+import { type Config, diffRightLines, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -115,22 +115,13 @@ test('isNoopReview: ONLY the exact token converges; a paraphrase or a finding is
   expect(isNoopReview(finding)).toBe(false)
 })
 
-// The fixed token is the OTHER no-content signal: codex's prior findings are now resolved. The runner turns it into
-// a one-time "nice, all fixed ✅" (gated on there having been open findings); "nothing new" stays silent.
-test('isFixedReview and fixedNote: the resolved signal is distinct from "nothing new"', () => {
+// The fixed token is the OTHER no-content signal (prior findings resolved → runner resolves the threads), distinct
+// from "nothing new". They must never be interchangeable.
+test('isFixedReview vs isNoopReview: the resolved signal is distinct from "nothing new"', () => {
   expect(isFixedReview(FIXED_TOKEN)).toBe(true)
   expect(isFixedReview('`STUPIFY_FIXED`')).toBe(true)
-  expect(isFixedReview(NOOP_TOKEN)).toBe(false) // the two tokens are not interchangeable
+  expect(isFixedReview(NOOP_TOKEN)).toBe(false)
   expect(isNoopReview(FIXED_TOKEN)).toBe(false)
-  const note = fixedNote(pr(7, 'd'.repeat(40)))
-  expect(note).toContain('nice, all fixed ✅') // the ✅ is honest here — the issues are actually fixed
-  expect(note).toContain(`<!-- stupify:${'d'.repeat(40)} -->`) // head marker for dedup
-})
-
-test('lgtmNote: the first-pass all-clear carries the head marker', () => {
-  const note = lgtmNote(pr(7, 'e'.repeat(40)))
-  expect(note).toContain('LGTM ✅') // posted once on a genuinely-clean PR stupify has never flagged
-  expect(note).toContain(`<!-- stupify:${'e'.repeat(40)} -->`)
 })
 
 
