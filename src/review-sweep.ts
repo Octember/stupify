@@ -338,12 +338,16 @@ export const noopNote = (pr: Pr, firstReview: boolean): string =>
 // before posting. A posted review never carries a `— stupify` / "good-code corpus" signature (the bot author
 // already shows it's the auto-reviewer). The hidden `<!-- stupify:… -->` marker starts with `<!--`, not a dash,
 // so it's never matched. Belt to the spec's suspenders.
-export const stripSignoff = (review: string): string =>
-  review
-    .split('\n')
-    .filter((line) => !/against the good-code corpus/i.test(line) && !/^\s*_*\s*[—–-]\s*(stupify|codex)\b/i.test(line))
-    .join('\n')
-    .trimEnd()
+export const stripSignoff = (review: string): string => {
+  const lines = review.split('\n')
+  // A sign-off, if present, is the LAST content line. Skip trailing blanks and the hidden marker to find it, then
+  // drop it ONLY if it's a `— stupify` / `— codex` attribution. Anchoring to the tail is the point: every fix is
+  // told to CITE the corpus, so a mid-review mention of "the good-code corpus" must never be scrubbed as a sign-off.
+  let i = lines.length - 1
+  while (i >= 0 && ((lines[i] ?? '').trim() === '' || /^<!--\s*stupify:/.test((lines[i] ?? '').trim()))) i--
+  if (i >= 0 && /^\s*_*\s*[—–-]\s*(?:stupify|codex)\b/i.test(lines[i] ?? '')) lines.splice(i, 1)
+  return lines.join('\n').trimEnd()
+}
 
 /** Per-VM record of PRs we tried and FAILED (number → {head, at}). Since failures are NEVER posted to the PR (that
  *  was operator noise), this local file is how a sweep avoids re-running codex on the same failing head every
@@ -538,9 +542,13 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, lastPo
   return tokens ?? 0
 }
 
-// A usage/rate limit from the Codex plan (vs a one-off bad review). When we hit it, the whole plan is tapped, so the
-// sweep should stop rather than fail every remaining PR — and back off until the next sweep.
-export const isRateLimited = (out: string): boolean => /usage limit|rate limit|too many requests|\b429\b|quota/i.test(out)
+// Plan/credit/gateway exhaustion (vs a one-off bad review). When the whole plan is tapped EVERY remaining PR will
+// fail identically, so the sweep should STOP and back off rather than burn a retry on each. Match the stable
+// signals — HTTP status codes and the provider's own nouns — not one exact sentence that breaks on a reword.
+// Critically this includes the exe-llm 402 "credits exhausted": it was NOT caught before, so a dry gateway failed
+// every PR in the sweep instead of bailing after the first (the source of the 120 same-cause failures in the log).
+export const isRateLimited = (out: string): boolean =>
+  /payment required|credits?\s+exhausted|insufficient\s+(?:credit|quota|balance)|usage limit|rate.?limit|too many requests|\b(?:402|429)\b|quota/i.test(out)
 
 /** codex prints `tokens used` then the count on the next line — read the last such pair. */
 function parseTokens(out: string): number | null {

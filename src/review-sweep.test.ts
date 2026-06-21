@@ -124,6 +124,15 @@ test('stripSignoff removes a model-added attribution line, keeps the findings an
   expect(out).toContain('<!-- stupify:abc123 -->') // the dedup marker (starts with <!--, not a dash) survives
 })
 
+// The anchor matters: stripSignoff must only touch the TRAILING attribution, never a finding that cites the corpus
+// (the spec tells every fix to name the corpus primitive it should reuse).
+test('stripSignoff keeps a mid-review line that mentions the corpus; only a trailing sign-off goes', () => {
+  const cites = '🟠 **`a.ts:1`** · reinvents-primitive · conf 0.8\nrolls its own thing\n**→ Fix:** use the helper — rolling your own goes against the good-code corpus (`x.ts`)\n<!-- stupify:def456 -->'
+  expect(stripSignoff(cites)).toContain('against the good-code corpus') // a cited corpus is NOT a sign-off
+  // ...but a real trailing sign-off after that same content is still removed
+  expect(stripSignoff(`${cites}\n\n— stupify`)).not.toMatch(/—\s*stupify\s*$/)
+})
+
 test('the no-op token is instructed in the prompt, and adding it kept the prefix stable across PRs', () => {
   expect(prompts[0]).toContain(NOOP_TOKEN) // codex is told to emit it for a clean diff
   // The token text is static (spec + tail), so it does NOT thrash the cache: the prefix is still byte-identical
@@ -136,7 +145,10 @@ test('isRateLimited flags plan exhaustion, not ordinary failures', () => {
   expect(isRateLimited("ERROR: You've hit your usage limit. try again at 6:54 PM.")).toBe(true)
   expect(isRateLimited('429 Too Many Requests')).toBe(true)
   expect(isRateLimited('exceeded your quota')).toBe(true)
+  // the exe-llm gateway running dry — must bail the whole sweep, not retry every PR (this used to slip through → 120 dup failures)
+  expect(isRateLimited('unexpected status 402 Payment Required: LLM credits exhausted')).toBe(true)
   expect(isRateLimited('codex: E2BIG: argument list too long')).toBe(false)
+  expect(isRateLimited('request timed out after 408s')).toBe(false) // a one-off timeout is NOT plan exhaustion
   expect(isRateLimited('the diff had no reviewable changes')).toBe(false)
 })
 
