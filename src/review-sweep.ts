@@ -316,6 +316,58 @@ function getDiff(cfg: Config, number: number): string | null {
 
 const diffLineCount = (diff: string): number => (diff ? diff.split('\n').length - (diff.endsWith('\n') ? 1 : 0) : 0)
 
+// Which RIGHT-side (new-file) line numbers a unified diff actually touches, per path — the only lines GitHub lets
+// you anchor an inline review comment to. Added (`+`) and context (` `) lines are anchorable; removed (`-`) lines
+// are LEFT-only and don't advance the right counter. A finding on a line NOT in here can't be a thread, so the
+// runner demotes it into the review body instead of 422-ing the whole review.
+export function diffRightLines(diff: string): Map<string, Set<number>> {
+  const byPath = new Map<string, Set<number>>()
+  let path = ''
+  let right = 0
+  let inHunk = false
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+++ ')) {
+      const p = line.slice(4).trim()
+      path = p.startsWith('b/') ? p.slice(2) : p // b/<path>, or /dev/null for a deletion (no right lines)
+      if (!byPath.has(path)) byPath.set(path, new Set())
+      inHunk = false
+      continue
+    }
+    const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+    if (hunk?.[1] !== undefined) {
+      right = Number(hunk[1])
+      inHunk = true
+      continue
+    }
+    if (!inHunk || !path || path === '/dev/null') continue
+    if (line.startsWith('-') || line.startsWith('\\')) continue // left-only line / "no newline" marker — right doesn't advance
+    if (line.startsWith('+') || line.startsWith(' ')) {
+      byPath.get(path)?.add(right)
+      right++
+    }
+  }
+  return byPath
+}
+
+// codex writes findings as markdown blocks, each opening `<emoji> **`path:line`** · kind · conf N`. Parse them back
+// into {path, line, body} so each can become an inline thread anchored to that line, with the opener (the goofy
+// first line) kept aside for the review body. Token outputs (no-op/fixed) never reach here.
+export type ParsedFinding = { path: string; line: number; body: string }
+export function parseFindings(review: string): { opener: string; findings: ParsedFinding[] } {
+  const header = /^[\u{1F534}\u{1F7E0}\u{1F7E1}] \*\*`([^`]+?):(\d+)`\*\*/gmu
+  const hits = [...review.matchAll(header)]
+  if (hits.length === 0) return { opener: review.trim(), findings: [] }
+  const firstAt = hits[0]?.index ?? 0
+  const opener = review.slice(0, firstAt).trim()
+  const findings: ParsedFinding[] = hits.map((m, i) => {
+    const start = m.index ?? 0
+    const end = hits[i + 1]?.index ?? review.length
+    const body = review.slice(start, end).replace(/<!--[\s\S]*?-->/g, '').trim() // drop any marker codex tacked on
+    return { path: m[1] ?? '', line: Number(m[2] ?? 0), body }
+  })
+  return { opener, findings }
+}
+
 // The hidden marker stupify ends every posted review with, keyed to the head SHA — how a later sweep recognizes a
 // PR it already reviewed AT THIS HEAD (durable dedup, survives VM recreation). Failures aren't posted, so there's
 // no fail marker; they're throttled via local state instead.
