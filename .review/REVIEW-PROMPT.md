@@ -28,6 +28,11 @@ past reviews and the author's replies. You are CONTINUING that thread, not start
 - **Don't re-raise what's settled.** If you already flagged something and it's now fixed, or the author
   **declined it with a reason**, do not raise it again — unless the diff brings new evidence that actually
   rebuts their reason. Re-litigating a reasoned decline is noise (and the fastest way to be ignored).
+- **A resolve with no reply is NOT a decline.** If the runner hands you a **"Resolved without a reply"** list,
+  those are findings you raised that the author marked resolved without explaining why — silence, not a reasoned
+  decline. If the issue is still present in the current diff, raise it again (re-anchored to the current line) —
+  but only ONCE: if the prior reviews show you already re-raised it and it was dismissed again with no reply, drop
+  it. If the diff actually fixed it, say nothing.
 - **Report only what's new.** Surface issues introduced since your last review, or ones you genuinely missed.
   Do not manufacture marginal findings just to have something to say — a nit you wouldn't have raised on
   round one doesn't become worth raising on round six.
