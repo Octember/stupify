@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, isNoopReview, isRateLimited, NOOP_TOKEN, type Pr, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
+import { type Config, FIXED_TOKEN, fixedNote, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, type Pr, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -97,6 +97,18 @@ test('isNoopReview: ONLY the exact token converges; a paraphrase or a finding is
   expect(isNoopReview('ok so. no new ones; those items still stand.')).toBe(false) // a paraphrase must be POSTED, not converged away
   const finding = '🟠 **`src/x.ts:30`** · bug · conf 0.88\nit breaks\n**→ Fix:** reuse the corpus primitive (`src/y.ts`)'
   expect(isNoopReview(finding)).toBe(false)
+})
+
+// The fixed token is the OTHER no-content signal: codex's prior findings are now resolved. The runner turns it into
+// a one-time "nice, all fixed ✅" (gated on there having been open findings); "nothing new" stays silent.
+test('isFixedReview and fixedNote: the resolved signal is distinct from "nothing new"', () => {
+  expect(isFixedReview(FIXED_TOKEN)).toBe(true)
+  expect(isFixedReview('`STUPIFY_FIXED`')).toBe(true)
+  expect(isFixedReview(NOOP_TOKEN)).toBe(false) // the two tokens are not interchangeable
+  expect(isNoopReview(FIXED_TOKEN)).toBe(false)
+  const note = fixedNote(pr(7, 'd'.repeat(40)))
+  expect(note).toContain('nice, all fixed ✅') // the ✅ is honest here — the issues are actually fixed
+  expect(note).toContain(`<!-- stupify:${'d'.repeat(40)} -->`) // head marker for dedup
 })
 
 
