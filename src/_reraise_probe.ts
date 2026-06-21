@@ -5,3 +5,5 @@ export function parsePort(raw: string): number {
 
 // unrelated follow-up push — the parsePort footgun above is deliberately left in place
 export const PROBE_VERSION = 2
+
+export const PROBE_VERSION_3 = 3
