@@ -906,7 +906,10 @@ async function upgrade(repoArg?: string): Promise<void> {
     const dest = `${vmNameFor(repo)}.exe.xyz`
     const s = progress(`upgrading ${dest}`)
     // Run the LATEST published CLI's own `upgrade` on the box — it pulls newest from npm and copies its engine in.
-    const r = spawnSync('ssh', ['-o', 'ConnectTimeout=25', dest, 'bunx @stupify/cli@latest upgrade'], { encoding: 'utf8', timeout: 180_000 })
+    // An exe.dev VM installs bun to ~/.bun/bin but leaves it off the (non-login) ssh PATH — the cron survives by
+    // calling bun via its absolute path — so prepend the standard bun bindir or `bunx` is "command not found".
+    const remote = 'PATH="$HOME/.bun/bin:$PATH" bunx @stupify/cli@latest upgrade'
+    const r = spawnSync('ssh', ['-o', 'ConnectTimeout=25', dest, remote], { encoding: 'utf8', timeout: 180_000 })
     if (r.status !== 0) {
       s.stop(pc.red(`couldn't upgrade ${repo}`))
       die(((r.stderr ?? '') + (r.stdout ?? '')).trim().slice(0, 300) || r.error?.message || `ssh ${dest} exited ${r.status ?? '?'}`)
