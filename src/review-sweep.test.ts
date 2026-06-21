@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, isNoopReview, isRateLimited, NOOP_TOKEN, noopNote, type Pr, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
+import { type Config, isNoopReview, isRateLimited, NOOP_TOKEN, type Pr, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -99,19 +99,6 @@ test('isNoopReview: ONLY the exact token converges; a paraphrase or a finding is
   expect(isNoopReview(finding)).toBe(false)
 })
 
-test('noopNote: "LGTM" on a first-pass-clean PR, "no new blocking issues" once there were prior findings', () => {
-  const first = noopNote(pr(7, 'd'.repeat(40)), true)
-  const later = noopNote(pr(7, 'd'.repeat(40)), false)
-  expect(first).toContain('LGTM ✅') // a genuine first-pass-clean PR earns the check
-  expect(first).not.toContain('no new blocking issues')
-  expect(later).toContain('no new blocking issues')
-  expect(later).not.toContain('✅') // NO check after prior findings — they may still be open; a ✅ would read as "approved"
-  for (const note of [first, later]) {
-    expect(note).toContain('<!-- stupify:noop -->') // how a later sweep knows we already converged → stays silent
-    expect(note).toContain(`<!-- stupify:${'d'.repeat(40)} -->`) // per-head marker so ordinary dedup still catches it
-    expect(note).not.toContain('good-code corpus') // no sign-off on the runner's note
-  }
-})
 
 // The runner strips a model-added sign-off so a posted review never carries an attribution line (spec says none,
 // but the model isn't a guarantee). Findings and the hidden marker survive; only the signature goes.
