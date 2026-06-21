@@ -17,10 +17,25 @@
  * Single-flight: the sweep takes its own lockfile (state/sweep.lock) so two cron ticks never overlap — no
  * `flock` dependency. Every knob lives in config.env next to this file (read fresh each run). Run: `bun review-sweep.ts`.
  */
-import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  acquireLock,
+  bumpDailyCounter,
+  exec,
+  isRateLimited,
+  loadDailyCounter,
+  loadHeadAttempts,
+  loadReviewedHeads,
+  parseEnvFile,
+  recordHeadAttempt,
+  recordReviewedHead,
+  refreshCheckout,
+  releaseLock,
+} from '@stupify/exe-host'
+
+export { isRateLimited, pidAlive } from '@stupify/exe-host'
 
 const KIT_DIR = dirname(fileURLToPath(import.meta.url))
 
@@ -102,49 +117,6 @@ function loadConfig(): Config {
   }
 }
 
-/** Minimal KEY=VALUE reader for config.env: strips `# inline comments` and matching surrounding quotes, so a
- *  value reads the same here as it does when bash sources the file (`KEY='https://…'` → `https://…`). */
-function parseEnvFile(path: string): Record<string, string> {
-  if (!existsSync(path)) return {}
-  const out: Record<string, string> = {}
-  for (const raw of readFileSync(path, 'utf8').split('\n')) {
-    const line = raw.trim()
-    if (!line || line.startsWith('#')) continue
-    const eq = line.indexOf('=')
-    if (eq < 0) continue
-    const key = line.slice(0, eq).trim()
-    const value = line.slice(eq + 1)
-    const comment = value.indexOf(' #')
-    let v = (comment < 0 ? value : value.slice(0, comment)).trim()
-    if (v.length >= 2 && (v[0] === "'" || v[0] === '"') && v.at(-1) === v[0]) v = v.slice(1, -1)
-    out[key] = v
-  }
-  return out
-}
-
-interface ProcResult {
-  ok: boolean
-  stdout: string
-  combined: string
-}
-
-function exec(cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: number; input?: string } = {}): ProcResult {
-  const r = spawnSync(cmd, args, {
-    cwd: opts.cwd,
-    input: opts.input ?? '', // default closes stdin; codex gets its (large) prompt here to dodge ARG_MAX on argv
-    timeout: opts.timeoutMs,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  })
-  const stdout = r.stdout ?? ''
-  // spawnSync reports a timeout via signal (SIGTERM) and a spawn failure (ENOENT etc.) via `error`, both with
-  // EMPTY stdout/stderr. Fold them into combined so the failure path surfaces the real cause, not "no output".
-  let combined = stdout + (r.stderr ?? '')
-  if (r.signal) combined += `\n${cmd}: process killed by ${r.signal}${opts.timeoutMs ? ` (timeout ${opts.timeoutMs}ms)` : ''}`
-  if (r.error) combined += `\n${cmd}: ${r.error.message}`
-  return { ok: r.status === 0 && r.error === undefined, stdout, combined }
-}
-
 let LOG = ''
 function log(message: string): void {
   const line = `${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')} ${message}`
@@ -154,22 +126,10 @@ function log(message: string): void {
 
 /** Refresh the dedicated checkout to origin/main. Returns false on any git failure. */
 function refreshRepo(cfg: Config): boolean {
-  mkdirSync(dirname(cfg.repoDir), { recursive: true })
-  if (!existsSync(join(cfg.repoDir, '.git'))) {
-    log(`cloning ${cfg.slug} -> ${cfg.repoDir}`)
-    // Clone with `gh` so PRIVATE repos work: it uses gh's auth (and, on exe.dev, the integration's proxied host).
-    // A plain `git clone https://github.com/<slug>` has no credentials and fails on anything private — which is
-    // most real repos. gh sets `origin` to the authed URL, so the fetch/checkout/reset below inherit it.
-    if (!exec('gh', ['repo', 'clone', cfg.slug, cfg.repoDir, '--', '-q']).ok) {
-      return logFail('clone failed — is `gh` authed for this repo? (private repos need a gh login / exe.dev integration)')
-    }
-  }
-  const branch = cfg.defaultBranch
-  const ok =
-    exec('git', ['fetch', '-q', 'origin', branch], { cwd: cfg.repoDir }).ok &&
-    exec('git', ['checkout', '-q', branch], { cwd: cfg.repoDir }).ok &&
-    exec('git', ['reset', '-q', '--hard', `origin/${branch}`], { cwd: cfg.repoDir }).ok
-  return ok || logFail(`refresh failed (is the default branch '${branch}'? set DEFAULT_BRANCH if not)`)
+  const existed = existsSync(join(cfg.repoDir, '.git'))
+  const ok = refreshCheckout({ repoDir: cfg.repoDir, slug: cfg.slug, defaultBranch: cfg.defaultBranch, log })
+  if (!ok && !existed) return logFail('clone failed — is `gh` authed for this repo? (private repos need a gh login / exe.dev integration)')
+  return ok || logFail(`refresh failed (is the default branch '${cfg.defaultBranch}'? set DEFAULT_BRANCH if not)`)
 }
 
 function logFail(message: string): false {
@@ -463,6 +423,7 @@ export function dismissedFindings(threads: GqlThread[]): string[] {
 }
 function prReviews(cfg: Config, pr: Pr): PriorState | null {
   const [owner, name] = cfg.slug.split('/')
+  if (!owner || !name) return null
   const query = `query { repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) {
     reviews(last: 30) { nodes { body author { login } } }
     reviewThreads(first: 100) { nodes { id isResolved comments(first: 8) { nodes { body author { login } path line } } } }
@@ -509,71 +470,9 @@ export const stripSignoff = (review: string): string => {
   return lines.join('\n').trimEnd()
 }
 
-/** Per-VM record of PRs we tried and FAILED (number → {head, at}). Since failures are NEVER posted to the PR (that
- *  was operator noise), this local file is how a sweep avoids re-running codex on the same failing head every
- *  minute. Best-effort: a parse error or a fresh VM just means we re-attempt — harmless. */
-function loadFailures(cfg: Config): Record<string, { head: string; at: number }> {
-  try {
-    const p = join(cfg.stateDir, 'failures.json')
-    return existsSync(p) ? (JSON.parse(readFileSync(p, 'utf8')) as Record<string, { head: string; at: number }>) : {}
-  } catch {
-    return {}
-  }
-}
-
-function recordFailure(cfg: Config, failures: Record<string, { head: string; at: number }>, pr: Pr): void {
-  failures[String(pr.number)] = { head: pr.headRefOid, at: Date.now() }
-  try {
-    writeFileSync(join(cfg.stateDir, 'failures.json'), JSON.stringify(failures))
-  } catch {
-    /* best-effort — a re-attempt next sweep is fine */
-  }
-}
-
-/** Per-VM record of PRs (number → head SHA) we already RAN codex on at that head — a posted review OR a SUPPRESSED
- *  no-op. A suppressed no-op posts nothing, so it leaves no thread marker; without this the next sweep would re-run
- *  codex on the same unchanged head every minute, burning the Codex plan (the exact thing that drains credits).
- *  Best-effort like failures.json: a parse error or fresh VM just re-runs once and re-converges — harmless. */
-function loadReviewed(cfg: Config): Record<string, string> {
-  try {
-    const p = join(cfg.stateDir, 'reviewed.json')
-    return existsSync(p) ? (JSON.parse(readFileSync(p, 'utf8')) as Record<string, string>) : {}
-  } catch {
-    return {}
-  }
-}
-
-function recordReviewed(cfg: Config, reviewed: Record<string, string>, pr: Pr): void {
-  reviewed[String(pr.number)] = pr.headRefOid
-  try {
-    writeFileSync(join(cfg.stateDir, 'reviewed.json'), JSON.stringify(reviewed))
-  } catch {
-    /* best-effort — a re-run next sweep just re-converges */
-  }
-}
-
-/** Per-VM daily review counter — the spend ceiling. Real (posted) reviews count against MAX_REVIEWS_PER_DAY; once
- *  hit, the sweep stops reviewing until the date rolls over (the stored date no longer matches today). This is what
- *  stops a backlog burst or a runaway loop from draining the Codex plan. */
-function loadDaily(cfg: Config): { date: string; count: number } {
-  const today = new Date().toISOString().slice(0, 10)
-  try {
-    const p = join(cfg.stateDir, 'daily.json')
-    const d = existsSync(p) ? (JSON.parse(readFileSync(p, 'utf8')) as { date: string; count: number }) : null
-    return d && d.date === today ? d : { date: today, count: 0 }
-  } catch {
-    return { date: today, count: 0 }
-  }
-}
-
-function bumpDaily(cfg: Config, daily: { date: string; count: number }): void {
-  daily.count += 1
-  try {
-    writeFileSync(join(cfg.stateDir, 'daily.json'), JSON.stringify(daily))
-  } catch {
-    /* best-effort */
-  }
-}
+const failuresPath = (cfg: Config): string => join(cfg.stateDir, 'failures.json')
+const reviewedPath = (cfg: Config): string => join(cfg.stateDir, 'reviewed.json')
+const dailyPath = (cfg: Config): string => join(cfg.stateDir, 'daily.json')
 
 // codex's sandbox only allows writes under /tmp, so the review file lives there — keyed by a HASH of the repo slug,
 // not the slug itself, so two repos with the same PR number never clobber AND the path has no real words for codex
@@ -827,14 +726,6 @@ function reviewOne(cfg: Config, ref: string, post: boolean): void {
   console.log(`posted to ${slug}#${number} ✅ (${findings.length} inline)`)
 }
 
-// Plan/credit/gateway exhaustion (vs a one-off bad review). When the whole plan is tapped EVERY remaining PR will
-// fail identically, so the sweep should STOP and back off rather than burn a retry on each. Match the stable
-// signals — HTTP status codes and the provider's own nouns — not one exact sentence that breaks on a reword.
-// Critically this includes the exe-llm 402 "credits exhausted": it was NOT caught before, so a dry gateway failed
-// every PR in the sweep instead of bailing after the first (the source of the 120 same-cause failures in the log).
-export const isRateLimited = (out: string): boolean =>
-  /payment required|credits?\s+exhausted|insufficient\s+(?:credit|quota|balance)|usage limit|rate.?limit|too many requests|\b(?:402|429)\b|quota/i.test(out)
-
 /** codex prints `tokens used` then the count on the next line — read the last such pair. */
 function parseTokens(out: string): number | null {
   const lines = out.split('\n')
@@ -860,39 +751,6 @@ function failureReason(out: string): string {
   return cleaned || 'codex run failed (no output captured — check the sweep log)'
 }
 
-// signal 0 delivers nothing — it just probes whether `pid` is still alive (EPERM = alive but not ours to signal).
-export function pidAlive(pid: number): boolean {
-  if (!Number.isInteger(pid) || pid <= 0) return false
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
-
-// Single-flight without flock: O_EXCL create wins atomically. On contention, steal ONLY if the holder is gone —
-// a dead pid (crashed mid-sweep) reclaims immediately; a 6h age backstop covers an unkillable hang. A LIVE holder
-// is never stolen, so a long legitimate sweep can't be run over by the next minute's cron (which would double-post
-// — the per-head marker in prReviews is the final backstop, but not overlapping in the first place is cheaper).
-function acquireLock(path: string): boolean {
-  try {
-    writeFileSync(path, String(process.pid), { flag: 'wx' })
-    return true
-  } catch {
-    try {
-      const holder = Number(readFileSync(path, 'utf8').trim())
-      if (!pidAlive(holder) || Date.now() - statSync(path).mtimeMs > 6 * 60 * 60_000) {
-        writeFileSync(path, String(process.pid))
-        return true
-      }
-    } catch {
-      /* lock vanished/unreadable between calls — let the next sweep retry */
-    }
-    return false
-  }
-}
-
 function main(): void {
   const cfg = loadConfig() // also mkdirs stateDir and sets LOG, so config warnings are already captured
   const ref = process.env.REVIEW_PR
@@ -904,13 +762,9 @@ function main(): void {
     return
   }
   process.on('exit', () => {
-    try {
-      // Only clear the lock if we still hold it. If a later sweep judged us crashed and stole it, deleting it here
-      // would free a lock that another run now owns — letting a third sweep overlap it.
-      if (Number(readFileSync(lockPath, 'utf8').trim()) === process.pid) rmSync(lockPath, { force: true })
-    } catch {
-      /* best-effort */
-    }
+    // Only clear the lock if we still hold it. If a later sweep judged us crashed and stole it, deleting it here
+    // would free a lock that another run now owns — letting a third sweep overlap it.
+    releaseLock(lockPath)
   })
 
   if (!refreshRepo(cfg)) process.exit(1)
@@ -929,9 +783,9 @@ function main(): void {
   if (prs === null) process.exit(1)
   const queue = prs.filter((pr) => inScope(pr, cfg)) // MAX_PRS is applied to PRs actually HANDLED, not iterated (below)
 
-  const failures = loadFailures(cfg) // per-VM record of (PR → failed head + when); throttles retries WITHOUT a PR comment
-  const reviewedLocal = loadReviewed(cfg) // per-VM (PR → head) we already ran codex on; catches SUPPRESSED no-ops that leave no thread marker
-  const daily = loadDaily(cfg) // today's review count vs MAX_REVIEWS_PER_DAY — the spend ceiling
+  const failures = loadHeadAttempts(failuresPath(cfg)) // PR -> failed head + when; throttles retries without a PR comment
+  const reviewedLocal = loadReviewedHeads(reviewedPath(cfg)) // PR -> head already run; catches suppressed no-ops
+  const daily = loadDailyCounter(dailyPath(cfg)) // today's review count vs MAX_REVIEWS_PER_DAY
 
   let reviewed = 0
   let tokens = 0
@@ -988,18 +842,18 @@ function main(): void {
     const used = reviewPr(cfg, pr, prior.memory, diff, firstReview, prior.openThreadIds, prior.dismissed)
     if (used === 'limit') {
       log('codex plan is rate-limited — ending this sweep early (the rest would fail the same way); retries next sweep')
-      recordFailure(cfg, failures, pr) // throttle this head too so the next sweep doesn't immediately re-hit the wall
+      recordHeadAttempt(failuresPath(cfg), failures, String(pr.number), pr.headRefOid) // throttle this head too so the next sweep doesn't immediately re-hit the wall
       break
     }
     if (used === null) {
-      recordFailure(cfg, failures, pr) // logged, not posted — throttle re-attempt until the window lapses or the head moves
+      recordHeadAttempt(failuresPath(cfg), failures, String(pr.number), pr.headRefOid) // logged, not posted — throttle re-attempt until the window lapses or the head moves
       continue
     }
     // codex ran and reached a verdict (findings posted, or a no-op). Record this head so the next sweep doesn't
     // re-run codex on it — without this a SUPPRESSED no-op (no thread marker) would re-run every minute and drain
     // the plan. Count the run toward the daily spend ceiling either way: a no-op still spent the tokens.
-    recordReviewed(cfg, reviewedLocal, pr)
-    bumpDaily(cfg, daily)
+    recordReviewedHead(reviewedPath(cfg), reviewedLocal, String(pr.number), pr.headRefOid)
+    bumpDailyCounter(dailyPath(cfg), daily)
     if (used !== 'noop') {
       reviewed += 1
       tokens += used

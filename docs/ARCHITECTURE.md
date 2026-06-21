@@ -1,7 +1,8 @@
 # Architecture
 
-stupify is two dependency-free Bun engines (`review-sweep.ts`, `prime.ts`) plus a CLI (`cli.ts`) that wires
-them up, all driving the same three markdown files that encode taste. This doc covers how the pieces fit, and why.
+stupify is a bundled Bun review engine (`review-sweep.ts`), a dependency-free prime hook (`prime.ts`), and a CLI
+(`cli.ts`) that wires them up, all driving the same three markdown files that encode taste. This doc covers how
+the pieces fit, and why.
 
 ## Two halves: engine vs taste
 
@@ -10,7 +11,7 @@ generic engines, and the taste they read.
 
 | | Lives in | Is |
 |---|---|---|
-| **Engines** | this repo (`review-sweep.ts`, `prime.ts`, `cli.ts`) | generic infra that shells out to `git`/`gh`/`codex`, or just reads files |
+| **Engines** | this repo (`review-sweep.ts`, `prime.ts`, `cli.ts`) plus `packages/exe-*` | generic infra that shells out to `git`/`gh`/`codex`, or just reads files |
 | **Taste** | `.review/` (a repo's own, else `~/.stupify/.review`) | `REVIEW-PROMPT.md` (spec), `RUBRIC.md` (anti-slop), `CORPUS.md` (your good code) |
 
 A `.review/` *inside the repo being reviewed* is version-controlled with the code it judges, visible in code

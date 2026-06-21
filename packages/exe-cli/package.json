@@ -1,0 +1,21 @@
+{
+  "name": "@stupify/exe-cli",
+  "version": "0.4.3",
+  "description": "Control-plane helpers for provisioning and wiring exe.dev agents.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "license": "MIT",
+  "engines": {
+    "bun": ">=1.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
