@@ -67,6 +67,26 @@ than wiring this through GitHub Actions (no workflow YAML, no runner minutes). P
 setup` runs the same cron locally; you bring `gh auth login` and your Codex login. Either way it's a cron
 shelling out to Codex; point it elsewhere with `CODEX_PROVIDER`/`CODEX_MODEL`.
 
+### Feed it Codex (and rotate accounts)
+
+The reviews run on Codex. On exe.dev that's a keyless **LLM integration**: it fronts your ChatGPT/Codex plan, so
+the VM holds no API key (it bills your plan). Link one once at [exe.dev/integrations](https://exe.dev/integrations)
+and provisioning attaches it for you.
+
+One plan has a credit ceiling. Spend it and the gateway returns `402 ... LLM credits exhausted`; the sweep logs
+the cause and skips, so reviews silently stop appearing until credits refresh. For real throughput, give it more
+than one account:
+
+1. Link N ChatGPT accounts to exe.dev.
+2. Make one LLM integration per account (one account, one integration: `llm`, `llm-2`, `llm-3`, ...).
+3. Attach each on `auto:all` so it mounts on every current and future VM:
+
+```bash
+ssh exe.dev integrations attach llm-2 auto:all   # repeat per integration
+```
+
+exe.dev then rotates across the attached accounts, so one hitting its limit doesn't stall the reviewer.
+
 ## Taste packs
 
 Don't have a corpus yet? Borrow one. Pick a programmer whose code you'd point a new hire at and review (and
