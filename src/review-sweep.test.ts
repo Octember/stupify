@@ -102,9 +102,10 @@ test('isNoopReview: ONLY the exact token converges; a paraphrase or a finding is
 test('noopNote: "LGTM" on a first-pass-clean PR, "no new blocking issues" once there were prior findings', () => {
   const first = noopNote(pr(7, 'd'.repeat(40)), true)
   const later = noopNote(pr(7, 'd'.repeat(40)), false)
-  expect(first).toContain('LGTM ✅') // saying "no NEW issues" on a first review implies a prior that isn't there
+  expect(first).toContain('LGTM ✅') // a genuine first-pass-clean PR earns the check
   expect(first).not.toContain('no new blocking issues')
-  expect(later).toContain('no new blocking issues ✅')
+  expect(later).toContain('no new blocking issues')
+  expect(later).not.toContain('✅') // NO check after prior findings — they may still be open; a ✅ would read as "approved"
   for (const note of [first, later]) {
     expect(note).toContain('<!-- stupify:noop -->') // how a later sweep knows we already converged → stays silent
     expect(note).toContain(`<!-- stupify:${'d'.repeat(40)} -->`) // per-head marker so ordinary dedup still catches it

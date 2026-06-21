@@ -330,10 +330,11 @@ export const isNoopReview = (review: string): boolean => review.replace(/[`*\s]/
 // here" and stays silent instead of re-posting. The note carries the head marker too (for normal per-head dedup).
 const noopTag = '<!-- stupify:noop -->'
 // The convergence note the runner posts ONCE when a PR goes clean (then it stays quiet until a new finding
-// re-arms it). No sign-off — the bot author already shows it's the auto-reviewer. "LGTM" on a first-pass-clean
-// PR; "no new blocking issues" only once there were prior findings to clear (saying "no NEW" implies a prior).
+// re-arms it). No sign-off — the bot author already shows it's the auto-reviewer. The ✅ is reserved for a GENUINE
+// all-clear: `LGTM ✅` on a first-pass-clean PR. After prior findings, "no new blocking issues" gets NO check —
+// those earlier findings are likely still open right above it, and a green ✅ there falsely reads as "approved".
 export const noopNote = (pr: Pr, firstReview: boolean): string =>
-  `${firstReview ? 'LGTM ✅' : 'no new blocking issues ✅'}\n${noopTag}\n${markFor(pr)}\n`
+  `${firstReview ? 'LGTM ✅' : 'no new blocking issues'}\n${noopTag}\n${markFor(pr)}\n`
 
 // The spec says "no sign-off", but model adherence isn't a guarantee — so the runner strips any attribution line
 // before posting. A posted review never carries a `— stupify` / "good-code corpus" signature (the bot author
