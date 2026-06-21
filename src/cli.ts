@@ -874,6 +874,7 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify <owner/repo>    provision for a specific repo
   stupify setup [repo]    install on THIS machine instead of provisioning a VM
   stupify run [--dry]     run one review sweep now (where stupify is installed)
+  stupify upgrade [repo]  move a running reviewer to the latest engine, in place ${pc.dim('(a VM if repo given, else this box)')}
   stupify review <pr> [--post]  review ONE pull request on demand (a URL or owner/repo#123); prints it, --post comments it
   stupify taste [--pack a,b]  borrow a taste pack (assembles ~/.stupify/.review); packs below
   stupify init [files…]       encode YOUR OWN taste: scaffold .review/ from your best files in this repo
@@ -890,6 +891,36 @@ ${pc.dim('Flags')}
   --yes, -y               accept detected defaults, no prompts (for CI / scripts)
 
 ${pc.dim("Provisioning rides exe.dev. Onboard once with 'ssh exe.dev', then one command does the rest.")} https://stupif.ai`)
+}
+
+// `stupify upgrade [repo]` — move a box to the latest published engine, IN PLACE. Narrow on purpose: it only
+// re-copies the engine (review-sweep.ts, plus prime.ts where the hook is installed). It never rewrites config.env
+// (your tuning), the assembled .review/ taste, or the cron line. The minute cron runs the new file on its next
+// tick, so nothing restarts. The engine is otherwise PINNED at provision time — this is the supported way forward.
+//   no repo → upgrade THIS machine (run it on the VM itself, or a local `stupify setup` box) from this package.
+//   <repo>  → from your laptop: ssh that repo's exe.dev VM and run `bunx @stupify/cli@latest upgrade` there.
+async function upgrade(repoArg?: string): Promise<void> {
+  if (repoArg) {
+    const repo = normalizeRepo(repoArg)
+    if (!validRepo(repo)) die(`'${repo}' is not a valid owner/repo (e.g. acme/widgets)`)
+    const dest = `${vmNameFor(repo)}.exe.xyz`
+    const s = progress(`upgrading ${dest}`)
+    // Run the LATEST published CLI's own `upgrade` on the box — it pulls newest from npm and copies its engine in.
+    const r = spawnSync('ssh', ['-o', 'ConnectTimeout=25', dest, 'bunx @stupify/cli@latest upgrade'], { encoding: 'utf8', timeout: 180_000 })
+    if (r.status !== 0) {
+      s.stop(pc.red(`couldn't upgrade ${repo}`))
+      die(((r.stderr ?? '') + (r.stdout ?? '')).trim().slice(0, 300) || r.error?.message || `ssh ${dest} exited ${r.status ?? '?'}`)
+    }
+    s.stop(pc.green(`${repo}'s reviewer is on the latest engine`) + pc.dim(' · the cron picks it up within ~60s'))
+    return
+  }
+  // local: refresh THIS box's engine from this package; leave config.env, taste, and the cron line untouched.
+  if (!existsSync(join(HOME, 'review-sweep.ts'))) {
+    die(`nothing installed at ${HOME} to upgrade — run ${pc.cyan('stupify setup')} (this machine) or ${pc.cyan('stupify <owner/repo>')} (a VM) first`)
+  }
+  copyFileSync(join(PKG_DIR, 'review-sweep.ts'), join(HOME, 'review-sweep.ts'))
+  if (existsSync(PRIME_ENGINE)) copyFileSync(join(PKG_DIR, 'prime.ts'), PRIME_ENGINE) // only where `prime --install` put it
+  log.success(`engine refreshed to ${VERSION} → ${HOME} ${pc.dim('· cron runs it within ~60s')}`)
 }
 
 // --- routing ---
@@ -929,6 +960,8 @@ if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
   cmdReview(positional[1], args.includes('--post'))
 } else if (cmd === 'setup') {
   await setup({ repo: positional[1], host, codexHost, yes, pack })
+} else if (cmd === 'upgrade') {
+  await upgrade(positional[1])
 } else {
   // default (and explicit `provision`): provision an exe.dev VM
   await provision({ repo: cmd === 'provision' ? positional[1] : cmd, yes, pack })
