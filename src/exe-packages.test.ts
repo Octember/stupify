@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { exeSetupScript, normalizeRepo, validHost, validRepo, vmNameFor } from '@stupify/exe-cli'
+import { exeSetupScript, githubIntegrationFor, llmIntegrationFor, normalizeRepo, validHost, validRepo, vmNameFor } from '@stupify/exe-cli'
 import { bumpDailyCounter, loadDailyCounter, loadHeadAttempts, loadReviewedHeads, parseEnvFile, recordHeadAttempt, recordReviewedHead } from '@stupify/exe-host'
 
 const tmp = (): string => mkdtempSync(join(tmpdir(), 'stupify-kit-'))
@@ -27,6 +27,21 @@ test('exeSetupScript preserves the stable bun PATH bootstrap and appends codex h
       'exec bunx @stupify/cli setup acme/widgets --yes --codex-host llm.int.exe.xyz',
     ].join('\n'),
   )
+})
+
+test('exe.dev integration discovery ignores malformed optional config fields', () => {
+  const runExe = (): { ok: boolean; out: string } => ({
+    ok: true,
+    out: JSON.stringify([
+      { name: 'bad-mixed', type: 'github', config: { repositories: 123, providers: { openai: { enabled: true } } } },
+      { name: 'bad-llm', type: 'llm', config: { providers: { openai: { enabled: 'yes' } } } },
+      { name: 'repo-ok', type: 'github', config: { repositories: ['acme/widgets'] } },
+      { name: 'llm-ok', type: 'llm', config: { providers: { openai: { enabled: true } } } },
+    ]),
+  })
+
+  expect(githubIntegrationFor('acme/widgets', runExe)).toBe('repo-ok')
+  expect(llmIntegrationFor(runExe)).toBe('llm-ok')
 })
 
 test('host env and state helpers parse defensively and persist compact JSON', () => {

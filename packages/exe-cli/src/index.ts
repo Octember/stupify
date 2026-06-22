@@ -114,10 +114,13 @@ function isExeIntegration(raw: unknown): raw is ExeIntegration {
   if (!isObject(raw) || typeof raw.name !== 'string' || typeof raw.type !== 'string') return false
   if (raw.config === undefined) return true
   if (!isObject(raw.config)) return false
-  const repositories = stringArray(raw.config.repositories)
-  const providers = isObject(raw.config.providers) ? raw.config.providers : undefined
-  const openai = providers && isObject(providers.openai) ? providers.openai : undefined
-  return raw.config.repositories === undefined || repositories !== undefined || openai?.enabled === true || openai?.enabled === false
+  if (raw.config.repositories !== undefined && stringArray(raw.config.repositories) === undefined) return false
+  if (raw.config.providers === undefined) return true
+  if (!isObject(raw.config.providers)) return false
+  if (raw.config.providers.openai === undefined) return true
+  if (!isObject(raw.config.providers.openai)) return false
+  const enabled = raw.config.providers.openai.enabled
+  return enabled === undefined || typeof enabled === 'boolean'
 }
 
 function parseExeIntegrations(json: string): ExeIntegration[] {
