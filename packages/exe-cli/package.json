@@ -1,6 +1,6 @@
 {
   "name": "@stupify/exe-cli",
-  "version": "0.4.3",
+  "version": "0.4.5",
   "description": "Control-plane helpers for provisioning and wiring exe.dev agents.",
   "type": "module",
   "exports": {

@@ -18,11 +18,11 @@
     },
     "packages/exe-cli": {
       "name": "@stupify/exe-cli",
-      "version": "0.4.3",
+      "version": "0.4.5",
     },
     "packages/exe-host": {
       "name": "@stupify/exe-host",
-      "version": "0.4.3",
+      "version": "0.4.5",
     },
   },
   "packages": {
