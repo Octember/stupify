@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, dismissedFindings, diffRightLines, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
+import { type Config, dismissedFindings, diffRightLines, FIXED_NOTE, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -122,6 +122,7 @@ test('isFixedReview vs isNoopReview: the resolved signal is distinct from "nothi
   expect(isFixedReview('`STUPIFY_FIXED`')).toBe(true)
   expect(isFixedReview(NOOP_TOKEN)).toBe(false)
   expect(isNoopReview(FIXED_TOKEN)).toBe(false)
+  expect(FIXED_NOTE).toBe('nice, all fixed ✅')
 })
 
 // Re-raise on silent dismissal: a finding the author RESOLVED without replying isn't a reasoned decline. We detect

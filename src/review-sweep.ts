@@ -320,6 +320,7 @@ export const NOOP_TOKEN = 'STUPIFY_NO_NEW_ISSUES'
 // stray fixed-signal on a never-flagged PR can't manufacture a false approval). "Nothing new" alone stays silent:
 // it conflates "resolved" with "prior still open", and a ✅ on the latter would lie.
 export const FIXED_TOKEN = 'STUPIFY_FIXED'
+export const FIXED_NOTE = 'nice, all fixed ✅'
 const stripWrap = (review: string): string => review.replace(/[`*\s]/g, '') // strip markdown/whitespace wrappers, NOT the tokens' own underscores
 export const isNoopReview = (review: string): boolean => stripWrap(review) === NOOP_TOKEN
 export const isFixedReview = (review: string): boolean => stripWrap(review) === FIXED_TOKEN
@@ -364,7 +365,7 @@ function postNote(cfg: Config, pr: Pr, note: string): boolean {
   return submitReview(cfg, pr, `${note}\n\n${markFor(pr)}`, []).ok
 }
 
-// Resolve stupify's open threads when its findings are fixed — the native "this is handled" signal (no note).
+// Resolve stupify's open threads when its findings are fixed — the native "this is handled" signal.
 function resolveThreads(threadIds: string[]): void {
   for (const id of threadIds) {
     exec('gh', ['api', 'graphql', '-f', `query=mutation { resolveReviewThread(input: { threadId: "${id}" }) { thread { id } } }`])
@@ -610,7 +611,8 @@ export function runReview(cfg: Config, pr: Pr, priorThread: string, diff: string
  *  threads when its findings are fixed, post a one-time `LGTM ✅` review on a genuine first-pass clean, or stay
  *  SILENT. Returns tokens on a posted review, 'noop' on a clean/quiet outcome, 'limit' on exhaustion, or null on a
  *  failure the caller throttles. The only ✅ that posts is honest: LGTM on a never-flagged clean PR. "Nothing new
- *  while findings still stand" stays silent (those threads remain open); a fix resolves the threads, with no note. */
+ *  while findings still stand" stays silent (those threads remain open); a fix resolves the threads and posts a
+ *  short visible note. */
 function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstReview: boolean, openThreadIds: string[], dismissed: string[]): number | 'limit' | 'noop' | null {
   log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)}`)
   const r = runReview(cfg, pr, priorThread, diff, dismissed)
@@ -632,15 +634,19 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstR
     log(`  #${pr.number} clean first pass — posted LGTM ✅`)
     return 'noop'
   }
-  // Prior findings resolved → resolve the open threads (the native "handled" signal; no note). Gated on there
+  // Prior findings resolved → post a visible fixed note and resolve the open threads. Gated on there
   // actually being open stupify threads, so a stray fixed-signal can't do anything.
   if (r.kind === 'fixed') {
     if (openThreadIds.length === 0) {
       log(`  #${pr.number} fixed-signal but no open threads — staying silent`)
       return 'noop'
     }
+    if (!postNote(cfg, pr, FIXED_NOTE)) {
+      log(`  couldn't post #${pr.number} fixed note (gh down?) — will retry next sweep`)
+      return null
+    }
     resolveThreads(openThreadIds)
-    log(`  #${pr.number} prior findings resolved — resolved ${openThreadIds.length} thread(s)`)
+    log(`  #${pr.number} prior findings resolved — posted ${FIXED_NOTE}; resolved ${openThreadIds.length} thread(s)`)
     return 'noop'
   }
   // A real review: split into per-line findings and post them as inline, resolvable threads.
