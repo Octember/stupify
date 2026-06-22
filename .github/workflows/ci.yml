@@ -50,9 +50,27 @@ jobs:
 
       - name: Check package contents
         run: |
-          bun pm pack --dry-run
-          (cd packages/exe-cli && bun pm pack --dry-run)
-          (cd packages/exe-host && bun pm pack --dry-run)
+          set -euo pipefail
+          pack_tgz() {
+            dir="$1"
+            pattern="$2"
+            output="$(cd "$dir" && bun pm pack)"
+            printf '%s\n' "$output" >&2
+            tgz="$(printf '%s\n' "$output" | grep -E "$pattern" | tail -n 1)"
+            if [ -z "$tgz" ]; then
+              echo "::error::could not find packed tarball for $dir"
+              exit 1
+            fi
+            printf '%s/%s\n' "$dir" "$tgz"
+          }
+
+          ROOT_TGZ="$(pack_tgz . '^stupify-cli-[0-9].*\.tgz$')"
+          EXE_CLI_TGZ="$(pack_tgz packages/exe-cli '^stupify-exe-cli-[0-9].*\.tgz$')"
+          EXE_HOST_TGZ="$(pack_tgz packages/exe-host '^stupify-exe-host-[0-9].*\.tgz$')"
+          TMP="$(mktemp -d)"
+          npm install --prefix "$TMP" "$EXE_CLI_TGZ" "$EXE_HOST_TGZ" "$ROOT_TGZ"
+          npm exec --prefix "$TMP" -- stupify --help
+          rm -rf "$TMP" "$ROOT_TGZ" "$EXE_CLI_TGZ" "$EXE_HOST_TGZ"
 
   site:
     name: Site build
