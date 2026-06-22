@@ -63,6 +63,16 @@ test('the prefix equals stablePrefix(cfg) and carries the real taste, not generi
   expect(prefixes[0]).toContain('===== CORPUS')
 })
 
+test('the opener guidance gives ingredients, not copy-paste lines', () => {
+  const openerSection = prefixes[0]?.split('- **Opening line')[1]?.split('- **Each finding**')[0] ?? ''
+  expect(openerSection).toContain('Good ingredients:')
+  expect(openerSection).toContain('Do not copy a fixed catchphrase.')
+  expect(openerSection).not.toMatch(/\bso\./i)
+  expect(openerSection).not.toMatch(/\bok so\b/i)
+  expect(openerSection).not.toContain('→')
+  expect(openerSection).not.toContain(' · ')
+})
+
 test('NO per-PR token leaks into the cached prefix', () => {
   for (const prefix of prefixes) {
     expect(prefix).not.toContain('diff --git') // the inlined diff lives in the tail, not the cached prefix
