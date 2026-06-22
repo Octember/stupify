@@ -104,9 +104,9 @@ review  cron (~60s) → review-sweep.ts → codex exec → gh pr comment
           feed the PR's thread back as memory · review against .review/* · post
 ```
 
-Both halves read the same `.review/`. The CLI (`src/cli.ts`) sets things up; the engines (`src/prime.ts` and
-`src/review-sweep.ts`) are dependency-free Bun. The whole design, including why it *remembers* instead of
-debouncing, is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Both halves read the same `.review/`. The CLI (`src/cli.ts`) sets things up with `@stupify/exe-cli`; the sweep
+uses `@stupify/exe-host` and is bundled into one dependency-free file when installed. The whole design, including
+why it *remembers* instead of debouncing, is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## License
 

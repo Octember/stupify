@@ -3,11 +3,16 @@
   "version": "0.4.4",
   "description": "A code reviewer that talks like an idiot and catches real bugs — corpus-grounded, anti-slop, runs on Codex.",
   "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
   "bin": {
     "stupify": "src/cli.ts"
   },
   "files": [
-    "src",
+    "src/cli.ts",
+    "src/prime.ts",
+    "src/review-sweep.ts",
     ".review",
     "packs",
     "README.md",
@@ -43,6 +48,8 @@
     "cli": "bun src/cli.ts"
   },
   "dependencies": {
+    "@stupify/exe-cli": "0.4.3",
+    "@stupify/exe-host": "0.4.3",
     "@clack/prompts": "^1.2.0",
     "picocolors": "^1.1.1"
   },
