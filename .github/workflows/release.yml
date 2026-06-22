@@ -37,8 +37,17 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Test
+        run: bun test
+
       - name: Smoke the CLI
         run: bun src/cli.ts --help
+
+      - name: Check package contents
+        run: |
+          bun pm pack --dry-run
+          (cd packages/exe-cli && bun pm pack --dry-run)
+          (cd packages/exe-host && bun pm pack --dry-run)
 
       - name: Guard version (tag matches package.json, not already published)
         run: |

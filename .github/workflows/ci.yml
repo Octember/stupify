@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: 1.3.14
+
+jobs:
+  cli:
+    name: CLI and packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun test
+
+      - name: Smoke the CLI
+        run: bun src/cli.ts --help
+
+      - name: Bundle the sweep engine
+        run: |
+          bun build src/review-sweep.ts --target=bun --format=esm --outfile=/tmp/stupify-review-sweep.ts
+          if grep -E '@stupify/exe-(cli|host)' /tmp/stupify-review-sweep.ts; then
+            echo "::error::review-sweep bundle still imports a workspace package"
+            exit 1
+          fi
+
+      - name: Check package contents
+        run: |
+          bun pm pack --dry-run
+          (cd packages/exe-cli && bun pm pack --dry-run)
+          (cd packages/exe-host && bun pm pack --dry-run)
+
+  site:
+    name: Site build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
