@@ -21,7 +21,6 @@
 - **Slop, named.** `RUBRIC.md` is your list of what counts as slop: reinvented primitives, speculative abstraction, fallbacks the types already guarantee. It keeps the fix small.
 - **Both ends of the loop.** The *same* `.review/` primes the agent before it writes (prevention) and reviews the PR after (detection). The best review is the one you didn't need.
 - **It remembers.** Reads the PR thread, won't re-raise what you fixed or waved off, posts `no new blocking issues ✅` when there's nothing left.
-- **It's funny.** `oof, yeah this'll break:`. Turn it off if you hate joy.
 
 ## Prime your agent (instant, local, no servers)
 
