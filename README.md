@@ -62,7 +62,7 @@ Each pack is concrete principles plus commit-pinned exemplar files. Or **bring y
 files you *wish* all your code looked like, and it scaffolds a `.review/` in your repo:
 
 ```bash
-bunx @stupify/cli init src/best.ts src/clean-service.ts   # inlines them; you add one line of "why" each
+npx @stupify/cli init src/best.ts src/clean-service.ts   # inlines them; you add one line of "why" each
 ```
 
 ## License

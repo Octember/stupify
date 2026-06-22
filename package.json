@@ -1,15 +1,16 @@
 {
   "name": "@stupify/cli",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "A code reviewer that talks like an idiot and catches real bugs — corpus-grounded, anti-slop, runs on Codex.",
   "type": "module",
   "workspaces": [
     "packages/*"
   ],
   "bin": {
-    "stupify": "src/cli.ts"
+    "stupify": "bin/stupify.js"
   },
   "files": [
+    "bin/stupify.js",
     "src/cli.ts",
     "src/prime.ts",
     "src/review-sweep.ts",
@@ -36,6 +37,7 @@
     "anti-slop"
   ],
   "engines": {
+    "node": ">=18",
     "bun": ">=1.3"
   },
   "publishConfig": {
@@ -48,8 +50,8 @@
     "cli": "bun src/cli.ts"
   },
   "dependencies": {
-    "@stupify/exe-cli": "0.4.3",
-    "@stupify/exe-host": "0.4.3",
+    "@stupify/exe-cli": "0.4.5",
+    "@stupify/exe-host": "0.4.5",
     "@clack/prompts": "^1.2.0",
     "picocolors": "^1.1.1"
   },
