@@ -1,8 +1,9 @@
 name: Release
 
 # Publish `stupify` to npm when you publish a GitHub Release tagged `vX.Y.Z` (matching package.json), or on
-# a manual run. The npm bin is a tiny Node launcher that hands off to Bun, so there's no build step — it ships
-# src/ as-is. Auth/provenance come from the `npm` environment (trusted publishing + OIDC).
+# a manual run. A bundle step inlines the @stupify/exe-* workspace helpers so we ship ONE self-contained
+# package; the npm bin is a tiny Node launcher that hands off to Bun. Auth/provenance come from the `npm`
+# environment (trusted publishing + OIDC, bound to Octember/stupify).
 on:
   release:
     types: [published]
@@ -43,29 +44,30 @@ jobs:
       - name: Smoke the CLI
         run: bun src/cli.ts --help
 
+      # Bundle the workspace helpers into the CLI so we publish ONE self-contained package (the shape 0.4.x
+      # shipped before the exe-* split). npm OIDC can't create the never-published @stupify/exe-* packages, and
+      # a package must exist before it can have a trusted publisher — so we inline them here instead. Runs on the
+      # ephemeral checkout only; the repo keeps the workspace split for development.
+      - name: Bundle into a single self-contained package
+        run: |
+          set -euo pipefail
+          bun build src/cli.ts          --target=bun --format=esm --outfile=src/cli.bundled.ts
+          bun build src/review-sweep.ts --target=bun --format=esm --outfile=src/review-sweep.bundled.ts
+          mv src/cli.bundled.ts src/cli.ts
+          mv src/review-sweep.bundled.ts src/review-sweep.ts
+          if grep -E '@stupify/exe-(cli|host)' src/cli.ts src/review-sweep.ts; then
+            echo "::error::bundle still imports a workspace package"; exit 1
+          fi
+          node -e "const p=require('./package.json'); delete p.dependencies['@stupify/exe-cli']; delete p.dependencies['@stupify/exe-host']; delete p.workspaces; require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2)+'\n')"
+
       - name: Check package contents
         run: |
           set -euo pipefail
-          pack_tgz() {
-            dir="$1"
-            pattern="$2"
-            output="$(cd "$dir" && bun pm pack)"
-            printf '%s\n' "$output" >&2
-            tgz="$(printf '%s\n' "$output" | grep -E "$pattern" | tail -n 1)"
-            if [ -z "$tgz" ]; then
-              echo "::error::could not find packed tarball for $dir"
-              exit 1
-            fi
-            printf '%s/%s\n' "$dir" "$tgz"
-          }
-
-          ROOT_TGZ="$(pack_tgz . '^stupify-cli-[0-9].*\.tgz$')"
-          EXE_CLI_TGZ="$(pack_tgz packages/exe-cli '^stupify-exe-cli-[0-9].*\.tgz$')"
-          EXE_HOST_TGZ="$(pack_tgz packages/exe-host '^stupify-exe-host-[0-9].*\.tgz$')"
+          TGZ="$(npm pack --silent | tail -n 1)"
           TMP="$(mktemp -d)"
-          npm install --prefix "$TMP" "$EXE_CLI_TGZ" "$EXE_HOST_TGZ" "$ROOT_TGZ"
-          npm exec --prefix "$TMP" -- stupify --help
-          rm -rf "$TMP" "$ROOT_TGZ" "$EXE_CLI_TGZ" "$EXE_HOST_TGZ"
+          npm install --prefix "$TMP" "$PWD/$TGZ"
+          "$TMP/node_modules/.bin/stupify" --help
+          rm -rf "$TMP" "$TGZ"
 
       - name: Guard version (tag matches package.json, not already published)
         run: |
@@ -81,26 +83,7 @@ jobs:
             exit 1
           fi
 
-      - name: Publish helper packages
-        run: |
-          set -euo pipefail
-          publish_if_missing() {
-            dir="$1"
-            name="$(node -p "require('./${dir}/package.json').name")"
-            version="$(node -p "require('./${dir}/package.json').version")"
-            if npm view "$name@$version" version >/dev/null 2>&1; then
-              echo "$name@$version already published"
-              return
-            fi
-            (cd "$dir" && npm publish --provenance --access public)
-          }
-
-          publish_if_missing packages/exe-cli
-          publish_if_missing packages/exe-host
-
       - name: Publish CLI
-        # @stupify/cli uses npm trusted publishing (OIDC) — it's bound to a specific GitHub repo on npmjs.com.
-        # The stupif.ai→stupify rename broke that binding, so the OIDC identity no longer matches → PUT 404.
-        # Fix is on npmjs.com (package → Settings → Trusted Publisher): point it at Octember/stupify. No token
-        # needed once it matches.
+        # One self-contained package, published via npm trusted publishing (OIDC) bound to Octember/stupify on
+        # npmjs.com (package → Settings → Trusted Publisher). No token, no helper packages.
         run: npm publish --provenance --access public
