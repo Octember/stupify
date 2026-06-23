@@ -370,10 +370,13 @@ function postNote(cfg: Config, pr: Pr, note: string): boolean {
 }
 
 // Resolve stupify's open threads when its findings are fixed — the native "this is handled" signal.
-function resolveThreads(threadIds: string[]): void {
+function resolveThreads(threadIds: string[]): boolean {
+  let ok = true
   for (const id of threadIds) {
-    exec('gh', ['api', 'graphql', '-f', `query=mutation { resolveReviewThread(input: { threadId: "${id}" }) { thread { id } } }`])
+    const r = exec('gh', ['api', 'graphql', '-f', `query=mutation { resolveReviewThread(input: { threadId: "${id}" }) { thread { id } } }`])
+    if (!r.ok) ok = false
   }
+  return ok
 }
 
 // What stupify has already said on a PR — read from the REVIEWS/THREADS connection (findings are inline threads now,
@@ -817,7 +820,10 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstR
       log(`  couldn't post #${pr.number} fixed note (gh down?) — will retry next sweep`)
       return null
     }
-    resolveThreads(openThreadIds)
+    if (!resolveThreads(openThreadIds)) {
+      log(`  couldn't resolve #${pr.number} thread(s) (gh down?) — will retry next sweep`)
+      return null
+    }
     log(`  #${pr.number} prior findings resolved — posted ${FIXED_NOTE}; resolved ${openThreadIds.length} thread(s)`)
     return 'fixed'
   }
@@ -1017,12 +1023,15 @@ function main(): void {
     const recentlyFailed = f !== undefined && f.head === pr.headRefOid && Date.now() - f.at < cfg.failRetryMs
     if (reviewedHead) {
       skipStatusPr(cfg, status, pr, 'skipped', 'already reviewed this head')
+      const reviewedStatus = commitStatusForSweepResult(prior.openThreadIds.length > 0 ? 'open' : 'clean')
+      setCommitStatus(cfg, commitStatuses, pr, reviewedStatus.state, reviewedStatus.description)
       continue
     }
     if (recentlyFailed) {
       skipStatusPr(cfg, status, pr, 'skipped', 'recently failed; retry window has not elapsed')
       continue
     }
+    setCommitStatus(cfg, commitStatuses, pr, 'pending', 'queued for stupify review')
 
     // Past the cheap dedup skip — this PR is a real candidate. Enforce MAX_PRS here, not on the
     // iterated list, and defer the rest to the next sweep.
