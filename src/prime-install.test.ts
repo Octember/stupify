@@ -5,7 +5,7 @@
 // so the real ~/.claude and ~/.codex are never touched.
 import { expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -147,5 +147,38 @@ test('prime --install --pack assembles taste AND wires the hook in one step', ()
   expect(readFileSync(join(e.home, '.review', 'CORPUS.md'), 'utf8')).toContain('zod') // taste assembled
   const s = read(e.settings)
   expect(s.hooks.SessionStart[0].hooks[0].command).toContain('prime.ts') // and hook wired
+  clean(e)
+})
+
+test('status renders the latest sweep workflow from state/status.json', () => {
+  const e = env()
+  const stateDir = join(e.home, 'state')
+  mkdirSync(stateDir, { recursive: true })
+  writeFileSync(
+    join(stateDir, 'status.json'),
+    JSON.stringify({
+      version: 1,
+      repo: 'acme/widgets',
+      scope: 'auto',
+      dryRun: false,
+      stage: 'reviewing',
+      startedAt: '2026-06-22T10:00:00Z',
+      updatedAt: '2026-06-22T10:00:30Z',
+      message: 'reviewing 2 PR(s) in scope',
+      totals: { openPrs: 3, inScope: 2, handled: 1, reviewed: 0, skipped: 1, tokens: 0, maxPrs: 15 },
+      prs: [
+        { number: 7, title: 'tighten parser', head: 'abcdef123456', state: 'reviewing', detail: 'running codex over 91 diff lines', lines: 91, updatedAt: '2026-06-22T10:00:30Z' },
+        { number: 8, title: 'huge import', head: '999999999999', state: 'skipped', detail: 'diff 7000 lines > cap 5000', lines: 7000, updatedAt: '2026-06-22T10:00:20Z' },
+      ],
+    }),
+  )
+
+  const r = run(['status'], e)
+  expect(r.status).toBe(0)
+  expect(r.stdout).toContain('stupify status')
+  expect(r.stdout).toContain('acme/widgets')
+  expect(r.stdout).toContain('#7 tighten parser')
+  expect(r.stdout).toContain('running codex over 91 diff lines')
+  expect(r.stdout).toContain('#8 huge import')
   clean(e)
 })

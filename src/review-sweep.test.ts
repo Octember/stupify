@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, dismissedFindings, diffRightLines, FIXED_NOTE, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
+import { type Config, commitStatusDescription, dismissedFindings, diffRightLines, FIXED_NOTE, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -26,6 +26,8 @@ const cfg = (): Config => ({
   codexEffort: 'high',
   codexProvider: '',
   codexModel: '',
+  githubStatus: true,
+  githubStatusContext: 'stupify/review',
 })
 
 const pr = (number: number, sha: string): Pr => ({
@@ -236,6 +238,13 @@ test('isRateLimited flags plan exhaustion, not ordinary failures', () => {
   expect(isRateLimited('codex: E2BIG: argument list too long')).toBe(false)
   expect(isRateLimited('request timed out after 408s')).toBe(false) // a one-off timeout is NOT plan exhaustion
   expect(isRateLimited('the diff had no reviewable changes')).toBe(false)
+})
+
+test('commitStatusDescription fits GitHub commit status limits', () => {
+  expect(commitStatusDescription('short and sweet')).toBe('short and sweet')
+  const long = 'x'.repeat(200)
+  expect(commitStatusDescription(long)).toHaveLength(140)
+  expect(commitStatusDescription(long).endsWith('...')).toBe(true)
 })
 
 test('only the tail changes — per-PR content is present and correct there', () => {

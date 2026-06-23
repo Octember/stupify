@@ -384,6 +384,8 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
 
   // 6. success
   const preview = `${pc.dim('preview anytime:')} ${pc.cyan(`DRY_RUN=1 bun ${join(HOME, 'review-sweep.ts')}`)}`
+  const statusLine = `${pc.dim('status anytime: ')} ${pc.cyan('stupify status')}`
+  const githubLine = `${pc.dim('github status: ')} ${pc.cyan('stupify/review')} ${pc.dim('on each PR head commit')}`
   if (packs.length) {
     note(
       [
@@ -391,7 +393,9 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
         `open a PR (or push to one) → stupify reviews it in ~60s. ${pc.dim('no labels, no setup.')}`,
         ``,
         `want your OWN taste instead? add a ${pc.cyan('.review/')} to ${pc.bold(repo)}, it overrides the pack.`,
+        githubLine,
         preview,
+        statusLine,
       ].join('\n'),
       "you're set",
     )
@@ -401,7 +405,9 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
         `${pc.bold('1.')} add a ${pc.cyan('.review/')} to ${pc.bold(repo)} and point ${pc.cyan('CORPUS.md')} at YOUR best files`,
         `${pc.bold('2.')} open a PR → stupify reviews it in ~60s ${pc.dim('(no labels needed)')}`,
         ``,
+        githubLine,
         preview,
+        statusLine,
       ].join('\n'),
       'two steps to your first review',
     )
@@ -593,6 +599,172 @@ function run(dry: boolean): void {
   process.exit(r.status ?? 1)
 }
 
+type CliPrStatusState = 'queued' | 'reviewing' | 'posted' | 'clean' | 'dry_run' | 'skipped' | 'deferred' | 'failed'
+type CliStage = 'starting' | 'refreshing' | 'loading_taste' | 'listing_prs' | 'reviewing' | 'done' | 'blocked'
+interface CliPrStatus {
+  number: number
+  title: string
+  head: string
+  state: CliPrStatusState
+  detail: string
+  lines?: number
+  updatedAt: string
+}
+interface CliSweepStatus {
+  repo: string
+  scope: 'label' | 'auto'
+  dryRun: boolean
+  stage: CliStage
+  startedAt: string
+  updatedAt: string
+  finishedAt?: string
+  message: string
+  totals: {
+    openPrs: number
+    inScope: number
+    handled: number
+    reviewed: number
+    skipped: number
+    tokens: number
+    maxPrs: number
+  }
+  prs: CliPrStatus[]
+}
+
+const isObject = (raw: unknown): raw is Record<string, unknown> => typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+const isPrStatusState = (raw: unknown): raw is CliPrStatusState =>
+  raw === 'queued' || raw === 'reviewing' || raw === 'posted' || raw === 'clean' || raw === 'dry_run' || raw === 'skipped' || raw === 'deferred' || raw === 'failed'
+const isStage = (raw: unknown): raw is CliStage =>
+  raw === 'starting' || raw === 'refreshing' || raw === 'loading_taste' || raw === 'listing_prs' || raw === 'reviewing' || raw === 'done' || raw === 'blocked'
+const textField = (o: Record<string, unknown>, key: string): string | null => {
+  const value = o[key]
+  return typeof value === 'string' ? value : null
+}
+const numField = (o: Record<string, unknown>, key: string): number | null => {
+  const value = o[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+const boolField = (o: Record<string, unknown>, key: string): boolean | null => {
+  const value = o[key]
+  return typeof value === 'boolean' ? value : null
+}
+
+function parseStatus(raw: unknown): CliSweepStatus | null {
+  if (!isObject(raw) || raw.version !== 1) return null
+  const repo = textField(raw, 'repo')
+  const scope = textField(raw, 'scope')
+  const dryRun = boolField(raw, 'dryRun')
+  const stageRaw = raw.stage
+  const startedAt = textField(raw, 'startedAt')
+  const updatedAt = textField(raw, 'updatedAt')
+  const message = textField(raw, 'message')
+  const totals = raw.totals
+  const prsRaw = raw.prs
+  if (repo === null || (scope !== 'label' && scope !== 'auto') || dryRun === null || !isStage(stageRaw) || startedAt === null || updatedAt === null || message === null) return null
+  if (!isObject(totals) || !Array.isArray(prsRaw)) return null
+  const openPrs = numField(totals, 'openPrs')
+  const inScope = numField(totals, 'inScope')
+  const handled = numField(totals, 'handled')
+  const reviewed = numField(totals, 'reviewed')
+  const skipped = numField(totals, 'skipped')
+  const tokens = numField(totals, 'tokens')
+  const maxPrs = numField(totals, 'maxPrs')
+  if (openPrs === null || inScope === null || handled === null || reviewed === null || skipped === null || tokens === null || maxPrs === null) return null
+
+  const prs: CliPrStatus[] = []
+  for (const item of prsRaw) {
+    if (!isObject(item)) return null
+    const number = numField(item, 'number')
+    const title = textField(item, 'title')
+    const head = textField(item, 'head')
+    const stateRaw = item.state
+    const detail = textField(item, 'detail')
+    const updated = textField(item, 'updatedAt')
+    const lines = item.lines
+    if (number === null || title === null || head === null || !isPrStatusState(stateRaw) || detail === null || updated === null) return null
+    if (lines !== undefined && (typeof lines !== 'number' || !Number.isFinite(lines))) return null
+    const pr: CliPrStatus = { number, title, head, state: stateRaw, detail, updatedAt: updated }
+    if (typeof lines === 'number') pr.lines = lines
+    prs.push(pr)
+  }
+
+  const status: CliSweepStatus = {
+    repo,
+    scope,
+    dryRun,
+    stage: stageRaw,
+    startedAt,
+    updatedAt,
+    message,
+    totals: { openPrs, inScope, handled, reviewed, skipped, tokens, maxPrs },
+    prs,
+  }
+  const finishedAt = raw.finishedAt
+  if (finishedAt !== undefined) {
+    if (typeof finishedAt !== 'string') return null
+    status.finishedAt = finishedAt
+  }
+  return status
+}
+
+function formatWhen(iso: string): string {
+  const time = Date.parse(iso)
+  if (!Number.isFinite(time)) return iso
+  const seconds = Math.max(0, Math.round((Date.now() - time) / 1000))
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 48) return `${hours}h ago`
+  return new Date(time).toLocaleString()
+}
+
+function statusMarker(state: CliPrStatusState): string {
+  if (state === 'reviewing') return pc.cyan('[>]')
+  if (state === 'posted' || state === 'clean' || state === 'dry_run') return pc.green('[x]')
+  if (state === 'failed') return pc.red('[!]')
+  if (state === 'skipped' || state === 'deferred') return pc.yellow('[-]')
+  return pc.dim('[ ]')
+}
+
+function renderStatus(status: CliSweepStatus): string {
+  const running = status.finishedAt === undefined && status.stage !== 'done' && status.stage !== 'blocked'
+  const mode = status.dryRun ? 'dry-run' : 'live'
+  const header = [
+    `${pc.bold('stupify status')} ${running ? pc.cyan('(running)') : status.stage === 'blocked' ? pc.red('(blocked)') : pc.green('(last sweep)')}`,
+    `${pc.dim('repo   ')} ${pc.bold(status.repo)}`,
+    `${pc.dim('stage  ')} ${status.stage} ${pc.dim('- ' + status.message)}`,
+    `${pc.dim('scope  ')} ${status.scope} ${pc.dim('· ' + mode)}`,
+    `${pc.dim('time   ')} started ${formatWhen(status.startedAt)} · updated ${formatWhen(status.updatedAt)}`,
+    `${pc.dim('totals ')} open ${status.totals.openPrs} · in scope ${status.totals.inScope} · handled ${status.totals.handled}/${status.totals.maxPrs} · posted ${status.totals.reviewed} · skipped ${status.totals.skipped} · tokens~${status.totals.tokens}`,
+  ]
+  if (status.prs.length === 0) return [...header, '', pc.dim('no PRs in scope')].join('\n')
+  const rows = status.prs.map((pr) => {
+    const title = pr.title.trim() || '(untitled)'
+    const head = pr.head ? ` @ ${pr.head.slice(0, 8)}` : ''
+    const lines = pr.lines === undefined ? '' : pc.dim(` · ${pr.lines} lines`)
+    return `${statusMarker(pr.state)} #${pr.number} ${title}${pc.dim(head)} - ${pr.detail}${lines}`
+  })
+  return [...header, '', ...rows].join('\n')
+}
+
+function cmdStatus(): void {
+  const file = join(STATE, 'status.json')
+  if (!existsSync(file)) {
+    log.warn(`no sweep status yet at ${pc.cyan(file)}. Run ${pc.cyan('stupify run --dry')} or wait for the cron sweep.`)
+    return
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'))
+  } catch {
+    die(`couldn't parse ${file}; check the file or rerun ${pc.cyan('stupify run --dry')}`)
+  }
+  const status = parseStatus(parsed)
+  if (status === null) die(`couldn't read ${file}; status schema is not recognized`)
+  console.log(renderStatus(status))
+}
+
 // `stupify review <pr-url | owner/repo#123 | #123>` — review ONE PR on demand via the bundled engine (no `setup`
 // needed, just taste). Prints the review to stdout; `--post` comments it on the PR. A bare `#123` resolves against
 // the repo you're standing in.
@@ -758,6 +930,8 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
       ``,
       ...firstReview,
       ``,
+      `${pc.dim('github status:')} ${pc.cyan('stupify/review')} ${pc.dim('on each PR head commit')}`,
+      `${pc.dim('status:')} ${pc.cyan(`ssh ${dest} 'bunx @stupify/cli@${VERSION} status'`)}`,
       `${pc.dim('watch:')} ${pc.cyan(`ssh ${dest} 'tail -f ~/.stupify/state/sweep.log'`)}`,
       `${pc.dim('stop: ')} ${pc.cyan(`ssh exe.dev rm ${vm}`)}`,
     ].join('\n'),
@@ -774,6 +948,7 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify <owner/repo>    provision for a specific repo
   stupify setup [repo]    install on THIS machine instead of provisioning a VM
   stupify run [--dry]     run one review sweep now (where stupify is installed)
+  stupify status          show the latest sweep as a workflow
   stupify upgrade [repo]  move a running reviewer to the latest engine, in place ${pc.dim('(a VM if repo given, else this box)')}
   stupify review <pr> [--post]  review ONE pull request on demand (a URL or owner/repo#123); prints it, --post comments it
   stupify taste [--pack a,b]  borrow a taste pack (assembles ~/.stupify/.review); packs below
@@ -859,6 +1034,8 @@ if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
   else die('`stupify prime --install` to wire it up (or `--uninstall`). The hook itself runs ~/.stupify/prime.ts directly.')
 } else if (cmd === 'run') {
   run(args.includes('--dry'))
+} else if (cmd === 'status') {
+  cmdStatus()
 } else if (cmd === 'review') {
   cmdReview(positional[1], args.includes('--post'))
 } else if (cmd === 'setup') {

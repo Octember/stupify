@@ -17,7 +17,7 @@
  * Single-flight: the sweep takes its own lockfile (state/sweep.lock) so two cron ticks never overlap — no
  * `flock` dependency. Every knob lives in config.env next to this file (read fresh each run). Run: `bun review-sweep.ts`.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -56,6 +56,8 @@ export interface Config {
   codexEffort: string
   codexProvider: string // optional `-c model_provider=...`; empty = codex's own default/auth
   codexModel: string // optional `-c model=...`; empty = codex's default model
+  githubStatus: boolean // post GitHub commit statuses (`stupify/review`) for PR-head workflow visibility
+  githubStatusContext: string
 }
 
 function loadConfig(): Config {
@@ -114,6 +116,8 @@ function loadConfig(): Config {
     codexEffort: pick('CODEX_EFFORT', 'high'),
     codexProvider: pick('CODEX_PROVIDER', ''),
     codexModel: pick('CODEX_MODEL', ''),
+    githubStatus: bool('GITHUB_STATUS', true, false), // default visible in GitHub; typo disables instead of surprise-posting
+    githubStatusContext: pick('GITHUB_STATUS_CONTEXT', 'stupify/review').trim() || 'stupify/review',
   }
 }
 
@@ -474,6 +478,165 @@ export const stripSignoff = (review: string): string => {
 const failuresPath = (cfg: Config): string => join(cfg.stateDir, 'failures.json')
 const reviewedPath = (cfg: Config): string => join(cfg.stateDir, 'reviewed.json')
 const dailyPath = (cfg: Config): string => join(cfg.stateDir, 'daily.json')
+const statusPath = (cfg: Config): string => join(cfg.stateDir, 'status.json')
+const commitStatusPath = (cfg: Config): string => join(cfg.stateDir, 'commit-statuses.json')
+
+type PrStatusState = 'queued' | 'reviewing' | 'posted' | 'clean' | 'dry_run' | 'skipped' | 'deferred' | 'failed'
+type CommitStatusState = 'pending' | 'success' | 'failure' | 'error'
+interface PrStatus {
+  number: number
+  title: string
+  head: string
+  state: PrStatusState
+  detail: string
+  lines?: number
+  updatedAt: string
+}
+interface SweepStatus {
+  version: 1
+  repo: string
+  scope: Config['scope']
+  dryRun: boolean
+  stage: 'starting' | 'refreshing' | 'loading_taste' | 'listing_prs' | 'reviewing' | 'done' | 'blocked'
+  startedAt: string
+  updatedAt: string
+  finishedAt?: string
+  message: string
+  totals: {
+    openPrs: number
+    inScope: number
+    handled: number
+    reviewed: number
+    skipped: number
+    tokens: number
+    maxPrs: number
+  }
+  prs: PrStatus[]
+}
+
+const isoNow = (): string => new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')
+
+function initialStatus(cfg: Config): SweepStatus {
+  const now = isoNow()
+  return {
+    version: 1,
+    repo: cfg.slug,
+    scope: cfg.scope,
+    dryRun: cfg.dryRun,
+    stage: 'starting',
+    startedAt: now,
+    updatedAt: now,
+    message: 'starting sweep',
+    totals: { openPrs: 0, inScope: 0, handled: 0, reviewed: 0, skipped: 0, tokens: 0, maxPrs: cfg.maxPrs },
+    prs: [],
+  }
+}
+
+function writeStatus(cfg: Config, status: SweepStatus): void {
+  status.updatedAt = isoNow()
+  try {
+    mkdirSync(cfg.stateDir, { recursive: true })
+    const path = statusPath(cfg)
+    const tmp = `${path}.tmp`
+    writeFileSync(tmp, `${JSON.stringify(status, null, 2)}\n`)
+    renameSync(tmp, path)
+  } catch {
+    /* best-effort: status must never break the reviewer */
+  }
+}
+
+function setStatusStage(cfg: Config, status: SweepStatus, stage: SweepStatus['stage'], message: string): void {
+  status.stage = stage
+  status.message = message
+  writeStatus(cfg, status)
+}
+
+function seedStatusPrs(cfg: Config, status: SweepStatus, prs: Pr[]): void {
+  status.prs = prs.map((pr) => ({
+    number: pr.number,
+    title: pr.title,
+    head: pr.headRefOid,
+    state: 'queued',
+    detail: 'waiting for review slot',
+    updatedAt: isoNow(),
+  }))
+  status.totals.inScope = prs.length
+  writeStatus(cfg, status)
+}
+
+function setStatusPr(cfg: Config, status: SweepStatus, pr: Pr, state: PrStatusState, detail: string, lines?: number): void {
+  const next: PrStatus = { number: pr.number, title: pr.title, head: pr.headRefOid, state, detail, updatedAt: isoNow() }
+  if (lines !== undefined) next.lines = lines
+  const i = status.prs.findIndex((p) => p.number === pr.number)
+  if (i >= 0) status.prs[i] = next
+  else status.prs.push(next)
+  writeStatus(cfg, status)
+}
+
+function skipStatusPr(cfg: Config, status: SweepStatus, pr: Pr, state: 'skipped' | 'deferred', detail: string, lines?: number): void {
+  status.totals.skipped += 1
+  setStatusPr(cfg, status, pr, state, detail, lines)
+}
+
+interface PostedCommitStatus {
+  state: CommitStatusState
+  description: string
+}
+
+function loadCommitStatuses(path: string): Record<string, PostedCommitStatus> {
+  try {
+    if (!existsSync(path)) return {}
+    const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
+    const out: Record<string, PostedCommitStatus> = {}
+    for (const [key, value] of Object.entries(raw)) {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
+      if (!('state' in value) || !isCommitStatusState(value.state)) continue
+      if (!('description' in value) || typeof value.description !== 'string') continue
+      out[key] = { state: value.state, description: value.description }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function writeCommitStatuses(path: string, statuses: Record<string, PostedCommitStatus>): void {
+  try {
+    writeFileSync(path, JSON.stringify(statuses))
+  } catch {
+    /* best-effort */
+  }
+}
+
+function isCommitStatusState(raw: unknown): raw is CommitStatusState {
+  return raw === 'pending' || raw === 'success' || raw === 'failure' || raw === 'error'
+}
+
+export const commitStatusDescription = (description: string): string =>
+  description.length <= 140 ? description : `${description.slice(0, 137)}...`
+
+function setCommitStatus(cfg: Config, posted: Record<string, PostedCommitStatus>, pr: Pr, state: CommitStatusState, description: string): void {
+  if (!cfg.githubStatus || cfg.dryRun) return
+  const safeDescription = commitStatusDescription(description)
+  const key = `${pr.headRefOid}:${cfg.githubStatusContext}`
+  const previous = posted[key]
+  if (previous?.state === state && previous.description === safeDescription) return
+
+  const payload = {
+    state,
+    context: cfg.githubStatusContext,
+    description: safeDescription,
+    target_url: `https://github.com/${cfg.slug}/pull/${pr.number}`,
+  }
+  const r = exec('gh', ['api', `repos/${cfg.slug}/statuses/${pr.headRefOid}`, '--method', 'POST', '--input', '-'], { input: JSON.stringify(payload) })
+  if (!r.ok) {
+    log(`  couldn't post GitHub status for #${pr.number} (${state}) — ${r.combined.slice(0, 180).replace(/\s+/g, ' ').trim()}`)
+    return
+  }
+  posted[key] = { state, description: safeDescription }
+  writeCommitStatuses(commitStatusPath(cfg), posted)
+}
 
 // codex's sandbox only allows writes under /tmp, so the review file lives there — keyed by a HASH of the repo slug,
 // not the slug itself, so two repos with the same PR number never clobber AND the path has no real words for codex
@@ -767,31 +930,54 @@ function main(): void {
     log('another sweep already running — skip')
     return
   }
+  const status = initialStatus(cfg)
+  writeStatus(cfg, status)
   process.on('exit', () => {
     // Only clear the lock if we still hold it. If a later sweep judged us crashed and stole it, deleting it here
     // would free a lock that another run now owns — letting a third sweep overlap it.
     releaseLock(lockPath)
   })
 
-  if (!refreshRepo(cfg)) process.exit(1)
+  setStatusStage(cfg, status, 'refreshing', `refreshing ${cfg.defaultBranch}`)
+  if (!refreshRepo(cfg)) {
+    setStatusStage(cfg, status, 'blocked', 'checkout refresh failed')
+    status.finishedAt = isoNow()
+    writeStatus(cfg, status)
+    process.exit(1)
+  }
   // Resolve the taste: the target repo's own .review/ wins (a repo can override); otherwise fall back to the
   // home taste the CLI assembled from packs (~/.stupify/.review). Either way cfg.reviewDir becomes ABSOLUTE.
   // Select on the FULL 3-file set, not just CORPUS.md — a partial repo .review/ (e.g. CORPUS without the spec)
   // then gracefully falls back to the home taste instead of being picked and dead-ending at "no machinery".
+  setStatusStage(cfg, status, 'loading_taste', 'loading review taste')
   const repoReview = join(cfg.repoDir, cfg.reviewDir)
   cfg.reviewDir = hasMachinery(repoReview) ? repoReview : cfg.homeReviewDir
   if (!hasMachinery(cfg.reviewDir)) {
     log(`no review machinery at ${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Run \`stupify setup\` to assemble taste, or add a .review/ to ${cfg.slug}.`)
+    status.stage = 'done'
+    status.message = 'no review machinery found'
+    status.finishedAt = isoNow()
+    writeStatus(cfg, status)
     return
   }
 
+  setStatusStage(cfg, status, 'listing_prs', 'listing open pull requests')
   const prs = listPrs(cfg)
-  if (prs === null) process.exit(1)
+  if (prs === null) {
+    setStatusStage(cfg, status, 'blocked', 'could not list pull requests')
+    status.finishedAt = isoNow()
+    writeStatus(cfg, status)
+    process.exit(1)
+  }
   const queue = prs.filter((pr) => inScope(pr, cfg)) // MAX_PRS is applied to PRs actually HANDLED, not iterated (below)
+  status.totals.openPrs = prs.length
+  seedStatusPrs(cfg, status, queue)
+  setStatusStage(cfg, status, 'reviewing', queue.length === 0 ? 'no PRs in scope' : `reviewing ${queue.length} PR(s) in scope`)
 
   const failures = loadHeadAttempts(failuresPath(cfg)) // PR -> failed head + when; throttles retries without a PR comment
   const reviewedLocal = loadReviewedHeads(reviewedPath(cfg)) // PR -> head already run; catches suppressed no-ops
   const daily = loadDailyCounter(dailyPath(cfg)) // today's review count vs MAX_REVIEWS_PER_DAY
+  const commitStatuses = loadCommitStatuses(commitStatusPath(cfg)) // head+context -> last posted payload; avoids append-only status spam
 
   let reviewed = 0
   let tokens = 0
@@ -801,12 +987,15 @@ function main(): void {
   for (const pr of queue) {
     if (cfg.maxReviewsPerDay > 0 && !cfg.dryRun && daily.count >= cfg.maxReviewsPerDay) {
       log(`daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}) — no more reviews today; resumes tomorrow`)
+      skipStatusPr(cfg, status, pr, 'deferred', `daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}); resumes tomorrow`)
       break
     }
     // What stupify has already said here — read from the reviews/threads connection (findings are inline threads now).
     const prior = prReviews(cfg, pr)
     if (prior === null) {
       log(`skip #${pr.number} — couldn't read its reviews from gh (failed/malformed); will retry next sweep`)
+      skipStatusPr(cfg, status, pr, 'skipped', "couldn't read reviews from gh; will retry next sweep")
+      setCommitStatus(cfg, commitStatuses, pr, 'error', "couldn't read PR review state; retrying next sweep")
       continue
     }
     const firstReview = !prior.everReviewed // stupify has never reviewed here → a clean verdict earns a one-time LGTM
@@ -817,12 +1006,21 @@ function main(): void {
     // window (so a persistently-failing PR isn't re-run every sweep, but a transient failure retries once it lapses).
     const f = failures[String(pr.number)]
     const recentlyFailed = f !== undefined && f.head === pr.headRefOid && Date.now() - f.at < cfg.failRetryMs
-    if (reviewedHead || recentlyFailed) continue
+    if (reviewedHead) {
+      skipStatusPr(cfg, status, pr, 'skipped', 'already reviewed this head')
+      continue
+    }
+    if (recentlyFailed) {
+      skipStatusPr(cfg, status, pr, 'skipped', 'recently failed; retry window has not elapsed')
+      continue
+    }
 
     // Past the cheap dedup skip — this PR is a real candidate. Enforce MAX_PRS here, not on the
     // iterated list, and defer the rest to the next sweep.
     if (handled >= cfg.maxPrs) {
       log(`reached MAX_PRS=${cfg.maxPrs} this sweep — deferring remaining candidates to the next sweep`)
+      skipStatusPr(cfg, status, pr, 'deferred', `reached MAX_PRS=${cfg.maxPrs}; deferring to next sweep`)
+      setCommitStatus(cfg, commitStatuses, pr, 'pending', `reached MAX_PRS=${cfg.maxPrs}; deferring to next sweep`)
       break
     }
 
@@ -830,6 +1028,8 @@ function main(): void {
     const diff = getDiff(cfg, pr.number)
     if (diff === null) {
       log(`skip #${pr.number} — couldn't read its diff from gh; will retry next sweep`)
+      skipStatusPr(cfg, status, pr, 'skipped', "couldn't read diff from gh; will retry next sweep")
+      setCommitStatus(cfg, commitStatuses, pr, 'error', "couldn't read PR diff; retrying next sweep")
       continue
     }
     const lines = diffLineCount(diff)
@@ -837,22 +1037,33 @@ function main(): void {
     // (label-scope means you already opted in, so size never gates there.)
     if (cfg.scope === 'auto' && lines > cfg.diffLineCap && !hasReviewLabel(pr, cfg)) {
       log(`skip #${pr.number} — diff ${lines} lines > cap ${cfg.diffLineCap} (add '${cfg.reviewLabel}' to force)`)
+      skipStatusPr(cfg, status, pr, 'skipped', `diff ${lines} lines > cap ${cfg.diffLineCap} (add '${cfg.reviewLabel}' to force)`, lines)
+      setCommitStatus(cfg, commitStatuses, pr, 'success', `diff ${lines} lines > cap ${cfg.diffLineCap}; add '${cfg.reviewLabel}' to force`)
       continue
     }
     handled += 1 // count only PRs that pass the gates and actually get a review slot — size/read skips above don't burn it
+    status.totals.handled = handled
     if (cfg.dryRun) {
       log(`DRY_RUN would review #${pr.number} @ ${pr.headRefOid.slice(0, 8)} (diff ${lines} lines)`)
+      setStatusPr(cfg, status, pr, 'dry_run', `would review ${lines} diff lines`, lines)
       continue
     }
 
+    setStatusPr(cfg, status, pr, 'reviewing', `running codex over ${lines} diff lines`, lines)
+    setCommitStatus(cfg, commitStatuses, pr, 'pending', `stupify is reviewing ${lines} diff lines`)
     const used = reviewPr(cfg, pr, prior.memory, diff, firstReview, prior.openThreadIds, prior.dismissed)
     if (used === 'limit') {
       log('codex plan is rate-limited — ending this sweep early (the rest would fail the same way); retries next sweep')
+      setStatusPr(cfg, status, pr, 'failed', 'codex plan is rate-limited; ending sweep early', lines)
+      setStatusStage(cfg, status, 'blocked', 'codex plan is rate-limited')
+      setCommitStatus(cfg, commitStatuses, pr, 'error', 'codex plan is rate-limited; retrying later')
       recordHeadAttempt(failuresPath(cfg), failures, String(pr.number), pr.headRefOid) // throttle this head too so the next sweep doesn't immediately re-hit the wall
       break
     }
     if (used === null) {
       recordHeadAttempt(failuresPath(cfg), failures, String(pr.number), pr.headRefOid) // logged, not posted — throttle re-attempt until the window lapses or the head moves
+      setStatusPr(cfg, status, pr, 'failed', 'review failed; retry will wait for the failure window', lines)
+      setCommitStatus(cfg, commitStatuses, pr, 'error', 'stupify review failed; retrying later')
       continue
     }
     // codex ran and reached a verdict (findings posted, or a no-op). Record this head so the next sweep doesn't
@@ -863,10 +1074,26 @@ function main(): void {
     if (used !== 'noop') {
       reviewed += 1
       tokens += used
+      setStatusPr(cfg, status, pr, 'posted', `posted review (${used} tokens)`, lines)
+      setCommitStatus(cfg, commitStatuses, pr, 'failure', 'stupify found issues; see review')
+    } else {
+      setStatusPr(cfg, status, pr, 'clean', 'no new review needed', lines)
+      setCommitStatus(cfg, commitStatuses, pr, 'success', 'stupify review complete; no new issues')
     }
+    status.totals.reviewed = reviewed
+    status.totals.tokens = tokens
   }
 
   log(`sweep done — scope=${cfg.scope} reviewed=${reviewed} tokens~${tokens}`)
+  if (status.stage !== 'blocked') {
+    status.stage = 'done'
+    status.message = `sweep done — scope=${cfg.scope} reviewed=${reviewed} tokens~${tokens}`
+  }
+  status.totals.handled = handled
+  status.totals.reviewed = reviewed
+  status.totals.tokens = tokens
+  status.finishedAt = isoNow()
+  writeStatus(cfg, status)
 }
 
 if (import.meta.main) main() // run only when invoked directly (cron / `stupify run`); stays importable for tests
