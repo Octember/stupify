@@ -57,6 +57,15 @@ A cron job runs the sweep every minute (`*/1 * * * *`); the sweep self-locks so 
 6. **Cap.** `MAX_PRS` limits PRs *actually reviewed* per sweep, counted only after the cheap dedup skips, so a
    backlog of already-reviewed PRs at the front of the list can't starve later ones.
 
+Along the way the sweep writes `state/status.json`, a best-effort workflow snapshot of the current stage and each
+PR's disposition (queued, reviewing, posted, clean, skipped, deferred, failed, or dry-run). `stupify status` reads
+that file and renders the latest sweep without touching GitHub or posting anything to PRs.
+
+Live sweeps also post a best-effort commit status on the PR head SHA (`stupify/review` by default). It is
+append-only on GitHub's side, so stupify keeps `state/commit-statuses.json` as a tiny dedupe cache and only posts
+when the state/description changes. Status posting is never required for review progress: if the API call fails,
+the sweep logs it and keeps reviewing/commenting. `DRY_RUN` never posts GitHub statuses.
+
 ## Per-PR memory (and why it replaced debounce)
 
 The first version had a 5-minute **debounce**: a push started a clock, and a PR was only reviewed once its head
