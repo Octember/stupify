@@ -581,6 +581,15 @@ function skipStatusPr(cfg: Config, status: SweepStatus, pr: Pr, state: 'skipped'
   setStatusPr(cfg, status, pr, state, detail, lines)
 }
 
+function deferQueuedStatusPrs(cfg: Config, status: SweepStatus, prs: Pr[], start: number, detail: string): void {
+  for (let i = start; i < prs.length; i++) {
+    const pr = prs[i]
+    if (pr === undefined) continue
+    const existing = status.prs.find((p) => p.number === pr.number)
+    if (existing?.state === 'queued') skipStatusPr(cfg, status, pr, 'deferred', detail)
+  }
+}
+
 interface PostedCommitStatus {
   state: CommitStatusState
   description: string
@@ -821,8 +830,7 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstR
       return null
     }
     if (!postNote(cfg, pr, FIXED_NOTE)) {
-      log(`  couldn't post #${pr.number} fixed note (gh down?) — will retry next sweep`)
-      return null
+      log(`  couldn't post #${pr.number} fixed note (gh down?) — threads are already resolved`)
     }
     log(`  #${pr.number} prior findings resolved — posted ${FIXED_NOTE}; resolved ${openThreadIds.length} thread(s)`)
     return 'fixed'
@@ -999,10 +1007,12 @@ function main(): void {
   // Count PRs we do real (costly) work on, and cap THAT at MAX_PRS — so a backlog of already-reviewed PRs at
   // the front of the list can't consume the budget and starve later ones.
   let handled = 0
-  for (const pr of queue) {
+  for (let i = 0; i < queue.length; i++) {
+    const pr = queue[i]
+    if (pr === undefined) continue
     if (cfg.maxReviewsPerDay > 0 && !cfg.dryRun && daily.count >= cfg.maxReviewsPerDay) {
       log(`daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}) — no more reviews today; resumes tomorrow`)
-      skipStatusPr(cfg, status, pr, 'deferred', `daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}); resumes tomorrow`)
+      deferQueuedStatusPrs(cfg, status, queue, i, `daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}); resumes tomorrow`)
       break
     }
     // What stupify has already said here — read from the reviews/threads connection (findings are inline threads now).
@@ -1037,7 +1047,7 @@ function main(): void {
     // iterated list, and defer the rest to the next sweep.
     if (handled >= cfg.maxPrs) {
       log(`reached MAX_PRS=${cfg.maxPrs} this sweep — deferring remaining candidates to the next sweep`)
-      skipStatusPr(cfg, status, pr, 'deferred', `reached MAX_PRS=${cfg.maxPrs}; deferring to next sweep`)
+      deferQueuedStatusPrs(cfg, status, queue, i, `reached MAX_PRS=${cfg.maxPrs}; deferring to next sweep`)
       setCommitStatus(cfg, commitStatuses, pr, 'pending', `reached MAX_PRS=${cfg.maxPrs}; deferring to next sweep`)
       break
     }
