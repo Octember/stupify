@@ -17,10 +17,10 @@
 ### What you get
 
 - **Your taste, not the model's.** Code is judged against a `CORPUS.md`: a [taste pack](#taste-packs) ("code like dtolnay / DHH / antirez …") or your own best files
-- **On your personal Codex plan, not an API key.** stupify reviews with [Codex](https://github.com/openai/codex), running on the $20-$200/month plan. API usage is roughly 50x more expensive, enjoy the subsidized tokens while they last
+- **On your personal Codex plan.** stupify reviews with [Codex](https://github.com/openai/codex), running on the $20-$200/month plan. API usage is roughly 50x more expensive, enjoy the subsidized tokens while they last
 - **Slop, named.** Code review is cheap. Taste is expensive. Codify the goodies, let the LLM pattern match
 
-## Add the reviewer (rides exe.dev, no keys or servers you run)
+## Add the reviewer
 
 ```bash
 npx @stupify/cli
@@ -33,7 +33,7 @@ npx @stupify/cli
 └  stupify is provisioned for acme/widgets 👀
 ```
 
-Stupify rides on [exe.dev](https://exe.dev). Setup takes about two minutes and doesnt require payment
+stupify rides on [exe.dev](https://exe.dev) with no keys or servers to run. Setup takes about two minutes and doesn't require payment.
 
 ```bash
 npx @stupify/cli <owner/repo>          # provision for a specific repo
@@ -50,13 +50,12 @@ reviewer itself failed. Set `GITHUB_STATUS=0` in `~/.stupify/config.env` to turn
 ### Connect your accounts
 
 The reviews run on Codex. On exe.dev that's a keyless **LLM integration**: it fronts your ChatGPT/Codex plan, so
-the VM holds no API key (it bills your plan). Link one once at [exe.dev/integrations](https://exe.dev/integrations)
+the VM holds no API key and your plan is billed instead. Link one once at [exe.dev/integrations](https://exe.dev/integrations)
 and provisioning attaches it for you
 
 ## Taste packs
 
-Don't have a corpus yet? Borrow one. Pick a programmer whose code you'd point a new hire at and review (and
-write) like them, or compose several:
+Don't have a corpus yet? Borrow one. Pick a programmer whose code you'd point a new hire at and review and write like them, or compose several:
 
 [dtolnay](packs/dtolnay.md) · [DHH](packs/dhh.md) · [antirez](packs/antirez.md) ·
 [Sindre Sorhus](packs/sindre-sorhus.md) · [Rich Harris](packs/rich-harris.md) ·
