@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, FIXED_NOTE, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
+import { type Config, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -65,6 +65,16 @@ test('the prefix equals stablePrefix(cfg) and carries the real taste, not generi
   expect(prefixes[0]).toContain('===== CORPUS')
 })
 
+test('the opener guidance gives ingredients, not copy-paste lines', () => {
+  const openerSection = prefixes[0]?.split('- **Opening line')[1]?.split('- **Each finding**')[0] ?? ''
+  expect(openerSection).toContain('Good ingredients:')
+  expect(openerSection).toContain('Do not copy a fixed catchphrase.')
+  expect(openerSection).not.toMatch(/\bso\./i)
+  expect(openerSection).not.toMatch(/\bok so\b/i)
+  expect(openerSection).not.toContain('→')
+  expect(openerSection).not.toContain(' · ')
+})
+
 test('NO per-PR token leaks into the cached prefix', () => {
   for (const prefix of prefixes) {
     expect(prefix).not.toContain('diff --git') // the inlined diff lives in the tail, not the cached prefix
@@ -106,6 +116,15 @@ test('priorReviewThread caps total size so a chatty PR cannot balloon the prompt
   expect(priorReviewThread(huge).length).toBeLessThanOrEqual(16_000)
 })
 
+test('priorReviewThread drops comments that only contained hidden markers', () => {
+  const thread = priorReviewThread([
+    { login: 'exe-dev-github-integration', body: '<!-- stupify:abc123 -->' },
+    { login: 'reviewer', body: 'still useful' },
+  ])
+  expect(thread).not.toContain('exe-dev-github-integration')
+  expect(thread).toContain('@reviewer:\nstill useful')
+})
+
 // The convergence contract: codex emits an EXACT token for "nothing new" so the runner converges instead of
 // re-posting a clean note every commit. Detection is token-ONLY: a paraphrase is NOT treated as clean — it gets
 // posted (visible), never silently swallowed. This is the guard against overwriting a real review with "LGTM ✅".
@@ -117,14 +136,14 @@ test('isNoopReview: ONLY the exact token converges; a paraphrase or a finding is
   expect(isNoopReview(finding)).toBe(false)
 })
 
-// The fixed token is the OTHER no-content signal (prior findings resolved → runner resolves the threads), distinct
-// from "nothing new". They must never be interchangeable.
+// The fixed token is the OTHER no-content signal (prior findings resolved → runner resolves the threads and posts
+// the visible fixed note), distinct from "nothing new". They must never be interchangeable.
 test('isFixedReview vs isNoopReview: the resolved signal is distinct from "nothing new"', () => {
   expect(isFixedReview(FIXED_TOKEN)).toBe(true)
   expect(isFixedReview('`STUPIFY_FIXED`')).toBe(true)
   expect(isFixedReview(NOOP_TOKEN)).toBe(false)
   expect(isNoopReview(FIXED_TOKEN)).toBe(false)
-  expect(FIXED_NOTE).toBe('nice, all fixed ✅')
+  expect(prompts[0]).toContain('nice, all fixed ✅')
 })
 
 // Re-raise on silent dismissal: a finding the author RESOLVED without replying isn't a reasoned decline. We detect
