@@ -38,8 +38,14 @@ Stupify rides on [exe.dev](https://exe.dev). Setup takes about two minutes and d
 ```bash
 npx @stupify/cli <owner/repo>          # provision for a specific repo
 npx @stupify/cli setup                 # run the reviewer on this machine instead of a VM
+npx @stupify/cli status                # show the latest sweep as a workflow
 ssh exe.dev rm stupify-<owner>-<repo>  # tear it down
 ```
+
+Every live sweep also posts a GitHub commit status named `stupify/review` on the PR head commit: pending while
+queued/running, success when reviewed or policy-skipped, failure when stupify posts findings, and error when the
+reviewer itself failed. Set `GITHUB_STATUS=0` in `~/.stupify/config.env` to turn that off, or
+`GITHUB_STATUS_CONTEXT=your/context` to rename it.
 
 ### Connect your accounts
 
