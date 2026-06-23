@@ -5,7 +5,7 @@
 
 # stupify
 
-**AI agents are rats in a maze. They reach for what they know.** And unless you show them better, what they know is slop: most software is garbage, and they'll [happily](https://github.com/thesysdev/openui/issues/517) [imitate](https://github.com/RsyncProject/rsync/issues/929) [it](https://github.com/anthropics/claudes-c-compiler/issues/1).
+**AI agents are rats in a maze. They reach for what they know.** And unless you show them better, what they know is slop: [most software is garbage](https://github.com/openai/codex/issues/28224), and they'll [happily](https://github.com/thesysdev/openui/issues/517) [imitate](https://github.com/RsyncProject/rsync/issues/929) [it](https://github.com/anthropics/claudes-c-compiler/issues/1).
 
 [![npm](https://img.shields.io/npm/v/@stupify/cli?color=cb3837&label=%40stupify%2Fcli)](https://www.npmjs.com/package/@stupify/cli)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
