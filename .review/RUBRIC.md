@@ -1,6 +1,18 @@
 # Anti-slop rubric — what counts as slop (the taste, alongside `CORPUS.md`)
 
-Edit it to match your team. Findings fall into two categories.
+Edit it to match your team. Findings fall into three categories — and the first is the one the checks miss.
+
+## Confident-wrong — the whole change, judged against the simplest version (NO corpus citation needed)
+The slop that passes every check: it compiles, it's tidy, it reads confidently — and it's still the wrong
+change. Flag these on the CHANGE AS A WHOLE, on confidence, even when no single line is locally "wrong" and you
+can't cite a corpus primitive. Judge against the bar: the smallest change that solves the REAL problem.
+- `kind: wrong-premise` — solves a problem that isn't real, or rests on an unproven theory; the premise behind
+  the diff doesn't hold. The fix is "don't do this / prove the premise first," not a code tweak.
+- `kind: overbuilt` — materially bigger than the problem: an invented fallback / retry / polling path,
+  speculative UI, a new layer or abstraction, or special-case proliferation where one default suffices. The fix
+  is the smaller version — name what to cut.
+- `kind: confident-noop` — confidently claims a fix but doesn't change the real behavior (a no-op, or a change
+  at the wrong layer). Verify the actual effect against the checkout.
 
 ## Just wrong — flag regardless of the corpus
 - `kind: bug` — correctness bugs; off-by-one; broken null/empty handling; wrong condition.
