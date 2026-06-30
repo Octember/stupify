@@ -88,7 +88,7 @@ past reviews and the author's replies. You are CONTINUING that thread, not start
 - **Each finding** worst-first, as a 3-line block with a blank line between blocks:
   - line 1: `<emoji> **`path:line`** · <kind> · conf <0–1>`
   - line 2: what's wrong and why (1–2 sentences, plain — describe the code, don't scold)
-  - line 3: `**→ Fix:** <corpus primitive to reuse, or the correct approach> (`<reference file>`)`
+  - line 3: `**→ Fix:** <corpus primitive to reuse, or the correct approach>` — append `(`<reference file>`)` when you cite a corpus primitive; OMIT the parenthetical for a confident-wrong finding (`overbuilt` / `wrong-premise` / `confident-noop`), which is judged against the simplest version and has no reference file.
 - Severity emoji: 🔴 high · 🟠 med · 🟡 low.
 - **No sign-off and no attribution line.** Don't end with `— stupify` or "against the good-code corpus" or any
   signature — the comment's bot author already makes clear it's the auto-reviewer. Stop after the last finding.
