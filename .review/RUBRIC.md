@@ -23,9 +23,10 @@ Edit it to match your team. Findings fall into two categories.
   - a defensive `?.` / `??` fallback on a value the type or schema already guarantees — e.g. `x?.foo ?? x.y.foo`
     when `x` is required (or should be). Drop the optional chain and the fallback (it's `x.foo`); if `x` is
     wrongly optional, fix the schema/type, don't paper over it at the call site
-  - regex or string matching (`match`, `split`, `indexOf`, `includes`) used to parse structured data —
-    JSON, HTML/JSX, code, URLs, file paths, SQL, semver — instead of the typed owner (`JSON.parse` + schema,
-    `URL`, `node:path`, an AST, the existing service). Regex is for genuinely flat text only
+  - regex or string matching as the product mechanism — detecting, classifying, routing, or extracting
+    meaning by sniffing strings (`match`/`split`/`includes` heuristics). A fake owner: works on the examples
+    tried, silently breaks on the next input. **fix:** the structured field, schema, persisted state, real
+    parser, or model output that actually owns the answer. String matching is plumbing for flat text only
   - denormalized parallel constants or hardcoded membership lists (derive a Set/Record from ONE `as const` array)
   - speculative config seams / unused `mode` switches / injectable-override defaults nothing needs yet
   - additive churn on a cleanup; code that "looks productive" over the minimal change
