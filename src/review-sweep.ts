@@ -761,7 +761,7 @@ const hasMachinery = (dir: string): boolean =>
 /** The outcome of running codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
  *  the ad-hoc `stupify review` prints it or `--post`s it. */
 export type ReviewOutcome =
-  | { kind: 'limit'; reason: string } // plan/credit exhaustion — the caller should STOP, not retry every PR
+  | { kind: 'limit'; reason: string; raw: string } // plan/credit exhaustion — caller STOPS; raw = full codex output for the rotation matcher (reason is a truncated excerpt that can miss the quota signature)
   | { kind: 'fail'; reason: string } // codex couldn't produce a review (down, timeout, wrote nothing)
   | { kind: 'noop'; tokens: number | null } // codex emitted the no-new-issues token → stay silent
   | { kind: 'fixed'; tokens: number | null } // codex emitted the fixed token → prior findings resolved
@@ -795,7 +795,7 @@ export function runReview(cfg: Config, pr: Pr, priorThread: string, diff: string
   const review = cx.ok && existsSync(outPath) ? readFileSync(outPath, 'utf8').trim() : ''
   if (review.length === 0) {
     const reason = failureReason(cx.combined)
-    return isRateLimited(cx.combined) ? { kind: 'limit', reason } : { kind: 'fail', reason }
+    return isRateLimited(cx.combined) ? { kind: 'limit', reason, raw: cx.combined } : { kind: 'fail', reason }
   }
   const tokens = parseTokens(cx.combined)
   if (isFixedReview(review)) return { kind: 'fixed', tokens }
@@ -829,7 +829,7 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstR
       // same kit + env contract bunion/earshot rotate on). Codex re-reads the file each sweep, so the next
       // sweep lands on the fresh account. The kit's signature match is tighter than isRateLimited by design:
       // a transient 429 ends this sweep but doesn't walk the ring.
-      const rot = maybeRotateGateway({ reason: r.reason, pool: cfg.gatewayPool.split(',').map((h) => h.trim()).filter(Boolean), cooldownMs: cfg.rotateCooldownMs })
+      const rot = maybeRotateGateway({ reason: r.raw, pool: cfg.gatewayPool.split(',').map((h) => h.trim()).filter(Boolean), cooldownMs: cfg.rotateCooldownMs })
       if (rot.rotated) log(`  codex gateway rotated: ${rot.from} → ${rot.to}`)
       return 'limit'
     }
