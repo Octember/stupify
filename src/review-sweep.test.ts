@@ -28,6 +28,8 @@ const cfg = (): Config => ({
   codexModel: '',
   githubStatus: true,
   githubStatusContext: 'stupify/review',
+  gatewayPool: '',
+  rotateCooldownMs: 600_000,
 })
 
 const pr = (number: number, sha: string): Pr => ({
@@ -294,4 +296,48 @@ test('the prefix is large enough to be cache-eligible (well past the ~1024-token
   const bytes = prefixes[0]?.length ?? 0
   const approxTokens = Math.round(bytes / 4) // ~4 chars/token, the standard rough estimate
   expect(approxTokens).toBeGreaterThan(1024)
+})
+
+// Gateway rotation: on a quota wall the sweep advances ~/.codex/config.toml to the next CODEX_GATEWAY_POOL
+// entry — the same env contract bunion/earshot rotate on. Real files in a temp dir, no mocks.
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { rotateGateway } from './review-sweep'
+
+const POOL = 'llm.int.exe.xyz,llm-3.int.exe.xyz,llm-4.int.exe.xyz'
+const TOML = 'model_provider = "exe-llm"\n[model_providers.exe-llm]\nbase_url = "https://llm.int.exe.xyz/v1"\n'
+
+const rotateSetup = (pool = POOL, toml = TOML) => {
+  const dir = mkdtempSync(join(tmpdir(), 'rotate-'))
+  mkdirSync(join(dir, 'state'))
+  const configPath = join(dir, 'config.toml')
+  writeFileSync(configPath, toml)
+  const c: Config = { ...cfg(), stateDir: join(dir, 'state'), gatewayPool: pool, rotateCooldownMs: 600_000 }
+  return { c, configPath }
+}
+
+test('rotateGateway advances the ring, stamps the cooldown, and leaves the rest of the config alone', () => {
+  const { c, configPath } = rotateSetup()
+  expect(rotateGateway(c, configPath, 1000)).toEqual({ rotated: true, from: 'llm.int.exe.xyz', to: 'llm-3.int.exe.xyz' })
+  const toml = readFileSync(configPath, 'utf8')
+  expect(toml).toContain('base_url = "https://llm-3.int.exe.xyz/v1"')
+  expect(toml).toContain('model_provider = "exe-llm"')
+  // the ring wraps from the last entry back to the first (cooldown elapsed)
+  writeFileSync(configPath, TOML.replace('llm.int.exe.xyz', 'llm-4.int.exe.xyz'))
+  expect(rotateGateway(c, configPath, 700_000)).toEqual({ rotated: true, from: 'llm-4.int.exe.xyz', to: 'llm.int.exe.xyz' })
+})
+
+test('rotateGateway cooldown suppresses back-to-back rotations, then re-arms', () => {
+  const { c, configPath } = rotateSetup()
+  expect(rotateGateway(c, configPath, 1000).rotated).toBe(true)
+  expect(rotateGateway(c, configPath, 500_000)).toEqual({ rotated: false, why: 'rotated recently — cooling down' })
+  expect(rotateGateway(c, configPath, 700_000).rotated).toBe(true)
+})
+
+test('rotateGateway is off without a pool, and never touches a config outside the pool', () => {
+  const off = rotateSetup('')
+  expect(rotateGateway(off.c, off.configPath, 1000).rotated).toBe(false)
+  expect(readFileSync(off.configPath, 'utf8')).toBe(TOML)
+  const foreign = rotateSetup(POOL, TOML.replace('llm.int.exe.xyz', 'llm-2.int.exe.xyz'))
+  expect(rotateGateway(foreign.c, foreign.configPath, 1000)).toEqual({ rotated: false, why: 'no pool gateway in codex config' })
 })
