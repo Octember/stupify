@@ -139,6 +139,13 @@ Codex uses whatever auth you've configured. `CODEX_PROVIDER` (`-c model_provider
 (`-c model=…`) let you point it at a specific gateway or model. There's no API key in stupify itself;
 credentials are Codex's concern.
 
+If your Codex rides a pool of interchangeable gateway accounts (e.g. exe.dev `llm` integrations, each fronting
+a ChatGPT plan), `CODEX_GATEWAY_POOL` (ordered comma-separated hostnames) lets the sweep self-heal a quota
+wall: when a review dies rate-limited, it rewrites the gateway hostname in `~/.codex/config.toml` to the next
+pool entry — Codex re-reads the file each sweep, so the next sweep runs on the fresh account. No probing (the
+real failure is the signal) and at most one step per `CODEX_ROTATE_COOLDOWN_MIN` (default 10), so a fully
+drained pool cycles calmly until a weekly reset rescues it. Unset = off.
+
 ## Why curated, not inferred
 
 An earlier experiment auto-extracted a "good code" corpus from the repo. It reliably praised the exact slop it

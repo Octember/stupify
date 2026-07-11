@@ -19,6 +19,7 @@
  * `flock` dependency. Every knob lives in config.env next to this file (read fresh each run). Run: `bun review-sweep.ts`.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -59,6 +60,8 @@ export interface Config {
   codexModel: string // optional `-c model=...`; empty = codex's default model
   githubStatus: boolean // post GitHub commit statuses (`stupify/review`) for PR-head workflow visibility
   githubStatusContext: string
+  gatewayPool: string // CODEX_GATEWAY_POOL: ordered comma-separated gateway hostnames codex may rotate through; empty = rotation off
+  rotateCooldownMs: number // min gap between gateway rotations, so a fully-drained pool cycles calmly instead of thrashing
 }
 
 function loadConfig(): Config {
@@ -119,6 +122,8 @@ function loadConfig(): Config {
     codexModel: pick('CODEX_MODEL', ''),
     githubStatus: bool('GITHUB_STATUS', true, false), // default visible in GitHub; typo disables instead of surprise-posting
     githubStatusContext: pick('GITHUB_STATUS_CONTEXT', 'stupify/review').trim() || 'stupify/review',
+    gatewayPool: pick('CODEX_GATEWAY_POOL', ''),
+    rotateCooldownMs: int('CODEX_ROTATE_COOLDOWN_MIN', 10, 0) * 60_000,
   }
 }
 
@@ -957,6 +962,32 @@ function reviewOne(cfg: Config, ref: string, post: boolean): void {
   console.log(`posted to ${slug}#${number} ✅ (${findings.length} inline)`)
 }
 
+/** Self-heal the wall isRateLimited just hit: advance `base_url` in ~/.codex/config.toml to the next gateway in
+ *  CODEX_GATEWAY_POOL (an ordered ring of interchangeable ChatGPT-account gateways — the same env contract
+ *  bunion and earshot rotate on via @bevyl-ai/agent-tools; inlined here to keep this engine dependency-free).
+ *  Codex re-reads the file each sweep, so the next sweep lands on the fresh account — no probing, no restarts.
+ *  A dead account fails fast and advances the ring again, so the pool converges on whichever has quota. The
+ *  cooldown keeps a fully-drained pool cycling calmly, one step per wall. Unset pool = rotation off. */
+export function rotateGateway(cfg: Config, configPath?: string, now = Date.now()): { rotated: true; from: string; to: string } | { rotated: false; why: string } {
+  const pool = cfg.gatewayPool.split(',').map((h) => h.trim()).filter(Boolean)
+  if (pool.length < 2) return { rotated: false, why: pool.length === 0 ? 'CODEX_GATEWAY_POOL unset — rotation off' : 'pool has a single entry' }
+  const path = configPath ?? join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'config.toml')
+  if (!existsSync(path)) return { rotated: false, why: `no codex config at ${path}` }
+  const config = readFileSync(path, 'utf8')
+  const i = pool.findIndex((host) => config.includes(host)) // never touches hosts outside the pool, so other providers are safe
+  if (i === -1) return { rotated: false, why: 'no pool gateway in codex config' }
+  const stampPath = join(cfg.stateDir, 'gateway-rotated-at')
+  if (existsSync(stampPath)) {
+    const last = Number(readFileSync(stampPath, 'utf8'))
+    if (Number.isFinite(last) && now - last < cfg.rotateCooldownMs) return { rotated: false, why: 'rotated recently — cooling down' }
+  }
+  const from = pool[i] as string
+  const to = pool[(i + 1) % pool.length] as string
+  writeFileSync(path, config.replaceAll(from, to))
+  writeFileSync(stampPath, String(now))
+  return { rotated: true, from, to }
+}
+
 /** codex prints `tokens used` then the count on the next line — read the last such pair. */
 function parseTokens(out: string): number | null {
   const lines = out.split('\n')
@@ -1129,6 +1160,8 @@ function main(): void {
     setCommitStatus(cfg, commitStatuses, pr, 'pending', `stupify is reviewing ${lines} diff lines`)
     const used = reviewPr(cfg, pr, prior.memory, diff, firstReview, prior.openThreadIds, prior.dismissed)
     if (used === 'limit') {
+      const r = rotateGateway(cfg) // self-heal: next sweep runs on the next CODEX_GATEWAY_POOL account (no-op if unset)
+      if (r.rotated) log(`codex gateway rotated: ${r.from} → ${r.to}`)
       log('codex plan is rate-limited — ending this sweep early (the rest would fail the same way); retries next sweep')
       setStatusPr(cfg, status, pr, 'failed', 'codex plan is rate-limited; ending sweep early', lines)
       setStatusStage(cfg, status, 'blocked', 'codex plan is rate-limited')
