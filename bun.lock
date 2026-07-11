@@ -5,9 +5,10 @@
     "": {
       "name": "stupify",
       "dependencies": {
+        "@bevyl-ai/agent-tools": "^0.2.0",
         "@clack/prompts": "^1.2.0",
-        "@stupify/exe-cli": "workspace:*",
-        "@stupify/exe-host": "workspace:*",
+        "@stupify/exe-cli": "0.4.5",
+        "@stupify/exe-host": "0.4.5",
         "picocolors": "^1.1.1",
       },
       "devDependencies": {
@@ -26,6 +27,8 @@
     },
   },
   "packages": {
+    "@bevyl-ai/agent-tools": ["@bevyl-ai/agent-tools@0.2.0", "", {}, "sha512-dO9+jMUzZ/aIps4s3Xh+lt9FjHb2XBcSW/itmFg0L5c+2ssV7qXcSuos2uAIIe5dtxb3qb0W0cfAqAHjt2YnDQ=="],
+
     "@clack/core": ["@clack/core@1.4.1", "", { "dependencies": { "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-FILJa1gGKEFTGZAJE9RpVhrjKz3c3h4ar60dSv6cGuDqufQ84YEIS3GAGvZiN+H6yaLbbvTFNejjCC4tXpZEuw=="],
 
     "@clack/prompts": ["@clack/prompts@1.5.1", "", { "dependencies": { "@clack/core": "1.4.1", "fast-string-width": "^3.0.2", "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-zccHj2z2oCCO4yrDiRSlFOxWerGqRiysP7a5jPK6uoI9URKAquwY42Dd/iUP8JWHxEzdRe4TlbvZCo8z1/mhrw=="],
