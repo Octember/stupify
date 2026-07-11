@@ -19,7 +19,6 @@
  * `flock` dependency. Every knob lives in config.env next to this file (read fresh each run). Run: `bun review-sweep.ts`.
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
@@ -38,6 +37,7 @@ import {
 } from '@stupify/exe-host'
 
 export { isRateLimited, pidAlive } from '@stupify/exe-host'
+import { maybeRotateGateway } from '@bevyl-ai/agent-tools'
 
 const KIT_DIR = dirname(fileURLToPath(import.meta.url))
 
@@ -824,7 +824,16 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstR
   const r = runReview(cfg, pr, priorThread, diff, dismissed)
   if (r.kind === 'limit' || r.kind === 'fail') {
     log(`  review FAILED for #${pr.number} — ${r.reason}`)
-    return r.kind === 'limit' ? 'limit' : null // 'limit' tells the sweep to STOP — the rest will fail the same way
+    if (r.kind === 'limit') {
+      // Self-heal: advance ~/.codex/config.toml to the next CODEX_GATEWAY_POOL account (the shared ring —
+      // same kit + env contract bunion/earshot rotate on). Codex re-reads the file each sweep, so the next
+      // sweep lands on the fresh account. The kit's signature match is tighter than isRateLimited by design:
+      // a transient 429 ends this sweep but doesn't walk the ring.
+      const rot = maybeRotateGateway({ reason: r.reason, pool: cfg.gatewayPool.split(',').map((h) => h.trim()).filter(Boolean), cooldownMs: cfg.rotateCooldownMs })
+      if (rot.rotated) log(`  codex gateway rotated: ${rot.from} → ${rot.to}`)
+      return 'limit'
+    }
+    return null
   }
   if (r.kind === 'noop') {
     // Clean. A one-time LGTM on a PR stupify has never flagged (so "reviewed + good" is visible). On a PR it HAS
@@ -960,32 +969,6 @@ function reviewOne(cfg: Config, ref: string, post: boolean): void {
     process.exit(1)
   }
   console.log(`posted to ${slug}#${number} ✅ (${findings.length} inline)`)
-}
-
-/** Self-heal the wall isRateLimited just hit: advance `base_url` in ~/.codex/config.toml to the next gateway in
- *  CODEX_GATEWAY_POOL (an ordered ring of interchangeable ChatGPT-account gateways — the same env contract
- *  bunion and earshot rotate on via @bevyl-ai/agent-tools; inlined here to keep this engine dependency-free).
- *  Codex re-reads the file each sweep, so the next sweep lands on the fresh account — no probing, no restarts.
- *  A dead account fails fast and advances the ring again, so the pool converges on whichever has quota. The
- *  cooldown keeps a fully-drained pool cycling calmly, one step per wall. Unset pool = rotation off. */
-export function rotateGateway(cfg: Config, configPath?: string, now = Date.now()): { rotated: true; from: string; to: string } | { rotated: false; why: string } {
-  const pool = cfg.gatewayPool.split(',').map((h) => h.trim()).filter(Boolean)
-  if (pool.length < 2) return { rotated: false, why: pool.length === 0 ? 'CODEX_GATEWAY_POOL unset — rotation off' : 'pool has a single entry' }
-  const path = configPath ?? join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'config.toml')
-  if (!existsSync(path)) return { rotated: false, why: `no codex config at ${path}` }
-  const config = readFileSync(path, 'utf8')
-  const i = pool.findIndex((host) => config.includes(host)) // never touches hosts outside the pool, so other providers are safe
-  if (i === -1) return { rotated: false, why: 'no pool gateway in codex config' }
-  const stampPath = join(cfg.stateDir, 'gateway-rotated-at')
-  if (existsSync(stampPath)) {
-    const last = Number(readFileSync(stampPath, 'utf8'))
-    if (Number.isFinite(last) && now - last < cfg.rotateCooldownMs) return { rotated: false, why: 'rotated recently — cooling down' }
-  }
-  const from = pool[i] as string
-  const to = pool[(i + 1) % pool.length] as string
-  writeFileSync(path, config.replaceAll(from, to))
-  writeFileSync(stampPath, String(now))
-  return { rotated: true, from, to }
 }
 
 /** codex prints `tokens used` then the count on the next line — read the last such pair. */
@@ -1160,8 +1143,6 @@ function main(): void {
     setCommitStatus(cfg, commitStatuses, pr, 'pending', `stupify is reviewing ${lines} diff lines`)
     const used = reviewPr(cfg, pr, prior.memory, diff, firstReview, prior.openThreadIds, prior.dismissed)
     if (used === 'limit') {
-      const r = rotateGateway(cfg) // self-heal: next sweep runs on the next CODEX_GATEWAY_POOL account (no-op if unset)
-      if (r.rotated) log(`codex gateway rotated: ${r.from} → ${r.to}`)
       log('codex plan is rate-limited — ending this sweep early (the rest would fail the same way); retries next sweep')
       setStatusPr(cfg, status, pr, 'failed', 'codex plan is rate-limited; ending sweep early', lines)
       setStatusStage(cfg, status, 'blocked', 'codex plan is rate-limited')

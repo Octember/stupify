@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -143,32 +143,6 @@ export function llmIntegrationFor(runExe: (args: string[]) => ExeResult = exe): 
   const r = runExe(['int', 'list', '--json'])
   if (!r.ok) return null
   return parseExeIntegrations(r.out).find((i) => i.type === 'llm' && i.config?.providers?.openai?.enabled === true)?.name ?? null
-}
-
-export interface CodexGatewayOptions {
-  home: string
-  gatewayHost?: string
-  codexHome?: string
-}
-
-export function writeCodexGatewayConfig(opts: CodexGatewayOptions): void {
-  const dir = opts.codexHome ?? process.env.CODEX_HOME ?? join(homedir(), '.codex')
-  const file = join(dir, 'config.toml')
-  const existing = existsSync(file) ? readFileSync(file, 'utf8') : ''
-  if (existing.includes('model_provider')) return
-  mkdirSync(dir, { recursive: true })
-  const gatewayHost = opts.gatewayHost ?? 'llm.int.exe.xyz'
-  const block = `model_provider = "exe-llm"
-
-[model_providers.exe-llm]
-name = "exe-llm"
-base_url = "https://${gatewayHost}/v1"
-requires_openai_auth = false
-
-[projects."${join(opts.home, 'repo')}"]
-trust_level = "trusted"
-`
-  writeFileSync(file, existing ? `${block}\n${existing}` : block)
 }
 
 export function exeSetupScript(command: string, codexHost?: string): string {

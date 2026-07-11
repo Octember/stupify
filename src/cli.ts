@@ -25,8 +25,8 @@ import {
   validHost,
   validRepo,
   vmNameFor as packageVmNameFor,
-  writeCodexGatewayConfig,
 } from '@stupify/exe-cli'
+import { writeCodexGatewayConfig } from '@bevyl-ai/agent-tools'
 import pc from 'picocolors'
 
 const PKG_DIR = dirname(fileURLToPath(import.meta.url))
@@ -373,7 +373,7 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
     .filter(Boolean)
     .join('\n')
   writeFileSync(join(HOME, 'config.env'), cfg + '\n')
-  if (host) writeCodexGatewayConfig({ home: HOME, gatewayHost: argv.codexHost }) // exe.dev VM: route Codex through the no-key exe-llm gateway
+  if (host) writeCodexGatewayConfig({ gatewayHost: argv.codexHost, trustDir: join(HOME, 'repo') }) // exe.dev VM: route Codex through the no-key exe-llm gateway
   try {
     installCron({ stateDir: STATE, engineFile: join(HOME, 'review-sweep.ts'), ghHost: host, removeMarker: 'review-sweep.ts' })
   } catch (e) {
