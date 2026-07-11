@@ -21,23 +21,9 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import {
-  acquireLock,
-  bumpDailyCounter,
-  exec,
-  isRateLimited,
-  loadDailyCounter,
-  loadHeadAttempts,
-  loadReviewedHeads,
-  parseEnvFile,
-  recordHeadAttempt,
-  recordReviewedHead,
-  refreshCheckout,
-  releaseLock,
-} from '@stupify/exe-host'
+import { acquireLock, exec, isRateLimited, maybeRotateGateway, parseEnvFile, refreshCheckout, releaseLock } from '@bevyl-ai/agent-tools'
 
-export { isRateLimited, pidAlive } from '@stupify/exe-host'
-import { maybeRotateGateway } from '@bevyl-ai/agent-tools'
+export { isRateLimited, pidAlive } from '@bevyl-ai/agent-tools'
 
 const KIT_DIR = dirname(fileURLToPath(import.meta.url))
 
@@ -497,6 +483,96 @@ export const stripSignoff = (review: string): string => {
   while (i >= 0 && ((lines[i] ?? '').trim() === '' || /^<!--\s*stupify:/.test((lines[i] ?? '').trim()))) i--
   if (i >= 0 && /^\s*_*\s*[—–-]\s*(?:stupify|codex)\b/i.test(lines[i] ?? '')) lines.splice(i, 1)
   return lines.join('\n').trimEnd()
+}
+
+
+// --- Per-VM sweep state: tiny best-effort JSON files (a parse error or fresh VM just re-attempts once). ---
+// These lived in @stupify/exe-host, but they are review-sweep domain vocabulary (heads, reviews/day) with
+// exactly one consumer, so they live here rather than in the shared kit.
+export interface HeadAttempt {
+  head: string
+  at: number
+}
+
+export interface DailyCounter {
+  date: string
+  count: number
+}
+
+const isJsonObject = (raw: unknown): raw is Record<string, unknown> => typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+
+function readJson(path: string): unknown {
+  return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined
+}
+
+function writeJson(path: string, value: unknown): void {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, JSON.stringify(value))
+}
+
+export function loadHeadAttempts(path: string): Record<string, HeadAttempt> {
+  try {
+    const raw = readJson(path)
+    if (!isJsonObject(raw)) return {}
+    const out: Record<string, HeadAttempt> = {}
+    for (const [key, value] of Object.entries(raw)) {
+      if (!isJsonObject(value)) continue
+      if (typeof value.head === 'string' && typeof value.at === 'number') out[key] = { head: value.head, at: value.at }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+export function recordHeadAttempt(path: string, attempts: Record<string, HeadAttempt>, key: string, head: string, at = Date.now()): void {
+  attempts[key] = { head, at }
+  try {
+    writeJson(path, attempts)
+  } catch {
+    /* best-effort */
+  }
+}
+
+export function loadReviewedHeads(path: string): Record<string, string> {
+  try {
+    const raw = readJson(path)
+    if (!isJsonObject(raw)) return {}
+    const out: Record<string, string> = {}
+    for (const [key, value] of Object.entries(raw)) if (typeof value === 'string') out[key] = value
+    return out
+  } catch {
+    return {}
+  }
+}
+
+export function recordReviewedHead(path: string, reviewed: Record<string, string>, key: string, head: string): void {
+  reviewed[key] = head
+  try {
+    writeJson(path, reviewed)
+  } catch {
+    /* best-effort */
+  }
+}
+
+export function loadDailyCounter(path: string, now = new Date()): DailyCounter {
+  const today = now.toISOString().slice(0, 10)
+  try {
+    const raw = readJson(path)
+    if (!isJsonObject(raw) || raw.date !== today || typeof raw.count !== 'number') return { date: today, count: 0 }
+    return { date: today, count: raw.count }
+  } catch {
+    return { date: today, count: 0 }
+  }
+}
+
+export function bumpDailyCounter(path: string, daily: DailyCounter): void {
+  daily.count += 1
+  try {
+    writeJson(path, daily)
+  } catch {
+    /* best-effort */
+  }
 }
 
 const failuresPath = (cfg: Config): string => join(cfg.stateDir, 'failures.json')

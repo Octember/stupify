@@ -298,3 +298,42 @@ test('the prefix is large enough to be cache-eligible (well past the ~1024-token
   expect(approxTokens).toBeGreaterThan(1024)
 })
 
+
+// The per-VM sweep state stores (inlined from @stupify/exe-host when the kit absorbed it): parse
+// defensively, persist compact JSON, and never throw mid-sweep on malformed files.
+import { mkdtempSync, readFileSync as readF, rmSync, writeFileSync as writeF } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { bumpDailyCounter, loadDailyCounter, loadHeadAttempts, loadReviewedHeads, recordHeadAttempt, recordReviewedHead } from './review-sweep'
+
+test('sweep state stores persist compact JSON and reload it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stupify-state-'))
+  try {
+    const failures = join(dir, 'failures.json')
+    recordHeadAttempt(failures, {}, '7', 'abc', 123)
+    expect(loadHeadAttempts(failures)).toEqual({ 7: { head: 'abc', at: 123 } })
+
+    const reviewed = join(dir, 'reviewed.json')
+    recordReviewedHead(reviewed, {}, '7', 'def')
+    expect(loadReviewedHeads(reviewed)).toEqual({ 7: 'def' })
+
+    const dailyPath = join(dir, 'daily.json')
+    const today = loadDailyCounter(dailyPath, new Date('2026-06-21T12:00:00Z'))
+    bumpDailyCounter(dailyPath, today)
+    expect(JSON.parse(readF(dailyPath, 'utf8'))).toEqual({ date: '2026-06-21', count: 1 })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('sweep state stores ignore malformed persisted JSON instead of throwing mid-sweep', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'stupify-state-'))
+  try {
+    const file = join(dir, 'bad.json')
+    writeF(file, '{ nope')
+    expect(loadHeadAttempts(file)).toEqual({})
+    expect(loadReviewedHeads(file)).toEqual({})
+    expect(loadDailyCounter(file, new Date('2026-06-21T12:00:00Z'))).toEqual({ date: '2026-06-21', count: 0 })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
