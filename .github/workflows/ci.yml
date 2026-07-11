@@ -18,7 +18,7 @@ env:
 
 jobs:
   cli:
-    name: CLI and packages
+    name: CLI
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -43,8 +43,8 @@ jobs:
       - name: Bundle the sweep engine
         run: |
           bun build src/review-sweep.ts --target=bun --format=esm --outfile=/tmp/stupify-review-sweep.ts
-          if grep -E '@stupify/exe-(cli|host)' /tmp/stupify-review-sweep.ts; then
-            echo "::error::review-sweep bundle still imports a workspace package"
+          if grep -E "from ['\"]@(stupify|bevyl-ai)/" /tmp/stupify-review-sweep.ts; then
+            echo "::error::review-sweep bundle still imports an external package"
             exit 1
           fi
 
@@ -65,12 +65,10 @@ jobs:
           }
 
           ROOT_TGZ="$(pack_tgz . '^stupify-cli-[0-9].*\.tgz$')"
-          EXE_CLI_TGZ="$(pack_tgz packages/exe-cli '^stupify-exe-cli-[0-9].*\.tgz$')"
-          EXE_HOST_TGZ="$(pack_tgz packages/exe-host '^stupify-exe-host-[0-9].*\.tgz$')"
           TMP="$(mktemp -d)"
-          npm install --prefix "$TMP" "$EXE_CLI_TGZ" "$EXE_HOST_TGZ" "$ROOT_TGZ"
+          npm install --prefix "$TMP" "$ROOT_TGZ"
           npm exec --prefix "$TMP" -- stupify --help
-          rm -rf "$TMP" "$ROOT_TGZ" "$EXE_CLI_TGZ" "$EXE_HOST_TGZ"
+          rm -rf "$TMP" "$ROOT_TGZ"
 
   site:
     name: Site build

@@ -5,10 +5,8 @@
     "": {
       "name": "stupify",
       "dependencies": {
-        "@bevyl-ai/agent-tools": "^0.2.0",
+        "@bevyl-ai/agent-tools": "^0.3.0",
         "@clack/prompts": "^1.2.0",
-        "@stupify/exe-cli": "0.4.5",
-        "@stupify/exe-host": "0.4.5",
         "picocolors": "^1.1.1",
       },
       "devDependencies": {
@@ -17,25 +15,13 @@
         "typescript": "^5.7.2",
       },
     },
-    "packages/exe-cli": {
-      "name": "@stupify/exe-cli",
-      "version": "0.4.5",
-    },
-    "packages/exe-host": {
-      "name": "@stupify/exe-host",
-      "version": "0.4.5",
-    },
   },
   "packages": {
-    "@bevyl-ai/agent-tools": ["@bevyl-ai/agent-tools@0.2.0", "", {}, "sha512-dO9+jMUzZ/aIps4s3Xh+lt9FjHb2XBcSW/itmFg0L5c+2ssV7qXcSuos2uAIIe5dtxb3qb0W0cfAqAHjt2YnDQ=="],
+    "@bevyl-ai/agent-tools": ["@bevyl-ai/agent-tools@0.3.0", "", {}, "sha512-gx16OexHehbIhOHlnGD89GTiANXIV+ZoNYxr35zt8ADl9BNfdRIvyRoupC9yIRrPpCouKLQh7UuF61z/CZYP1Q=="],
 
     "@clack/core": ["@clack/core@1.4.1", "", { "dependencies": { "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-FILJa1gGKEFTGZAJE9RpVhrjKz3c3h4ar60dSv6cGuDqufQ84YEIS3GAGvZiN+H6yaLbbvTFNejjCC4tXpZEuw=="],
 
     "@clack/prompts": ["@clack/prompts@1.5.1", "", { "dependencies": { "@clack/core": "1.4.1", "fast-string-width": "^3.0.2", "fast-wrap-ansi": "^0.2.0", "sisteransi": "^1.0.5" } }, "sha512-zccHj2z2oCCO4yrDiRSlFOxWerGqRiysP7a5jPK6uoI9URKAquwY42Dd/iUP8JWHxEzdRe4TlbvZCo8z1/mhrw=="],
-
-    "@stupify/exe-cli": ["@stupify/exe-cli@workspace:packages/exe-cli"],
-
-    "@stupify/exe-host": ["@stupify/exe-host@workspace:packages/exe-host"],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 

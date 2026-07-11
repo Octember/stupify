@@ -25,7 +25,7 @@ import {
   validHost,
   validRepo,
   vmNameFor as packageVmNameFor,
-} from '@stupify/exe-cli'
+} from '@bevyl-ai/agent-tools'
 import { writeCodexGatewayConfig } from '@bevyl-ai/agent-tools'
 import pc from 'picocolors'
 

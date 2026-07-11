@@ -44,10 +44,9 @@ jobs:
       - name: Smoke the CLI
         run: bun src/cli.ts --help
 
-      # Bundle the workspace helpers into the CLI so we publish ONE self-contained package (the shape 0.4.x
-      # shipped before the exe-* split). npm OIDC can't create the never-published @stupify/exe-* packages, and
-      # a package must exist before it can have a trusted publisher — so we inline them here instead. Runs on the
-      # ephemeral checkout only; the repo keeps the workspace split for development.
+      # Bundle the CLI + engine so we publish ONE self-contained package: @bevyl-ai/agent-tools inlines at
+      # build time, so the published artifact has zero runtime deps beyond clack/picocolors. Runs on the
+      # ephemeral checkout only; the repo keeps the real dependency for development.
       - name: Bundle into a single self-contained package
         run: |
           set -euo pipefail
@@ -55,10 +54,10 @@ jobs:
           bun build src/review-sweep.ts --target=bun --format=esm --outfile=src/review-sweep.bundled.ts
           mv src/cli.bundled.ts src/cli.ts
           mv src/review-sweep.bundled.ts src/review-sweep.ts
-          if grep -E '@stupify/exe-(cli|host)' src/cli.ts src/review-sweep.ts; then
-            echo "::error::bundle still imports a workspace package"; exit 1
+          if grep -E "from ['\"]@(stupify|bevyl-ai)/" src/cli.ts src/review-sweep.ts; then
+            echo "::error::bundle still imports an external package"; exit 1
           fi
-          node -e "const p=require('./package.json'); delete p.dependencies['@stupify/exe-cli']; delete p.dependencies['@stupify/exe-host']; delete p.workspaces; require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2)+'\n')"
+          node -e "const p=require('./package.json'); delete p.dependencies['@bevyl-ai/agent-tools']; require('fs').writeFileSync('./package.json', JSON.stringify(p,null,2)+'\n')"
 
       - name: Check package contents
         run: |
