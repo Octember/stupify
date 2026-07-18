@@ -4,7 +4,7 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { join } from 'node:path'
-import { type Config, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, STILL_NOTE, stripSignoff } from './review-sweep'
+import { type Config, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, finalCodexMessage, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, STILL_NOTE, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -268,6 +268,29 @@ test('isRateLimited flags plan exhaustion, not ordinary failures', () => {
   expect(isRateLimited('codex: E2BIG: argument list too long')).toBe(false)
   expect(isRateLimited('request timed out after 408s')).toBe(false) // a one-off timeout is NOT plan exhaustion
   expect(isRateLimited('the diff had no reviewable changes')).toBe(false)
+})
+
+// codex sometimes says a convergence token as its final message without writing the review file — the transcript's
+// final message (last `codex` line to its `tokens used` footer) is the only part allowed to stand in for the file.
+test('finalCodexMessage extracts the last codex message, not the transcript', () => {
+  const transcript = [
+    'exec',
+    "/bin/bash -lc \"printf 'STUPIFY_NO_NEW_ISSUES'\" in /home/exedev/.stupify/repo",
+    ' succeeded in 0ms:',
+    'codex',
+    'I compared the change against the corpus. Writing the token now.',
+    'tokens used',
+    '12,345',
+    'codex',
+    NOOP_TOKEN,
+    'tokens used',
+    '50,953',
+  ].join('\n')
+  expect(finalCodexMessage(transcript)).toBe(NOOP_TOKEN)
+  // an inlined diff LINE containing the token is not a final message — it must sit between codex and tokens used
+  expect(finalCodexMessage(`+ const x = '${NOOP_TOKEN}'\ncodex\nreviewing…\ntokens used\n1`)).toBe('reviewing…')
+  expect(finalCodexMessage('no codex markers at all')).toBe('')
+  expect(finalCodexMessage(`codex\n${NOOP_TOKEN}`)).toBe('') // no tokens-used footer ⇒ truncated run, trust nothing
 })
 
 test('commitStatusDescription fits GitHub commit status limits', () => {

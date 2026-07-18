@@ -337,6 +337,21 @@ const stripWrap = (review: string): string => review.replace(/[`*\s]/g, '') // s
 export const isNoopReview = (review: string): boolean => stripWrap(review) === NOOP_TOKEN
 export const isFixedReview = (review: string): boolean => stripWrap(review) === FIXED_TOKEN
 
+// codex sometimes SAYS a convergence token as its final message instead of writing it to the review file (observed
+// on #7528/#7537/#7627 — the run then read as FAILED and the head got throttled for an hour). Recover the final
+// message from the transcript: it's the text between the last bare `codex` line and its `tokens used` footer.
+// Only that message — never the whole transcript, which inlines the untrusted diff — may stand in for the file.
+export const finalCodexMessage = (out: string): string => {
+  const lines = out.split('\n')
+  const end = lines.findLastIndex((l) => /^tokens used\b/i.test(l.trim()))
+  const start = lines.slice(0, end === -1 ? lines.length : end).findLastIndex((l) => l.trim() === 'codex')
+  if (start === -1 || end === -1) return ''
+  return lines
+    .slice(start + 1, end)
+    .join('\n')
+    .trim()
+}
+
 // A hidden tag stamped in every inline finding comment, so a later sweep can find stupify's OWN review threads
 // (to resolve them) without knowing the bot login — `gh api user` 403s for GitHub-App integrations, so we identify
 // our content by marker, not author (same trick as the head marker).
@@ -868,7 +883,14 @@ export function runReview(cfg: Config, pr: Pr, priorThread: string, diff: string
 
   const cx = exec('codex', codexArgs, { cwd: cfg.repoDir, timeoutMs: 1_200_000, input: reviewPrompt(cfg, pr, priorThread, diff, dismissed) })
   appendFileSync(LOG, `${cx.combined}\n`)
-  const review = cx.ok && existsSync(outPath) ? readFileSync(outPath, 'utf8').trim() : ''
+  let review = cx.ok && existsSync(outPath) ? readFileSync(outPath, 'utf8').trim() : ''
+  // Flake recovery: codex declared convergence in its final message but skipped the file write. Accept a spoken
+  // token — exact match only, so a paraphrase still fails visibly — as the token it meant to write, instead of
+  // failing the run and throttling the head for an hour.
+  if (review.length === 0 && cx.ok) {
+    const spoken = finalCodexMessage(cx.combined)
+    if (isNoopReview(spoken) || isFixedReview(spoken)) review = spoken
+  }
   if (review.length === 0) {
     const reason = failureReason(cx.combined)
     return isRateLimited(cx.combined) ? { kind: 'limit', reason, raw: cx.combined } : { kind: 'fail', reason }
