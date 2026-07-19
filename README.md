@@ -47,6 +47,12 @@ queued/running, success when reviewed or policy-skipped, failure when stupify po
 reviewer itself failed. Set `GITHUB_STATUS=0` in `~/.stupify/config.env` to turn that off, or
 `GITHUB_STATUS_CONTEXT=your/context` to rename it.
 
+If the `gh` identity the sweep runs under can't write commit statuses (e.g. a proxy integration whose token is
+statuses:read-only), give stupify its own GitHub App: create an App with **Commit statuses: Read & write**,
+install it on the repo, then set `GITHUB_STATUS_APP_ID=<app id>` and `GITHUB_STATUS_APP_KEY=<path to the App's
+.pem>` in `config.env`. Statuses then post via the App (short-lived installation tokens, minted and cached by the
+sweep); everything else still goes through `gh`.
+
 ### Connect your accounts
 
 The reviews run on Codex. On exe.dev that's a keyless **LLM integration**: it fronts your ChatGPT/Codex plan, so

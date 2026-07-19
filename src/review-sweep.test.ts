@@ -3,8 +3,9 @@
 // prefix is what the provider caches across diff threads — if a per-PR token ever leaked into it, the cache
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
+import { createVerify, generateKeyPairSync } from 'node:crypto'
 import { join } from 'node:path'
-import { type Config, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, finalCodexMessage, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, STILL_NOTE, stripSignoff } from './review-sweep'
+import { type Config, appJwt, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, finalCodexMessage, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, STILL_NOTE, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -28,6 +29,8 @@ const cfg = (): Config => ({
   codexModel: '',
   githubStatus: true,
   githubStatusContext: 'stupify/review',
+  statusAppId: '',
+  statusAppKeyPath: '',
   gatewayPool: '',
   rotateCooldownMs: 600_000,
 })
@@ -298,6 +301,15 @@ test('commitStatusDescription fits GitHub commit status limits', () => {
   const long = 'x'.repeat(200)
   expect(commitStatusDescription(long)).toHaveLength(140)
   expect(commitStatusDescription(long).endsWith('...')).toBe(true)
+})
+
+test('appJwt signs verifiable RS256 claims for the status App', () => {
+  const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
+  const jwt = appJwt('12345', privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(), 1_752_900_000)
+  const [header = '', payload = '', signature = ''] = jwt.split('.')
+  expect(JSON.parse(Buffer.from(header, 'base64url').toString())).toEqual({ alg: 'RS256', typ: 'JWT' })
+  expect(JSON.parse(Buffer.from(payload, 'base64url').toString())).toEqual({ iat: 1_752_899_940, exp: 1_752_900_540, iss: '12345' })
+  expect(createVerify('RSA-SHA256').update(`${header}.${payload}`).verify(publicKey, signature, 'base64url')).toBe(true)
 })
 
 test('commitStatusForSweepResult keeps unresolved prior findings red', () => {
