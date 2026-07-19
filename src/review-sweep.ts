@@ -790,8 +790,11 @@ function appStatusToken(cfg: Config): string | null {
   }
   const jwt = appJwt(cfg.statusAppId, pem, Math.floor(Date.now() / 1000))
   const field = (r: { ok: boolean; raw: string }, key: string): unknown => {
+    if (!r.ok) return undefined
     try {
-      return r.ok ? (JSON.parse(r.raw) as Record<string, unknown>)[key] : undefined
+      const parsed: unknown = JSON.parse(r.raw)
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
+      return (parsed as Record<string, unknown>)[key]
     } catch {
       return undefined
     }
