@@ -47,6 +47,7 @@ const pr = (number: number, sha: string): Pr => ({
 
 const sha256 = (s: string) => new Bun.CryptoHasher('sha256').update(s).digest('hex')
 const prefixOf = (prompt: string) => prompt.slice(0, prompt.indexOf(THIS_PR))
+const reviewStepsOf = (prompt: string) => prompt.split('Run these steps:')[1]?.split('## Prior reviews on this PR')[0] ?? ''
 
 // Three different PRs: different numbers, different head SHAs, and (crucially) one mid-thread with memory —
 // the hardest case, since "continuing a review" must STILL not perturb the prefix.
@@ -217,6 +218,14 @@ test('the no-op token is instructed in the prompt, and adding it kept the prefix
   // The token text is static (spec + tail), so it does NOT thrash the cache: the prefix is still byte-identical
   // across every PR (the dedicated cache-invariant test above proves size===1). Belt here: no per-PR drift.
   expect(prefixes[0]).toBe(prefixes[2])
+})
+
+test('the review spec suppresses noisy test-only nits', () => {
+  const steps = reviewStepsOf(prompts[0] ?? '')
+  expect(steps).toContain('Be quiet on tests unless they lie')
+  expect(steps).toContain('Do NOT flag harmless arrangement, naming, snapshot style')
+  expect(steps).toContain('only when the test can pass while the product bug remains')
+  expect(steps).toContain('nondeterminism/flaky external state')
 })
 
 // Inline review comments can only anchor to RIGHT-side lines the diff actually touches — get this wrong and the
