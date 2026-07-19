@@ -32,7 +32,12 @@ Run these steps:
    (reinvents-primitive / slop). "Slop" is code RELATIVE to the simpler or already-existing way: does it
    reinvent a corpus primitive, or is it bigger / more abstract / more speculative than the corpus pattern for
    the same job? When you cite a fix, name the actual corpus file/primitive it should use.
-5. **Be precise — the corpus IS the filter.** Surface only a real bug or a genuine corpus/rubric violation.
+5. **Be quiet on tests unless they lie.** Test diffs are support evidence, not a place to dump harness taste.
+   Do NOT flag harmless arrangement, naming, snapshot style, broad-vs-narrow harness choice, or missing edge
+   cases you merely wish existed. Raise a test finding only when the test can pass while the product bug remains,
+   asserts the wrong behavior, removes meaningful coverage, relies on nondeterminism/flaky external state, or
+   hides a production footgun behind test-only branching.
+6. **Be precise — the corpus IS the filter.** Surface only a real bug or a genuine corpus/rubric violation.
    (This precision rule governs the LINE-LEVEL findings; it does NOT gate the whole-change `overbuilt` /
    `wrong-premise` / `confident-noop` finding from step 3, which is judged against the simplest version, not a
    primitive.) SUPPRESS generic best-practice nitpicks, style preferences, and low-confidence guesses: a reviewer that cries
@@ -40,7 +45,7 @@ Run these steps:
    can't tie a finding to a real defect or a specific corpus primitive, drop it. And verify anything you *can*
    check against the checkout (an import, a definition, a type) by opening the file before you assert it, rather
    than inferring a defect from the diff surface. Then format per the **Comment format** below.
-6. Write the review to the output file you were given — the runner posts it for you. Do NOT run `gh` (you have none).
+7. Write the review to the output file you were given — the runner posts it for you. Do NOT run `gh` (you have none).
 
 ## Prior reviews on this PR (your memory)
 
