@@ -18,6 +18,7 @@
  * Single-flight: the sweep takes its own lockfile (state/sweep.lock) so two cron ticks never overlap — no
  * `flock` dependency. Every knob lives in config.env next to this file (read fresh each run). Run: `bun review-sweep.ts`.
  */
+import { spawn } from 'node:child_process'
 import { createSign } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -51,6 +52,7 @@ export interface Config {
   githubStatusContext: string
   gatewayPool: string // CODEX_GATEWAY_POOL: ordered comma-separated gateway hostnames codex may rotate through; empty = rotation off
   rotateCooldownMs: number // min gap between gateway rotations, so a fully-drained pool cycles calmly instead of thrashing
+  codexJobs: number // concurrent codex reviews per sweep; the gh I/O around them stays serial
 }
 
 function loadConfig(): Config {
@@ -115,6 +117,7 @@ function loadConfig(): Config {
     statusAppKeyPath: pick('GITHUB_STATUS_APP_KEY', '').trim(),
     gatewayPool: pick('CODEX_GATEWAY_POOL', ''),
     rotateCooldownMs: int('CODEX_ROTATE_COOLDOWN_MIN', 10, 0) * 60_000,
+    codexJobs: int('CODEX_JOBS', 3, 1), // a single codex run takes minutes; a small pool keeps a busy sweep from serializing them
   }
 }
 
@@ -949,10 +952,45 @@ export type ReviewOutcome =
   | { kind: 'fixed'; tokens: number | null } // codex emitted the fixed token → prior findings resolved
   | { kind: 'review'; text: string; tokens: number | null } // a real review, sign-off already stripped (no marker yet)
 
+// Async twin of the kit's `exec`, same result shape — ONLY for the codex child, so several multi-minute reviews
+// can run at once while every gh call around them stays the kit's sync exec. The stdin write is fire-and-forget
+// on purpose: the prompt is megabytes, and awaiting a drain a dead child never signals would hang the worker.
+function execAsync(cmd: string, args: string[], opts: { cwd?: string; input?: string; timeoutMs?: number }): Promise<{ ok: boolean; stdout: string; combined: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { cwd: opts.cwd })
+    let stdout = ''
+    let stderr = ''
+    let extra = ''
+    let done = false
+    const timer = opts.timeoutMs === undefined ? undefined : setTimeout(() => {
+      extra += `\n${cmd}: process killed by SIGTERM (timeout ${opts.timeoutMs}ms)`
+      child.kill('SIGTERM')
+    }, opts.timeoutMs)
+    const finish = (ok: boolean): void => {
+      if (done) return
+      done = true
+      clearTimeout(timer)
+      resolve({ ok, stdout, combined: stdout + stderr + extra })
+    }
+    child.stdout.on('data', (d: Buffer) => { stdout += d.toString() })
+    child.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
+    child.on('error', (e) => {
+      extra += `\n${cmd}: ${e.message}`
+      finish(false)
+    })
+    child.on('close', (code, signal) => {
+      if (signal) extra += `\n${cmd}: process killed by ${signal}${opts.timeoutMs ? ` (timeout ${opts.timeoutMs}ms)` : ''}`
+      finish(code === 0 && signal === null)
+    })
+    child.stdin.on('error', () => { /* child died before reading the prompt — 'close' carries the failure */ })
+    child.stdin.end(opts.input ?? '')
+  })
+}
+
 /** Run codex over one PR's diff and classify the result. Does NO gh I/O and NO posting — codex runs sandboxed with
  *  no network of its own and /tmp-only writes, so a prompt-injected diff can at worst make it write a junk review
  *  file: it cannot exfiltrate, touch the gh token, or run commands. Callers decide what to do with the outcome. */
-export function runReview(cfg: Config, pr: Pr, priorThread: string, diff: string, dismissed: string[] = []): ReviewOutcome {
+export async function runReview(cfg: Config, pr: Pr, priorThread: string, diff: string, dismissed: string[] = []): Promise<ReviewOutcome> {
   const outPath = reviewOutPath(cfg, pr)
   rmSync(outPath, { force: true }) // clear any stale file so we never read a previous run's review
   const codexArgs = [
@@ -972,7 +1010,7 @@ export function runReview(cfg: Config, pr: Pr, priorThread: string, diff: string
   if (cfg.codexModel) codexArgs.push('-c', `model=${cfg.codexModel}`)
   codexArgs.push('-') // read the prompt from STDIN, not argv — the inlined corpus + diff would blow ARG_MAX (E2BIG)
 
-  const cx = exec('codex', codexArgs, { cwd: cfg.repoDir, timeoutMs: 1_200_000, input: reviewPrompt(cfg, pr, priorThread, diff, dismissed) })
+  const cx = await execAsync('codex', codexArgs, { cwd: cfg.repoDir, timeoutMs: 1_200_000, input: reviewPrompt(cfg, pr, priorThread, diff, dismissed) })
   appendFileSync(LOG, `${cx.combined}\n`)
   let review = cx.ok && existsSync(outPath) ? readFileSync(outPath, 'utf8').trim() : ''
   // Flake recovery: codex declared convergence in its final message but skipped the file write. Accept a spoken
@@ -1008,9 +1046,9 @@ export function commitStatusForSweepResult(result: number | 'clean' | 'fixed' | 
  *  'fixed' when it resolved prior findings, 'limit' on exhaustion, or null on a failure the caller throttles.
  *  Every ✅ that posts is honest: it only fires when no stupify finding is open — "nothing new while findings
  *  still stand" stays silent (those threads remain open); a fix resolves the threads and posts a visible note. */
-function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstReview: boolean, openThreadIds: string[], dismissed: string[]): SweepReviewResult {
+async function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstReview: boolean, openThreadIds: string[], dismissed: string[]): Promise<SweepReviewResult> {
   log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)}`)
-  const r = runReview(cfg, pr, priorThread, diff, dismissed)
+  const r = await runReview(cfg, pr, priorThread, diff, dismissed)
   if (r.kind === 'limit' || r.kind === 'fail') {
     log(`  review FAILED for #${pr.number} — ${r.reason}`)
     if (r.kind === 'limit') {
@@ -1099,7 +1137,7 @@ function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, firstR
 /** `stupify review <pr>` — review ONE pull request on demand (no cron, no checkout) and print it, or `--post` it.
  *  Reviews from the inlined diff with a FRESH perspective (no prior-review memory), so you always get the full take.
  *  Accepts a PR URL or `owner/repo#123` (the CLI resolves a bare `#123` against the cwd repo before calling here). */
-function reviewOne(cfg: Config, ref: string, post: boolean): void {
+async function reviewOne(cfg: Config, ref: string, post: boolean): Promise<void> {
   const url = ref.match(/github\.com\/([^/\s]+\/[^/\s]+)\/(?:pull|issues)\/(\d+)/i)
   const short = ref.match(/^([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)[#/](\d+)$/)
   const slug = url?.[1] ?? short?.[1] ?? ''
@@ -1137,7 +1175,7 @@ function reviewOne(cfg: Config, ref: string, post: boolean): void {
     process.exit(1)
   }
   console.error(`reviewing ${slug}#${number} …`) // progress on stderr; stdout stays just the review
-  const r = runReview(cfg, pr, '', diff) // no memory: a manual review is always a fresh, full take
+  const r = await runReview(cfg, pr, '', diff) // no memory: a manual review is always a fresh, full take
   if (r.kind === 'limit' || r.kind === 'fail') {
     console.error(`stupify review: ${r.kind === 'limit' ? 'codex is out of credits / rate-limited' : "codex couldn't produce a review"} — ${r.reason}`)
     process.exit(1)
@@ -1185,7 +1223,7 @@ function failureReason(out: string): string {
   return cleaned || 'codex run failed (no output captured — check the sweep log)'
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const cfg = loadConfig() // also mkdirs stateDir and sets LOG, so config warnings are already captured
   const ref = process.env.REVIEW_PR
   if (ref) return reviewOne(cfg, ref, process.env.REVIEW_POST === '1') // `stupify review <pr>` — one-shot, no sweep/lock/checkout
@@ -1258,12 +1296,24 @@ function main(): void {
   let reviewed = 0
   let tokens = 0
   // Count PRs we do real (costly) work on, and cap THAT at MAX_PRS — so a backlog of already-reviewed PRs at
-  // the front of the list can't consume the budget and starve later ones.
+  // the front of the list can't consume the budget and starve later ones. Candidates are collected here (all the
+  // cheap serial gates) and reviewed below by a pool of CODEX_JOBS concurrent codex runs — the sweep's wall-clock
+  // was dominated by running those multi-minute reviews strictly one after another.
   let handled = 0
+  // Each candidate is one codex run, so the daily ceiling gates collection up front.
+  const dailyBudget = cfg.maxReviewsPerDay > 0 && !cfg.dryRun ? cfg.maxReviewsPerDay - daily.count : Number.POSITIVE_INFINITY
+  interface Candidate {
+    pr: Pr
+    prior: PriorState
+    diff: string
+    lines: number
+    firstReview: boolean
+  }
+  const candidates: Candidate[] = []
   for (let i = 0; i < queue.length; i++) {
     const pr = queue[i]
     if (pr === undefined) continue
-    if (cfg.maxReviewsPerDay > 0 && !cfg.dryRun && daily.count >= cfg.maxReviewsPerDay) {
+    if (handled >= dailyBudget) {
       log(`daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}) — no more reviews today; resumes tomorrow`)
       deferQueuedStatusPrs(cfg, status, queue, i, `daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}); resumes tomorrow`)
       break
@@ -1327,45 +1377,65 @@ function main(): void {
       setStatusPr(cfg, status, pr, 'dry_run', `would review ${lines} diff lines`, lines)
       continue
     }
+    candidates.push({ pr, prior, diff, lines, firstReview })
+  }
 
-    setStatusPr(cfg, status, pr, 'reviewing', `running codex over ${lines} diff lines`, lines)
-    setCommitStatus(cfg, commitStatuses, pr, 'pending', `stupify is reviewing ${lines} diff lines`)
-    const used = reviewPr(cfg, pr, prior.memory, diff, firstReview, prior.openThreadIds, prior.dismissed)
-    if (used === 'limit') {
-      log('codex plan is rate-limited — ending this sweep early (the rest would fail the same way); retries next sweep')
-      setStatusPr(cfg, status, pr, 'failed', 'codex plan is rate-limited; ending sweep early', lines)
-      setStatusStage(cfg, status, 'blocked', 'codex plan is rate-limited')
-      setCommitStatus(cfg, commitStatuses, pr, 'error', 'codex plan is rate-limited; retrying later')
-      deferQueuedStatusPrs(cfg, status, queue, i + 1, 'codex plan is rate-limited; deferred to next sweep')
-      recordHeadAttempt(failuresPath(cfg), failures, String(pr.number), pr.headRefOid) // throttle this head too so the next sweep doesn't immediately re-hit the wall
-      break
+  // The pool: up to CODEX_JOBS candidates in flight at once. Workers share a cursor; a quota `limit` from any
+  // worker stops NEW launches (the rest would fail the same way) while in-flight runs drain. All the shared-state
+  // mutation (counters, status, throttle files) happens between awaits on the one JS thread, so it needs no locks.
+  let next = 0
+  let limitHit = false
+  const worker = async (): Promise<void> => {
+    while (!limitHit && next < candidates.length) {
+      const c = candidates[next++]
+      if (c === undefined) continue
+      const { pr, prior, diff, lines } = c
+      setStatusPr(cfg, status, pr, 'reviewing', `running codex over ${lines} diff lines`, lines)
+      setCommitStatus(cfg, commitStatuses, pr, 'pending', `stupify is reviewing ${lines} diff lines`)
+      const used = await reviewPr(cfg, pr, prior.memory, diff, c.firstReview, prior.openThreadIds, prior.dismissed)
+      if (used === 'limit') {
+        limitHit = true
+        log('codex plan is rate-limited — no new reviews this sweep (the rest would fail the same way); retries next sweep')
+        setStatusPr(cfg, status, pr, 'failed', 'codex plan is rate-limited; ending sweep early', lines)
+        setStatusStage(cfg, status, 'blocked', 'codex plan is rate-limited')
+        setCommitStatus(cfg, commitStatuses, pr, 'error', 'codex plan is rate-limited; retrying later')
+        recordHeadAttempt(failuresPath(cfg), failures, String(pr.number), pr.headRefOid) // throttle this head too so the next sweep doesn't immediately re-hit the wall
+        continue
+      }
+      if (used === null) {
+        recordHeadAttempt(failuresPath(cfg), failures, String(pr.number), pr.headRefOid) // logged, not posted — throttle re-attempt until the window lapses or the head moves
+        setStatusPr(cfg, status, pr, 'failed', 'review failed; retry will wait for the failure window', lines)
+        setCommitStatus(cfg, commitStatuses, pr, 'error', 'stupify review failed; retrying later')
+        continue
+      }
+      // codex ran and reached a verdict (findings posted, or a no-op). Record this head so the next sweep doesn't
+      // re-run codex on it — without this a SUPPRESSED no-op (no thread marker) would re-run every minute and drain
+      // the plan. Count the run toward the daily spend ceiling either way: a no-op still spent the tokens.
+      recordReviewedHead(reviewedPath(cfg), reviewedLocal, String(pr.number), pr.headRefOid)
+      bumpDailyCounter(dailyPath(cfg), daily)
+      if (typeof used === 'number') {
+        reviewed += 1
+        tokens += used
+        setStatusPr(cfg, status, pr, 'posted', `posted review (${used} tokens)`, lines)
+      } else if (used === 'open') {
+        setStatusPr(cfg, status, pr, 'skipped', 'prior findings still open; no new review posted', lines)
+      } else if (used === 'fixed') {
+        setStatusPr(cfg, status, pr, 'clean', 'prior findings resolved', lines)
+      } else {
+        setStatusPr(cfg, status, pr, 'clean', 'no new review needed', lines)
+      }
+      const finalStatus = commitStatusForSweepResult(used)
+      setCommitStatus(cfg, commitStatuses, pr, finalStatus.state, finalStatus.description)
+      status.totals.reviewed = reviewed
+      status.totals.tokens = tokens
     }
-    if (used === null) {
-      recordHeadAttempt(failuresPath(cfg), failures, String(pr.number), pr.headRefOid) // logged, not posted — throttle re-attempt until the window lapses or the head moves
-      setStatusPr(cfg, status, pr, 'failed', 'review failed; retry will wait for the failure window', lines)
-      setCommitStatus(cfg, commitStatuses, pr, 'error', 'stupify review failed; retrying later')
-      continue
+  }
+  await Promise.all(Array.from({ length: Math.min(cfg.codexJobs, candidates.length) }, () => worker()))
+  if (limitHit) {
+    for (const c of candidates.slice(next)) {
+      skipStatusPr(cfg, status, c.pr, 'deferred', 'codex plan is rate-limited; deferred to next sweep')
+      setCommitStatus(cfg, commitStatuses, c.pr, 'error', 'codex plan is rate-limited; retrying later')
     }
-    // codex ran and reached a verdict (findings posted, or a no-op). Record this head so the next sweep doesn't
-    // re-run codex on it — without this a SUPPRESSED no-op (no thread marker) would re-run every minute and drain
-    // the plan. Count the run toward the daily spend ceiling either way: a no-op still spent the tokens.
-    recordReviewedHead(reviewedPath(cfg), reviewedLocal, String(pr.number), pr.headRefOid)
-    bumpDailyCounter(dailyPath(cfg), daily)
-    if (typeof used === 'number') {
-      reviewed += 1
-      tokens += used
-      setStatusPr(cfg, status, pr, 'posted', `posted review (${used} tokens)`, lines)
-    } else if (used === 'open') {
-      setStatusPr(cfg, status, pr, 'skipped', 'prior findings still open; no new review posted', lines)
-    } else if (used === 'fixed') {
-      setStatusPr(cfg, status, pr, 'clean', 'prior findings resolved', lines)
-    } else {
-      setStatusPr(cfg, status, pr, 'clean', 'no new review needed', lines)
-    }
-    const finalStatus = commitStatusForSweepResult(used)
-    setCommitStatus(cfg, commitStatuses, pr, finalStatus.state, finalStatus.description)
-    status.totals.reviewed = reviewed
-    status.totals.tokens = tokens
   }
 
   log(`sweep done — scope=${cfg.scope} reviewed=${reviewed} tokens~${tokens}`)
@@ -1380,4 +1450,4 @@ function main(): void {
   writeStatus(cfg, status)
 }
 
-if (import.meta.main) main() // run only when invoked directly (cron / `stupify run`); stays importable for tests
+if (import.meta.main) await main() // run only when invoked directly (cron / `stupify run`); stays importable for tests
