@@ -57,6 +57,9 @@ A cron job runs the sweep every minute (`*/1 * * * *`); the sweep self-locks so 
    `workspace-write` sandbox restricted to `/tmp` with **network off and no `gh`**. Codex reads the rubric +
    corpus + the inlined diff and writes the review to a temp file ending in the marker; the *runner*, not Codex,
    posts it with `gh pr comment`.
+   Candidates are collected serially (all the cheap gh gates), then reviewed by a pool of up to `CODEX_JOBS`
+   (default 3) concurrent codex runs — a busy sweep's wall-clock is the slowest review, not the sum of them. A
+   quota wall from any run stops new launches while in-flight runs drain.
 6. **Cap.** `MAX_PRS` limits PRs *actually reviewed* per sweep, counted only after the cheap dedup skips, so a
    backlog of already-reviewed PRs at the front of the list can't starve later ones.
 

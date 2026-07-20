@@ -33,6 +33,7 @@ const cfg = (): Config => ({
   statusAppKeyPath: '',
   gatewayPool: '',
   rotateCooldownMs: 600_000,
+  codexJobs: 3,
 })
 
 const pr = (number: number, sha: string): Pr => ({
