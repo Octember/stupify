@@ -18,7 +18,6 @@
  * Single-flight: the sweep takes its own lockfile (state/sweep.lock) so two cron ticks never overlap — no
  * `flock` dependency. Every knob lives in config.env next to this file (read fresh each run). Run: `bun review-sweep.ts`.
  */
-import { spawn } from 'node:child_process'
 import { createSign } from 'node:crypto'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -953,38 +952,19 @@ export type ReviewOutcome =
   | { kind: 'review'; text: string; tokens: number | null } // a real review, sign-off already stripped (no marker yet)
 
 // Async twin of the kit's `exec`, same result shape — ONLY for the codex child, so several multi-minute reviews
-// can run at once while every gh call around them stays the kit's sync exec. The stdin write is fire-and-forget
-// on purpose: the prompt is megabytes, and awaiting a drain a dead child never signals would hang the worker.
-function execAsync(cmd: string, args: string[], opts: { cwd?: string; input?: string; timeoutMs?: number }): Promise<{ ok: boolean; stdout: string; combined: string }> {
-  return new Promise((resolve) => {
-    const child = spawn(cmd, args, { cwd: opts.cwd })
-    let stdout = ''
-    let stderr = ''
-    let extra = ''
-    let done = false
-    const timer = opts.timeoutMs === undefined ? undefined : setTimeout(() => {
-      extra += `\n${cmd}: process killed by SIGTERM (timeout ${opts.timeoutMs}ms)`
-      child.kill('SIGTERM')
-    }, opts.timeoutMs)
-    const finish = (ok: boolean): void => {
-      if (done) return
-      done = true
-      clearTimeout(timer)
-      resolve({ ok, stdout, combined: stdout + stderr + extra })
-    }
-    child.stdout.on('data', (d: Buffer) => { stdout += d.toString() })
-    child.stderr.on('data', (d: Buffer) => { stderr += d.toString() })
-    child.on('error', (e) => {
-      extra += `\n${cmd}: ${e.message}`
-      finish(false)
-    })
-    child.on('close', (code, signal) => {
-      if (signal) extra += `\n${cmd}: process killed by ${signal}${opts.timeoutMs ? ` (timeout ${opts.timeoutMs}ms)` : ''}`
-      finish(code === 0 && signal === null)
-    })
-    child.stdin.on('error', () => { /* child died before reading the prompt — 'close' carries the failure */ })
-    child.stdin.end(opts.input ?? '')
-  })
+// can run at once while every gh call around them stays the kit's sync exec.
+async function execAsync(cmd: string, args: string[], opts: { cwd: string; input: string; timeoutMs: number }): Promise<{ ok: boolean; stdout: string; combined: string }> {
+  try {
+    const child = Bun.spawn([cmd, ...args], { cwd: opts.cwd, stdin: new TextEncoder().encode(opts.input), stdout: 'pipe', stderr: 'pipe' })
+    const timer = setTimeout(() => child.kill(), opts.timeoutMs)
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
+    clearTimeout(timer)
+    let combined = stdout + stderr
+    if (child.signalCode) combined += `\n${cmd}: process killed by ${child.signalCode} (timeout ${opts.timeoutMs}ms)`
+    return { ok: code === 0 && child.signalCode === null, stdout, combined }
+  } catch (e) {
+    return { ok: false, stdout: '', combined: `${cmd}: ${e instanceof Error ? e.message : String(e)}` } // spawn failure (ENOENT etc.)
+  }
 }
 
 /** Run codex over one PR's diff and classify the result. Does NO gh I/O and NO posting — codex runs sandboxed with
@@ -1302,14 +1282,7 @@ async function main(): Promise<void> {
   let handled = 0
   // Each candidate is one codex run, so the daily ceiling gates collection up front.
   const dailyBudget = cfg.maxReviewsPerDay > 0 && !cfg.dryRun ? cfg.maxReviewsPerDay - daily.count : Number.POSITIVE_INFINITY
-  interface Candidate {
-    pr: Pr
-    prior: PriorState
-    diff: string
-    lines: number
-    firstReview: boolean
-  }
-  const candidates: Candidate[] = []
+  const candidates: { pr: Pr; prior: PriorState; diff: string; lines: number; firstReview: boolean }[] = []
   for (let i = 0; i < queue.length; i++) {
     const pr = queue[i]
     if (pr === undefined) continue
@@ -1386,9 +1359,9 @@ async function main(): Promise<void> {
   let next = 0
   let limitHit = false
   const worker = async (): Promise<void> => {
-    while (!limitHit && next < candidates.length) {
+    while (!limitHit) {
       const c = candidates[next++]
-      if (c === undefined) continue
+      if (c === undefined) return
       const { pr, prior, diff, lines } = c
       setStatusPr(cfg, status, pr, 'reviewing', `running codex over ${lines} diff lines`, lines)
       setCommitStatus(cfg, commitStatuses, pr, 'pending', `stupify is reviewing ${lines} diff lines`)
