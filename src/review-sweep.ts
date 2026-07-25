@@ -253,12 +253,15 @@ export function priorReviewThread(comments: Comment[]): string {
   return thread.length > MEMORY_BYTE_CAP ? thread.slice(-MEMORY_BYTE_CAP) : thread // keep the most recent context
 }
 
-// GitHub's diff endpoint hard-refuses anything past this with a 406, so a big enough PR can't even be MEASURED.
-// It is GitHub's limit, not ours — DIFF_LINE_CAP can be set above it but never reached.
-const GH_DIFF_MAX_LINES = 20_000
+// GitHub's diff endpoint 406s past EITHER of these, so a big enough PR can't even be MEASURED. They are GitHub's
+// limits, not ours — DIFF_LINE_CAP can be set above the line one but never reached.
+const GH_DIFF_LIMITS = '20000-line / 300-file'
 
-/** A `gh pr diff` failure that is GitHub's size refusal rather than a transient error. Retrying can never fix it. */
-export const isDiffTooLarge = (output: string): boolean => /diff exceeded the maximum number of lines/i.test(output)
+/** A `gh pr diff` failure that is GitHub's size refusal rather than a transient error — retrying can never fix it.
+ *  Matches on gh's stable `too_large` code first: the prose differs per limit (lines vs files) and can be reworded,
+ *  but both variants carry the code. Missing one variant is what kept #8338/#8241 looping after the first fix. */
+export const isDiffTooLarge = (output: string): boolean =>
+  /PullRequest\.diff too_large|diff exceeded the maximum number of (lines|files)/i.test(output)
 
 // The RUNNER fetches the diff (not codex) so codex needs no network or gh — it reviews the diff straight from the
 // prompt, sandboxed. Never treat a failed read as "0 lines" (a silent under-cap that would auto-review something it
@@ -1164,7 +1167,7 @@ async function reviewOne(cfg: Config, ref: string, post: boolean): Promise<void>
   if (!read.ok) {
     console.error(
       read.reason === 'too-large'
-        ? `stupify review: ${slug}#${number} is over GitHub's ${GH_DIFF_MAX_LINES}-line diff API limit, so gh can't return it and there's nothing to review. Split the PR.`
+        ? `stupify review: ${slug}#${number} is over GitHub's ${GH_DIFF_LIMITS} diff API limit, so gh can't return it and there's nothing to review. Split the PR.`
         : `stupify review: couldn't fetch the diff for ${slug}#${number}.`,
     )
     process.exit(1)
@@ -1347,10 +1350,10 @@ async function main(): Promise<void> {
     if (!read.ok && read.reason === 'too-large') {
       // Terminal: gh will never hand us this diff, so there is nothing to retry and nothing to measure. Say so
       // plainly — the old wording promised a retry that could not possibly succeed.
-      const why = `diff over GitHub's ${GH_DIFF_MAX_LINES}-line API limit — gh can't return it, so it can't be reviewed; split the PR`
+      const why = `diff over GitHub's ${GH_DIFF_LIMITS} API limit — gh can't return it, so it can't be reviewed; split the PR`
       log(`skip #${pr.number} — ${why}`)
       skipStatusPr(cfg, status, pr, 'skipped', why)
-      setCommitStatus(cfg, commitStatuses, pr, 'success', `diff over GitHub's ${GH_DIFF_MAX_LINES}-line API limit; split the PR to get a review`)
+      setCommitStatus(cfg, commitStatuses, pr, 'success', `diff over GitHub's ${GH_DIFF_LIMITS} API limit; split the PR to get a review`)
       continue
     }
     if (!read.ok) {
