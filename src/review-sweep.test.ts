@@ -283,12 +283,17 @@ test('isRateLimited flags plan exhaustion, not ordinary failures', () => {
   expect(isRateLimited('the diff had no reviewable changes')).toBe(false)
 })
 
-// GitHub 406s on diffs past 20k lines, so those PRs can never be fetched. Reading that as an ordinary gh failure
-// re-fetched them every 60s forever (11k wasted attempts on bevyl before this was caught).
+// GitHub 406s on diffs past 20k lines OR 300 files, so those PRs can never be fetched. Reading that as an ordinary
+// gh failure re-fetched them every 60s forever (11k wasted attempts on bevyl before this was caught). Both real
+// payloads below are copied verbatim from the live failures — the FILES variant was missed on the first pass and
+// kept #8338/#8241 looping, so both stay pinned here.
 test('isDiffTooLarge flags the GitHub size refusal, not ordinary gh failures', () => {
-  const real =
+  const tooManyLines =
     'could not find pull request diff: HTTP 406: Sorry, the diff exceeded the maximum number of lines (20000) (https://api.github.com/repos/acme/widgets/pulls/8121)\nPullRequest.diff too_large'
-  expect(isDiffTooLarge(real)).toBe(true)
+  const tooManyFiles =
+    "could not find pull request diff: HTTP 406: Sorry, the diff exceeded the maximum number of files (300). Consider using 'List pull requests files' API or locally cloning the repository instead. (https://api.github.com/repos/acme/widgets/pulls/8338)\nPullRequest.diff too_large"
+  expect(isDiffTooLarge(tooManyLines)).toBe(true)
+  expect(isDiffTooLarge(tooManyFiles)).toBe(true)
   expect(isDiffTooLarge('gh: HTTP 502 Bad Gateway')).toBe(false)
   expect(isDiffTooLarge('could not find pull request diff: HTTP 404')).toBe(false)
   expect(isDiffTooLarge('gh: exceeded your quota')).toBe(false) // a quota wall is transient; this is not it
