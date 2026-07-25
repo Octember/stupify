@@ -253,12 +253,23 @@ export function priorReviewThread(comments: Comment[]): string {
   return thread.length > MEMORY_BYTE_CAP ? thread.slice(-MEMORY_BYTE_CAP) : thread // keep the most recent context
 }
 
+// GitHub's diff endpoint hard-refuses anything past this with a 406, so a big enough PR can't even be MEASURED.
+// It is GitHub's limit, not ours — DIFF_LINE_CAP can be set above it but never reached.
+const GH_DIFF_MAX_LINES = 20_000
+
+/** A `gh pr diff` failure that is GitHub's size refusal rather than a transient error. Retrying can never fix it. */
+export const isDiffTooLarge = (output: string): boolean => /diff exceeded the maximum number of lines/i.test(output)
+
 // The RUNNER fetches the diff (not codex) so codex needs no network or gh — it reviews the diff straight from the
-// prompt, sandboxed. null = gh failed; the caller skips and retries next sweep rather than treating an unreadable
-// diff as "0 lines" (a silent under-cap that would auto-review something it never measured).
-function getDiff(cfg: Config, number: number): string | null {
+// prompt, sandboxed. Never treat a failed read as "0 lines" (a silent under-cap that would auto-review something it
+// never measured) — and keep the two failure modes apart: 'unreadable' is transient and worth retrying, but
+// 'too-large' is terminal, and conflating them is what left oversized PRs re-fetched every 60s forever.
+type DiffRead = { ok: true; diff: string } | { ok: false; reason: 'unreadable' | 'too-large' }
+
+function getDiff(cfg: Config, number: number): DiffRead {
   const r = exec('gh', ['pr', 'diff', String(number), '--repo', cfg.slug])
-  return r.ok ? r.stdout : null
+  if (r.ok) return { ok: true, diff: r.stdout }
+  return { ok: false, reason: isDiffTooLarge(r.combined) ? 'too-large' : 'unreadable' }
 }
 
 const diffLineCount = (diff: string): number => (diff ? diff.split('\n').length - (diff.endsWith('\n') ? 1 : 0) : 0)
@@ -1149,11 +1160,16 @@ async function reviewOne(cfg: Config, ref: string, post: boolean): Promise<void>
     /* the marker just won't carry a real SHA — harmless for a one-off */
   }
   const pr: Pr = { number, headRefOid: meta.headRefOid ?? '', isDraft: false, author: { login: '', is_bot: false }, labels: [], title: meta.title ?? '', body: meta.body ?? '' }
-  const diff = getDiff(cfg, number)
-  if (diff === null) {
-    console.error(`stupify review: couldn't fetch the diff for ${slug}#${number}.`)
+  const read = getDiff(cfg, number)
+  if (!read.ok) {
+    console.error(
+      read.reason === 'too-large'
+        ? `stupify review: ${slug}#${number} is over GitHub's ${GH_DIFF_MAX_LINES}-line diff API limit, so gh can't return it and there's nothing to review. Split the PR.`
+        : `stupify review: couldn't fetch the diff for ${slug}#${number}.`,
+    )
     process.exit(1)
   }
+  const diff = read.diff
   console.error(`reviewing ${slug}#${number} …`) // progress on stderr; stdout stays just the review
   const r = await runReview(cfg, pr, '', diff) // no memory: a manual review is always a fresh, full take
   if (r.kind === 'limit' || r.kind === 'fail') {
@@ -1327,13 +1343,23 @@ async function main(): Promise<void> {
     }
 
     // Fetch the diff once, here in the runner — codex reviews it from the prompt with no network/gh of its own.
-    const diff = getDiff(cfg, pr.number)
-    if (diff === null) {
+    const read = getDiff(cfg, pr.number)
+    if (!read.ok && read.reason === 'too-large') {
+      // Terminal: gh will never hand us this diff, so there is nothing to retry and nothing to measure. Say so
+      // plainly — the old wording promised a retry that could not possibly succeed.
+      const why = `diff over GitHub's ${GH_DIFF_MAX_LINES}-line API limit — gh can't return it, so it can't be reviewed; split the PR`
+      log(`skip #${pr.number} — ${why}`)
+      skipStatusPr(cfg, status, pr, 'skipped', why)
+      setCommitStatus(cfg, commitStatuses, pr, 'success', `diff over GitHub's ${GH_DIFF_MAX_LINES}-line API limit; split the PR to get a review`)
+      continue
+    }
+    if (!read.ok) {
       log(`skip #${pr.number} — couldn't read its diff from gh; will retry next sweep`)
       skipStatusPr(cfg, status, pr, 'skipped', "couldn't read diff from gh; will retry next sweep")
       setCommitStatus(cfg, commitStatuses, pr, 'error', "couldn't read PR diff; retrying next sweep")
       continue
     }
+    const diff = read.diff
     const lines = diffLineCount(diff)
     // auto-scope only: skip oversized diffs UNLESS the PR carries the review label (the documented force-include).
     // (label-scope means you already opted in, so size never gates there.)

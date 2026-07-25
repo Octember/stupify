@@ -5,7 +5,7 @@
 import { expect, test } from 'bun:test'
 import { createVerify, generateKeyPairSync } from 'node:crypto'
 import { join } from 'node:path'
-import { type Config, appJwt, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, finalCodexMessage, FIXED_TOKEN, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, STILL_NOTE, stripSignoff } from './review-sweep'
+import { type Config, appJwt, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, finalCodexMessage, FIXED_TOKEN, isDiffTooLarge, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, STILL_NOTE, stripSignoff } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -281,6 +281,17 @@ test('isRateLimited flags plan exhaustion, not ordinary failures', () => {
   expect(isRateLimited('codex: E2BIG: argument list too long')).toBe(false)
   expect(isRateLimited('request timed out after 408s')).toBe(false) // a one-off timeout is NOT plan exhaustion
   expect(isRateLimited('the diff had no reviewable changes')).toBe(false)
+})
+
+// GitHub 406s on diffs past 20k lines, so those PRs can never be fetched. Reading that as an ordinary gh failure
+// re-fetched them every 60s forever (11k wasted attempts on bevyl before this was caught).
+test('isDiffTooLarge flags the GitHub size refusal, not ordinary gh failures', () => {
+  const real =
+    'could not find pull request diff: HTTP 406: Sorry, the diff exceeded the maximum number of lines (20000) (https://api.github.com/repos/acme/widgets/pulls/8121)\nPullRequest.diff too_large'
+  expect(isDiffTooLarge(real)).toBe(true)
+  expect(isDiffTooLarge('gh: HTTP 502 Bad Gateway')).toBe(false)
+  expect(isDiffTooLarge('could not find pull request diff: HTTP 404')).toBe(false)
+  expect(isDiffTooLarge('gh: exceeded your quota')).toBe(false) // a quota wall is transient; this is not it
 })
 
 // codex sometimes says a convergence token as its final message without writing the review file — the transcript's
