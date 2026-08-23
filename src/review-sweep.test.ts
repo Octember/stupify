@@ -249,7 +249,8 @@ test('diffRightLines: anchorable lines are the new-file added/context lines', ()
 })
 
 // codex's markdown review parses back into per-line findings (so each becomes an anchored thread) plus the opener.
-test('parseFindings: opener + per-line findings, marker stripped', () => {
+// Only 🔴/🟠 read as blocking; 🟡 (low), 🔵 (note/debt), and 🟢 (praise) are non-blocking threads.
+test('parseFindings: opener + per-line findings, marker stripped, blocking split', () => {
   const review = [
     'oof, a couple things 👇',
     '',
@@ -260,15 +261,23 @@ test('parseFindings: opener + per-line findings, marker stripped', () => {
     '🔴 **`src/y.ts:5`** · bug · conf 0.9',
     'breaks on empty',
     '**→ Fix:** guard it',
+    '',
+    '🔵 **`src/z.ts:12`** · debt · conf 0.7',
+    'this state file wants to merge into status.json someday',
+    '',
+    '🟢 **`src/y.ts:9`** · praise · conf 0.9',
+    'clean! love this — validated boundary, no assertions',
     '<!-- stupify:abc123 -->',
   ].join('\n')
   const { opener, findings } = parseFindings(review)
   expect(opener).toBe('oof, a couple things 👇')
-  expect(findings).toHaveLength(2)
-  expect(findings[0]).toMatchObject({ path: 'src/x.ts', line: 30 })
+  expect(findings).toHaveLength(4)
+  expect(findings[0]).toMatchObject({ path: 'src/x.ts', line: 30, blocking: false })
   expect(findings[0]?.body).toContain('speculative seam')
-  expect(findings[1]).toMatchObject({ path: 'src/y.ts', line: 5 })
-  expect(findings[1]?.body).not.toContain('<!-- stupify') // the marker codex tacked on is dropped from the thread body
+  expect(findings[1]).toMatchObject({ path: 'src/y.ts', line: 5, blocking: true })
+  expect(findings[2]).toMatchObject({ path: 'src/z.ts', line: 12, blocking: false })
+  expect(findings[3]).toMatchObject({ path: 'src/y.ts', line: 9, blocking: false })
+  expect(findings[3]?.body).not.toContain('<!-- stupify') // the marker codex tacked on is dropped from the thread body
 })
 
 // Plan-exhaustion ends the sweep early (spend control); a normal review failure does not.
@@ -338,9 +347,11 @@ test('appJwt signs verifiable RS256 claims for the status App', () => {
   expect(createVerify('RSA-SHA256').update(`${header}.${payload}`).verify(publicKey, signature, 'base64url')).toBe(true)
 })
 
-test('commitStatusForSweepResult keeps unresolved prior findings red', () => {
+// The number is the count of BLOCKING (🔴/🟠) findings in the posted review — a 🟡/🔵/🟢-only review is green.
+test('commitStatusForSweepResult keeps unresolved prior findings red, non-blocking-only reviews green', () => {
   expect(commitStatusForSweepResult('open')).toEqual({ state: 'failure', description: 'prior stupify findings are still open' })
-  expect(commitStatusForSweepResult(123)).toEqual({ state: 'failure', description: 'stupify found issues; see review' })
+  expect(commitStatusForSweepResult(2)).toEqual({ state: 'failure', description: 'stupify found issues; see review' })
+  expect(commitStatusForSweepResult(0)).toEqual({ state: 'success', description: 'no blocking issues; stupify left notes' })
   expect(commitStatusForSweepResult('fixed')).toEqual({ state: 'success', description: 'prior stupify findings resolved' })
   expect(commitStatusForSweepResult('clean')).toEqual({ state: 'success', description: 'stupify review complete; no new issues' })
 })

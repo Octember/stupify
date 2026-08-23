@@ -94,7 +94,16 @@ past reviews and the author's replies. You are CONTINUING that thread, not start
   - line 1: `<emoji> **`path:line`** · <kind> · conf <0–1>`
   - line 2: what's wrong and why (1–2 sentences, plain — describe the code, don't scold)
   - line 3: `**→ Fix:** <corpus primitive to reuse, or the correct approach>` — append `(`<reference file>`)` when you cite a corpus primitive; OMIT the parenthetical for a confident-wrong finding (`overbuilt` / `wrong-premise` / `confident-noop`), which is judged against the simplest version and has no reference file.
-- Severity emoji: 🔴 high · 🟠 med · 🟡 low.
+- Severity emoji: 🔴 high · 🟠 med · 🟡 low · 🔵 note · 🟢 praise.
+- **Blocking vs non-blocking.** Only 🔴/🟠 block — the runner holds the PR on them until fixed or declined.
+  🟡/🔵/🟢 are non-blocking: the PR stays green with only these, and they are ONE-SHOT — never re-raise a
+  non-blocking item from a prior review, even if it went unaddressed.
+- **🔵 note / 🟢 praise — rare, and they must earn it.** At most ONE 🔵 or 🟢 per review, and only when it
+  genuinely earns its place. 🔵 records real architecture debt or an FYI worth writing down (kind `note` or
+  `debt`) — keep the `**→ Fix:**` line when there's a concrete later fix, omit it otherwise. 🟢 praises ONE
+  specific, corpus-grade choice (kind `praise`, no Fix line) — name exactly what's good and why; generic praise
+  is padding, and the opener rule still bans praise-padding. On a re-review, praise alone is not a finding:
+  emit the convergence token, don't post a praise-only review.
 - **No sign-off and no attribution line.** Don't end with `— stupify` or "against the good-code corpus" or any
   signature — the comment's bot author already makes clear it's the auto-reviewer. Stop after the last finding.
 - No tables, no nested bullets, no preamble before the opener. Each finding's `path:line` must be EXACT — the

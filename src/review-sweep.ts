@@ -313,9 +313,11 @@ export function diffRightLines(diff: string): Map<string, Set<number>> {
 // codex writes findings as markdown blocks, each opening `<emoji> **`path:line`** · kind · conf N`. Parse them back
 // into {path, line, body} so each can become an inline thread anchored to that line, with the opener (the goofy
 // first line) kept aside for the review body. Token outputs (no-op/fixed) never reach here.
-export type ParsedFinding = { path: string; line: number; body: string }
+// Only 🔴/🟠 are BLOCKING; 🟡 (low), 🔵 (note/debt), and 🟢 (praise) are non-blocking — posted as threads too,
+// but they never hold the ✅, never turn the commit status red, and are never re-raised.
+export type ParsedFinding = { path: string; line: number; body: string; blocking: boolean }
 export function parseFindings(review: string): { opener: string; findings: ParsedFinding[] } {
-  const header = /^[\u{1F534}\u{1F7E0}\u{1F7E1}] \*\*`([^`]+?):(\d+)`\*\*/gmu
+  const header = /^([\u{1F534}\u{1F7E0}\u{1F7E1}\u{1F535}\u{1F7E2}]) \*\*`([^`]+?):(\d+)`\*\*/gmu
   const hits = [...review.matchAll(header)]
   if (hits.length === 0) return { opener: review.trim(), findings: [] }
   const firstAt = hits[0]?.index ?? 0
@@ -324,7 +326,7 @@ export function parseFindings(review: string): { opener: string; findings: Parse
     const start = m.index ?? 0
     const end = hits[i + 1]?.index ?? review.length
     const body = review.slice(start, end).replace(/<!--[\s\S]*?-->/g, '').trim() // drop any marker codex tacked on
-    return { path: m[1] ?? '', line: Number(m[2] ?? 0), body }
+    return { path: m[2] ?? '', line: Number(m[3] ?? 0), body, blocking: m[1] === '🔴' || m[1] === '🟠' }
   })
   return { opener, findings }
 }
@@ -378,6 +380,11 @@ export const finalCodexMessage = (out: string): string => {
 // our content by marker, not author (same trick as the head marker).
 const STUPIFY_TAG = '<!-- stupify -->'
 
+// Non-blocking findings (🟡/🔵/🟢) carry a DIFFERENT tag that deliberately does NOT contain STUPIFY_TAG as a
+// substring, so prReviews/dismissedFindings never match them: a note thread doesn't count as an open finding
+// (no held ✅, no red commit status) and is never re-raised when the author resolves it without a reply.
+const STUPIFY_NOTE_TAG = '<!-- stupify:note -->'
+
 // One non-blocking COMMENT review: `comments` are inline, each anchored to a diff line (a resolvable thread).
 function submitReview(cfg: Config, pr: Pr, body: string, comments: { path: string; line: number; side: 'RIGHT'; body: string }[]): { ok: boolean; combined: string } {
   const payload = JSON.stringify({ event: 'COMMENT', commit_id: pr.headRefOid, body, comments })
@@ -392,7 +399,7 @@ function postReview(cfg: Config, pr: Pr, opener: string, findings: ParsedFinding
   const inline: { path: string; line: number; side: 'RIGHT'; body: string }[] = []
   const demoted: string[] = []
   for (const f of findings) {
-    if (valid.get(f.path)?.has(f.line)) inline.push({ path: f.path, line: f.line, side: 'RIGHT', body: `${f.body}\n${STUPIFY_TAG}` })
+    if (valid.get(f.path)?.has(f.line)) inline.push({ path: f.path, line: f.line, side: 'RIGHT', body: `${f.body}\n${f.blocking ? STUPIFY_TAG : STUPIFY_NOTE_TAG}` })
     else demoted.push(f.body)
   }
   const head = opener || '👀 a couple things'
@@ -1024,10 +1031,15 @@ export async function runReview(cfg: Config, pr: Pr, priorThread: string, diff: 
   return { kind: 'review', text: stripSignoff(review), tokens } // strip any sign-off the model slipped in (spec says none)
 }
 
-type SweepReviewResult = number | 'limit' | 'clean' | 'fixed' | 'open' | null
+// A posted review carries its token spend and how many of its findings BLOCK (🔴/🟠) — zero blocking means the
+// review was 🟡/🔵/🟢 only, which reads as a green commit status, not "found issues".
+type SweepReviewResult = { tokens: number; blocking: number } | 'limit' | 'clean' | 'fixed' | 'open' | null
 
 export function commitStatusForSweepResult(result: number | 'clean' | 'fixed' | 'open'): { state: CommitStatusState; description: string } {
-  if (typeof result === 'number') return { state: 'failure', description: 'stupify found issues; see review' }
+  if (typeof result === 'number') {
+    if (result > 0) return { state: 'failure', description: 'stupify found issues; see review' }
+    return { state: 'success', description: 'no blocking issues; stupify left notes' }
+  }
   if (result === 'open') return { state: 'failure', description: 'prior stupify findings are still open' }
   if (result === 'fixed') return { state: 'success', description: 'prior stupify findings resolved' }
   return { state: 'success', description: 'stupify review complete; no new issues' }
@@ -1036,7 +1048,7 @@ export function commitStatusForSweepResult(result: number | 'clean' | 'fixed' | 
 /** Run one SWEEP review and act on it: post findings as an inline-threaded COMMENT review, RESOLVE stupify's open
  *  threads when its findings are fixed, post a one-time `LGTM ✅` review on a genuine first-pass clean, post a
  *  one-line `still ✅` on a clean head with nothing outstanding, or stay SILENT while prior findings remain open.
- *  Returns tokens on a posted review, 'clean' on a clean outcome, 'open' when prior findings remain unresolved,
+ *  Returns {tokens, blocking} on a posted review, 'clean' on a clean outcome, 'open' when prior findings remain unresolved,
  *  'fixed' when it resolved prior findings, 'limit' on exhaustion, or null on a failure the caller throttles.
  *  Every ✅ that posts is honest: it only fires when no stupify finding is open — "nothing new while findings
  *  still stand" stays silent (those threads remain open); a fix resolves the threads and posts a visible note. */
@@ -1112,20 +1124,22 @@ async function reviewPr(cfg: Config, pr: Pr, priorThread: string, diff: string, 
   // A real review: split into per-line findings and post them as inline, resolvable threads.
   const { opener, findings } = parseFindings(r.text)
   if (findings.length === 0) {
-    // codex wrote prose with no parseable `path:line` findings — post it as a plain review body so it's never lost.
+    // codex wrote prose with no parseable `path:line` findings — post it as a plain review body so it's never
+    // lost. Unparseable severity reads as blocking: fail toward surfacing, never toward a silent green.
     if (!postNote(cfg, pr, r.text)) {
       log(`  couldn't post #${pr.number} (gh down?) — next sweep retries`)
       return null
     }
     log(`  #${pr.number} done (${r.tokens ?? '?'} tokens, unanchored)`)
-    return r.tokens ?? 0
+    return { tokens: r.tokens ?? 0, blocking: 1 }
   }
   if (!postReview(cfg, pr, opener, findings, diff)) {
     log(`  couldn't post #${pr.number} review (gh down?) — next sweep retries`)
     return null
   }
-  log(`  #${pr.number} done (${r.tokens ?? '?'} tokens, ${findings.length} inline)`)
-  return r.tokens ?? 0
+  const blocking = findings.filter((f) => f.blocking).length
+  log(`  #${pr.number} done (${r.tokens ?? '?'} tokens, ${findings.length} inline, ${blocking} blocking)`)
+  return { tokens: r.tokens ?? 0, blocking }
 }
 
 /** `stupify review <pr>` — review ONE pull request on demand (no cron, no checkout) and print it, or `--post` it.
@@ -1415,10 +1429,10 @@ async function main(): Promise<void> {
       // the plan. Count the run toward the daily spend ceiling either way: a no-op still spent the tokens.
       recordReviewedHead(reviewedPath(cfg), reviewedLocal, String(pr.number), pr.headRefOid)
       bumpDailyCounter(dailyPath(cfg), daily)
-      if (typeof used === 'number') {
+      if (typeof used === 'object') {
         reviewed += 1
-        tokens += used
-        setStatusPr(cfg, status, pr, 'posted', `posted review (${used} tokens)`, lines)
+        tokens += used.tokens
+        setStatusPr(cfg, status, pr, 'posted', `posted review (${used.tokens} tokens${used.blocking === 0 ? ', non-blocking only' : ''})`, lines)
       } else if (used === 'open') {
         setStatusPr(cfg, status, pr, 'skipped', 'prior findings still open; no new review posted', lines)
       } else if (used === 'fixed') {
@@ -1426,7 +1440,7 @@ async function main(): Promise<void> {
       } else {
         setStatusPr(cfg, status, pr, 'clean', 'no new review needed', lines)
       }
-      const finalStatus = commitStatusForSweepResult(used)
+      const finalStatus = commitStatusForSweepResult(typeof used === 'object' ? used.blocking : used)
       setCommitStatus(cfg, commitStatuses, pr, finalStatus.state, finalStatus.description)
       status.totals.reviewed = reviewed
       status.totals.tokens = tokens
