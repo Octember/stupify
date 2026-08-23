@@ -5,7 +5,7 @@
 import { expect, test } from 'bun:test'
 import { createVerify, generateKeyPairSync } from 'node:crypto'
 import { join } from 'node:path'
-import { type Config, appJwt, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, finalCodexMessage, FIXED_TOKEN, isDiffTooLarge, isFixedReview, isNoopReview, isRateLimited, NOOP_TOKEN, parseFindings, type Pr, pidAlive, priorReviewThread, reviewPrompt, stablePrefix, STILL_NOTE, stripSignoff } from './review-sweep'
+import { type Config, appJwt, commitStatusDescription, commitStatusForSweepResult, dismissedFindings, diffRightLines, finalCodexMessage, isDiffTooLarge, isRateLimited, parseReview, type Pr, pidAlive, priorReviewThread, REVIEW_SCHEMA, reviewPrompt, stablePrefix, STILL_NOTE } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -72,14 +72,10 @@ test('the prefix equals stablePrefix(cfg) and carries the real taste, not generi
   expect(prefixes[0]).toContain('===== CORPUS')
 })
 
-test('the opener guidance gives ingredients, not copy-paste lines', () => {
-  const openerSection = prefixes[0]?.split('- **Opening line')[1]?.split('- **Each finding**')[0] ?? ''
-  expect(openerSection).toContain('Good ingredients:')
-  expect(openerSection).toContain('Do not copy a fixed catchphrase.')
-  expect(openerSection).not.toMatch(/\bso\./i)
-  expect(openerSection).not.toMatch(/\bok so\b/i)
-  expect(openerSection).not.toContain('→')
-  expect(openerSection).not.toContain(' · ')
+test('the opener guidance gives direction, not copy-paste lines', () => {
+  const openerSection = prefixes[0]?.split('**`opener`')[1]?.split('**`body`')[0] ?? ''
+  expect(openerSection).toContain('no fixed catchphrase')
+  expect(openerSection).not.toMatch(/\bok so\b/i) // no literal opener the model could parrot verbatim
 })
 
 test('NO per-PR token leaks into the cached prefix', () => {
@@ -132,25 +128,16 @@ test('priorReviewThread drops comments that only contained hidden markers', () =
   expect(thread).toContain('@reviewer:\nstill useful')
 })
 
-// The convergence contract: codex emits an EXACT token for "nothing new" so the runner converges instead of
-// re-posting a clean note every commit. Detection is token-ONLY: a paraphrase is NOT treated as clean — it gets
-// posted (visible), never silently swallowed. This is the guard against overwriting a real review with "LGTM ✅".
-test('isNoopReview: ONLY the exact token converges; a paraphrase or a finding is posted, not hidden', () => {
-  expect(isNoopReview(NOOP_TOKEN)).toBe(true)
-  expect(isNoopReview('`STUPIFY_NO_NEW_ISSUES`')).toBe(true) // markdown/whitespace around the token is fine
-  expect(isNoopReview('ok so. no new ones; those items still stand.')).toBe(false) // a paraphrase must be POSTED, not converged away
-  const finding = '🟠 **`src/x.ts:30`** · bug · conf 0.88\nit breaks\n**→ Fix:** reuse the corpus primitive (`src/y.ts`)'
-  expect(isNoopReview(finding)).toBe(false)
-})
-
-// The fixed token is the OTHER no-content signal (prior findings resolved → runner resolves the threads and posts
-// the visible fixed note), distinct from "nothing new". They must never be interchangeable.
-test('isFixedReview vs isNoopReview: the resolved signal is distinct from "nothing new"', () => {
-  expect(isFixedReview(FIXED_TOKEN)).toBe(true)
-  expect(isFixedReview('`STUPIFY_FIXED`')).toBe(true)
-  expect(isFixedReview(NOOP_TOKEN)).toBe(false)
-  expect(isNoopReview(FIXED_TOKEN)).toBe(false)
-  expect(prompts[0]).toContain('nice, all fixed ✅')
+// The convergence contract: a bare verdict for "nothing new" so the runner converges instead of re-posting a
+// clean note every commit. Detection is strict parse-or-fail: a paraphrase or junk is null (a loud, retryable
+// failure), never guessed clean — the guard against overwriting a real review with "LGTM ✅".
+test('parseReview: bare verdicts converge; a paraphrase fails loud, never silently clean', () => {
+  expect(parseReview('{"verdict":"no_new_issues","opener":"","findings":[]}')).toEqual({ kind: 'no_new_issues' })
+  expect(parseReview('{"verdict":"fixed","opener":"","findings":[]}')).toEqual({ kind: 'fixed' })
+  expect(parseReview('ok so. no new ones; those items still stand.')).toBeNull() // a paraphrase must FAIL, not converge
+  expect(parseReview('```json\n{"verdict":"fixed","opener":"","findings":[]}\n```')).toBeNull() // fenced ≠ the contract
+  expect(parseReview('{"verdict":"findings","opener":"hm","findings":[]}')).toBeNull() // findings verdict needs findings
+  expect(prompts[0]).toContain('nice, all fixed ✅') // codex is told what the runner posts on "fixed"
 })
 
 // The convergence note is a CONTRACT: per-head consumers (merge gates, the bunion factory's `wait` tool) key on a
@@ -193,30 +180,9 @@ test('pidAlive: our own pid is alive, junk/dead pids are not', () => {
 })
 
 
-// The runner strips a model-added sign-off so a posted review never carries an attribution line (spec says none,
-// but the model isn't a guarantee). Findings and the hidden marker survive; only the signature goes.
-test('stripSignoff removes a model-added attribution line, keeps the findings and the marker', () => {
-  const signed = '🔴 **`a.ts:1`** · bug · conf 0.9\nbad\n**→ Fix:** do x (`b.ts`)\n\n_— stupify, against the good-code corpus_\n<!-- stupify:abc123 -->'
-  const out = stripSignoff(signed)
-  expect(out).not.toContain('good-code corpus')
-  expect(out).not.toMatch(/—\s*stupify/)
-  expect(out).toContain('🔴 **`a.ts:1`**') // the finding is untouched
-  expect(out).toContain('**→ Fix:** do x') // ...including a legit line that mentions a fix
-  expect(out).toContain('<!-- stupify:abc123 -->') // the dedup marker (starts with <!--, not a dash) survives
-})
-
-// The anchor matters: stripSignoff must only touch the TRAILING attribution, never a finding that cites the corpus
-// (the spec tells every fix to name the corpus primitive it should reuse).
-test('stripSignoff keeps a mid-review line that mentions the corpus; only a trailing sign-off goes', () => {
-  const cites = '🟠 **`a.ts:1`** · reinvents-primitive · conf 0.8\nrolls its own thing\n**→ Fix:** use the helper — rolling your own goes against the good-code corpus (`x.ts`)\n<!-- stupify:def456 -->'
-  expect(stripSignoff(cites)).toContain('against the good-code corpus') // a cited corpus is NOT a sign-off
-  // ...but a real trailing sign-off after that same content is still removed
-  expect(stripSignoff(`${cites}\n\n— stupify`)).not.toMatch(/—\s*stupify\s*$/)
-})
-
-test('the no-op token is instructed in the prompt, and adding it kept the prefix stable across PRs', () => {
-  expect(prompts[0]).toContain(NOOP_TOKEN) // codex is told to emit it for a clean diff
-  // The token text is static (spec + tail), so it does NOT thrash the cache: the prefix is still byte-identical
+test('the JSON output contract is instructed in the prompt, and the prefix stays stable across PRs', () => {
+  expect(prompts[0]).toContain('no_new_issues') // codex is told the verdict vocabulary
+  // The contract text is static (spec + tail), so it does NOT thrash the cache: the prefix is still byte-identical
   // across every PR (the dedicated cache-invariant test above proves size===1). Belt here: no per-PR drift.
   expect(prefixes[0]).toBe(prefixes[2])
 })
@@ -249,35 +215,45 @@ test('diffRightLines: anchorable lines are the new-file added/context lines', ()
 })
 
 // codex's markdown review parses back into per-line findings (so each becomes an anchored thread) plus the opener.
-// Only 🔴/🟠 read as blocking; 🟡 (low), 🔵 (note/debt), and 🟢 (praise) are non-blocking threads.
-test('parseFindings: opener + per-line findings, marker stripped, blocking split', () => {
-  const review = [
-    'oof, a couple things 👇',
-    '',
-    '🟡 **`src/x.ts:30`** · slop · conf 0.86',
-    'speculative seam',
-    '**→ Fix:** inline it (`a.ts`)',
-    '',
-    '🔴 **`src/y.ts:5`** · bug · conf 0.9',
-    'breaks on empty',
-    '**→ Fix:** guard it',
-    '',
-    '🔵 **`src/z.ts:12`** · debt · conf 0.7',
-    'this state file wants to merge into status.json someday',
-    '',
-    '🟢 **`src/y.ts:9`** · praise · conf 0.9',
-    'clean! love this — validated boundary, no assertions',
-    '<!-- stupify:abc123 -->',
-  ].join('\n')
-  const { opener, findings } = parseFindings(review)
-  expect(opener).toBe('oof, a couple things 👇')
-  expect(findings).toHaveLength(4)
-  expect(findings[0]).toMatchObject({ path: 'src/x.ts', line: 30, blocking: false })
-  expect(findings[0]?.body).toContain('speculative seam')
-  expect(findings[1]).toMatchObject({ path: 'src/y.ts', line: 5, blocking: true })
-  expect(findings[2]).toMatchObject({ path: 'src/z.ts', line: 12, blocking: false })
-  expect(findings[3]).toMatchObject({ path: 'src/y.ts', line: 9, blocking: false })
-  expect(findings[3]?.body).not.toContain('<!-- stupify') // the marker codex tacked on is dropped from the thread body
+// JSON carries only what the runner acts on: path/line (the thread anchor) and severity → blocking (only
+// high/med block; low/note/praise are non-blocking). body is the model's own markdown, posted verbatim.
+test('parseReview: findings map to anchored threads with declared blocking', () => {
+  const review = JSON.stringify({
+    verdict: 'findings',
+    opener: 'oof, a couple things 👇',
+    findings: [
+      { path: 'src/x.ts', line: 30, severity: 'low', body: '🟡 **`src/x.ts:30`** · slop · conf 0.86\nspeculative seam\n**→ Fix:** inline it (`a.ts`)' },
+      { path: 'src/y.ts', line: 5, severity: 'high', body: '🔴 **`src/y.ts:5`** · bug · conf 0.9\nbreaks on empty\n<!-- stupify:abc123 -->' },
+      { path: 'src/z.ts', line: 12, severity: 'note', body: '🔵 this state file wants to merge into status.json someday' },
+      { path: 'src/y.ts', line: 9, severity: 'praise', body: '🟢 clean! love this — validated boundary, no assertions' },
+    ],
+  })
+  const parsed = parseReview(review)
+  if (parsed?.kind !== 'findings') throw new Error('expected findings')
+  expect(parsed.opener).toBe('oof, a couple things 👇')
+  expect(parsed.findings.map((f) => f.blocking)).toEqual([false, true, false, false])
+  expect(parsed.findings[0]).toMatchObject({ path: 'src/x.ts', line: 30 })
+  expect(parsed.findings[0]?.body).toContain('speculative seam')
+  expect(parsed.findings[1]?.body).not.toContain('<!-- stupify') // the marker codex tacked on is dropped from the thread body
+})
+
+// One malformed finding fails the WHOLE review to null — a loud, retryable failure, never a partial post.
+test('parseReview: malformed findings and schema drift fail the whole review', () => {
+  const finding = { path: 'a.ts', line: 1, severity: 'high', body: 'x' }
+  const wrap = (f: object) => JSON.stringify({ verdict: 'findings', opener: '', findings: [finding, f] })
+  expect(parseReview(wrap({ ...finding, line: 0 }))).toBeNull() // line 0 can't anchor a thread
+  expect(parseReview(wrap({ ...finding, severity: 'blocker' }))).toBeNull() // unknown severity word
+  expect(parseReview(wrap({ ...finding, body: '<!-- only a marker -->' }))).toBeNull() // nothing left to post
+  expect(parseReview(JSON.stringify({ verdict: 'findings', opener: '', findings: [finding], extra: 1 }))).toBeNull() // strict object
+})
+
+// The emitted JSON schema is what `codex exec --output-schema` enforces provider-side — pin its key shape.
+test('REVIEW_SCHEMA pins the enforced output contract', () => {
+  const schema = JSON.parse(JSON.stringify(REVIEW_SCHEMA))
+  expect(schema.required).toEqual(['verdict', 'opener', 'findings'])
+  expect(schema.properties.verdict.enum).toEqual(['findings', 'fixed', 'no_new_issues'])
+  expect(schema.properties.findings.items.properties.severity.enum).toEqual(['high', 'med', 'low', 'note', 'praise'])
+  expect(schema.additionalProperties).toBe(false)
 })
 
 // Plan-exhaustion ends the sweep early (spend control); a normal review failure does not.
@@ -308,27 +284,28 @@ test('isDiffTooLarge flags the GitHub size refusal, not ordinary gh failures', (
   expect(isDiffTooLarge('gh: exceeded your quota')).toBe(false) // a quota wall is transient; this is not it
 })
 
-// codex sometimes says a convergence token as its final message without writing the review file — the transcript's
-// final message (last `codex` line to its `tokens used` footer) is the only part allowed to stand in for the file.
+// If the CLI doesn't write the last-message file, the transcript's final message (last `codex` line to its
+// `tokens used` footer) is the only part allowed to stand in for it.
 test('finalCodexMessage extracts the last codex message, not the transcript', () => {
+  const VERDICT = '{"verdict":"no_new_issues","opener":"","findings":[]}'
   const transcript = [
     'exec',
-    "/bin/bash -lc \"printf 'STUPIFY_NO_NEW_ISSUES'\" in /home/exedev/.stupify/repo",
+    '/bin/bash -lc "cat src/x.ts" in /home/exedev/.stupify/repo',
     ' succeeded in 0ms:',
     'codex',
-    'I compared the change against the corpus. Writing the token now.',
+    'I compared the change against the corpus. Emitting the verdict now.',
     'tokens used',
     '12,345',
     'codex',
-    NOOP_TOKEN,
+    VERDICT,
     'tokens used',
     '50,953',
   ].join('\n')
-  expect(finalCodexMessage(transcript)).toBe(NOOP_TOKEN)
-  // an inlined diff LINE containing the token is not a final message — it must sit between codex and tokens used
-  expect(finalCodexMessage(`+ const x = '${NOOP_TOKEN}'\ncodex\nreviewing…\ntokens used\n1`)).toBe('reviewing…')
+  expect(finalCodexMessage(transcript)).toBe(VERDICT)
+  // an inlined diff LINE containing a verdict is not a final message — it must sit between codex and tokens used
+  expect(finalCodexMessage(`+ const x = '${VERDICT}'\ncodex\nreviewing…\ntokens used\n1`)).toBe('reviewing…')
   expect(finalCodexMessage('no codex markers at all')).toBe('')
-  expect(finalCodexMessage(`codex\n${NOOP_TOKEN}`)).toBe('') // no tokens-used footer ⇒ truncated run, trust nothing
+  expect(finalCodexMessage(`codex\n${VERDICT}`)).toBe('') // no tokens-used footer ⇒ truncated run, trust nothing
 })
 
 test('commitStatusDescription fits GitHub commit status limits', () => {
