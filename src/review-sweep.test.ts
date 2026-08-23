@@ -137,6 +137,9 @@ test('parseReview: bare verdicts converge; a paraphrase fails loud, never silent
   expect(parseReview('ok so. no new ones; those items still stand.')).toBeNull() // a paraphrase must FAIL, not converge
   expect(parseReview('```json\n{"verdict":"fixed","opener":"","findings":[]}\n```')).toBeNull() // fenced ≠ the contract
   expect(parseReview('{"verdict":"findings","opener":"hm","findings":[]}')).toBeNull() // findings verdict needs findings
+  // a convergence verdict carrying findings is contradictory — it must fail loud, never resolve-and-drop behind a ✅
+  const contradictory = { verdict: 'fixed', opener: '', findings: [{ path: 'a.ts', line: 1, severity: 'high', body: 'x' }] }
+  expect(parseReview(JSON.stringify(contradictory))).toBeNull()
   expect(prompts[0]).toContain('nice, all fixed ✅') // codex is told what the runner posts on "fixed"
 })
 

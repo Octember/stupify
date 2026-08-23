@@ -348,7 +348,11 @@ export function parseReview(raw: string): ReviewVerdict | null {
   }
   const r = ReviewOutput.safeParse(parsed)
   if (!r.success) return null
-  if (r.data.verdict !== 'findings') return { kind: r.data.verdict }
+  if (r.data.verdict !== 'findings') {
+    // A convergence verdict that ALSO carries findings is contradictory — fail loud rather than resolve threads
+    // and post a ✅ while silently dropping what the model found.
+    return r.data.findings.length === 0 ? { kind: r.data.verdict } : null
+  }
   if (r.data.findings.length === 0) return null
   const findings: ParsedFinding[] = []
   for (const f of r.data.findings) {
