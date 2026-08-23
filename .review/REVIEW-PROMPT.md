@@ -44,7 +44,12 @@ Run these steps:
    wolf gets muted, a precise one gets read — and the corpus exists so you don't dump every model reflex. If you
    can't tie a finding to a real defect or a specific corpus primitive, drop it. And verify anything you *can*
    check against the checkout (an import, a definition, a type) by opening the file before you assert it, rather
-   than inferring a defect from the diff surface. Then format per the **Output format** below.
+   than inferring a defect from the diff surface. For a claimed crash or wrong-value path specifically, TRACE the
+   path in the checkout before asserting it: read the enclosing function and every guard above the flagged line —
+   an early return/continue upstream kills most "this can be null/undefined here" findings, and the typechecker
+   passing is evidence against a narrowing bug, not something to overrule from a snippet. Confidence comes from
+   the trace: a path you did not walk caps conf at 0.5 — or drop the finding. Then format per the
+   **Output format** below.
 7. Your FINAL message is the review, as JSON per **Output format** — the runner captures and posts it. Do NOT run `gh` (you have none).
 
 ## Prior reviews on this PR (your memory)
