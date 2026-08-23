@@ -1434,7 +1434,8 @@ async function main(): Promise<void> {
       } else {
         setStatusPr(cfg, status, pr, 'clean', 'no new review needed', lines)
       }
-      const finalStatus = commitStatusForSweepResult(typeof used === 'object' ? used.blocking : used)
+      // A notes-only review must not green a PR whose PRIOR blocking threads are still open — 'open' outranks it.
+      const finalStatus = commitStatusForSweepResult(typeof used === 'object' ? (used.blocking === 0 && c.prior.openThreadIds.length > 0 ? 'open' : used.blocking) : used)
       setCommitStatus(cfg, commitStatuses, pr, finalStatus.state, finalStatus.description)
       status.totals.reviewed = reviewed
       status.totals.tokens = tokens
