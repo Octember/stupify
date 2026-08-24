@@ -44,6 +44,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "bun test",
+    "lint": "oxlint",
     "cli": "bun src/cli.ts"
   },
   "dependencies": {
@@ -55,6 +56,7 @@
   "devDependencies": {
     "@types/bun": "^1.3.14",
     "@types/node": "^22.10.2",
+    "oxlint": "^1.79.0",
     "typescript": "^5.7.2"
   }
 }
