@@ -3,15 +3,13 @@
 import { join } from 'node:path'
 
 import { exec } from '@bevyl-ai/agent-tools'
-import { z } from 'zod'
 
-import { parseJson } from '../parse-json'
 import { runReview } from './codex'
 import { type Config } from './config'
 import { getDiff, GH_DIFF_LIMITS } from './diff'
 import { postReview } from './github'
 import { hasMachinery } from './prompt'
-import { type Pr } from './prs'
+import { Pr } from './prs'
 
 /** Accepts a PR URL or `owner/repo#123` (the CLI resolves a bare `#123` against the cwd repo before calling here). */
 export async function reviewOne(cfg: Config, ref: string, post: boolean): Promise<void> {
@@ -39,19 +37,13 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
     console.error(`stupify review: couldn't read ${slug}#${number} via gh (auth? does it exist?).`)
     process.exit(1)
   }
-  const meta =
-    parseJson(
-      z.object({ headRefOid: z.string().optional(), title: z.string().optional(), body: z.string().optional() }),
-      head.stdout,
-    ) ?? {}
-  const pr: Pr = {
+  const meta = Pr.pick({ headRefOid: true, title: true, body: true }).parse(JSON.parse(head.stdout))
+  const pr = {
     number,
-    headRefOid: meta.headRefOid ?? '',
+    ...meta,
     isDraft: false,
     author: { login: '', is_bot: false },
     labels: [],
-    title: meta.title ?? '',
-    body: meta.body ?? '',
   }
   const read = getDiff(cfg, number)
   if (!read.ok) {

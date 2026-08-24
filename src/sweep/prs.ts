@@ -3,12 +3,10 @@
 import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
 
-import { parseJson } from '../parse-json'
 import { type Config, log } from './config'
 
-// The gh pr list --json boundary. gh guarantees the --json shape, but an auth-error page or schema drift would
-// otherwise throw (or silently mis-scope) mid-loop instead of skipping cleanly. z.object (not strictObject)
-// STRIPS any extra keys gh adds — same leniency as the old `in`-narrowing, no assertions.
+// The gh pr list --json boundary. z.object (not strictObject) STRIPS extra keys gh adds. A non-array or
+// unshaped entry throws — no silent skip.
 export const Pr = z.object({
   number: z.number(),
   headRefOid: z.string(),
@@ -45,22 +43,7 @@ export function listPrs(cfg: Config): Pr[] | null {
     log('gh pr list failed (auth/network down?) — aborting sweep')
     return null
   }
-  const raw = parseJson(z.array(z.unknown()), r.stdout)
-  if (raw === undefined) {
-    log('gh pr list returned unparseable JSON — aborting sweep')
-    return null
-  }
-  const prs: Pr[] = []
-  for (const entry of raw) {
-    const parsed = Pr.safeParse(entry)
-    if (parsed.success) {
-      prs.push(parsed.data)
-    }
-  }
-  if (prs.length < raw.length) {
-    log(`gh pr list: ${raw.length - prs.length} entries failed shape check — skipped`)
-  }
-  return prs
+  return z.array(Pr).parse(JSON.parse(r.stdout))
 }
 
 export function hasReviewLabel(pr: Pr, cfg: Config): boolean {

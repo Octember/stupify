@@ -3,7 +3,6 @@
 // convergence-note vocabulary every posted review carries.
 import { z } from 'zod'
 
-import { parseJson } from '../parse-json'
 import { type Pr } from './prs'
 
 // The output carries only what the runner acts on — path/line (the thread anchor) and severity (→ blocking);
@@ -39,10 +38,17 @@ const stripMarkers = (s: string): string => s.replaceAll(/<!--[\s\S]*?-->/g, '')
 /** Boundary guard behind the enforced schema: a provider that ignores response_format degrades to a loud,
  *  retryable null — never a guessed or partially-posted review. */
 export function parseReview(raw: string): ReviewVerdict | null {
-  const data = parseJson(ReviewOutput, raw)
-  if (data === undefined) {
+  let rawJson: unknown
+  try {
+    rawJson = JSON.parse(raw)
+  } catch {
     return null
   }
+  const parsed = ReviewOutput.safeParse(rawJson)
+  if (!parsed.success) {
+    return null
+  }
+  const { data } = parsed
   if (data.verdict !== 'findings') {
     // A convergence verdict that ALSO carries findings is contradictory — fail loud rather than resolve threads
     // and post a ✅ while silently dropping what the model found.

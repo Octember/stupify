@@ -31,18 +31,13 @@ import { cancel, confirm, intro, isCancel, log, multiselect, note, outro, spinne
 import pc from 'picocolors'
 import { z } from 'zod'
 
-import { parseJson, readJsonFile } from './parse-json'
 import { SweepStatus } from './sweep/status'
 
 const PKG_DIR = dirname(fileURLToPath(import.meta.url))
 const PKG_ROOT = join(PKG_DIR, '..') // the published package root: holds .review/ and packs/
-const VERSION = parseJson(
-  z.object({ version: z.string() }),
-  readFileSync(join(PKG_ROOT, 'package.json'), 'utf8'),
-)?.version
-if (VERSION === undefined) {
-  throw new Error('package.json is missing a version')
-}
+const VERSION = z
+  .object({ version: z.string() })
+  .parse(JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8'))).version
 const HOME = process.env.STUPIFY_HOME ?? join(homedir(), '.stupify')
 const STATE = join(HOME, 'state')
 const REQUIRED = ['bun', 'gh', 'codex', 'git'] as const
@@ -469,7 +464,7 @@ async function setup(argv: {
     })
   } catch (error) {
     s2.stop(pc.yellow('files installed, but the cron job failed'))
-    die((error as Error).message) // friendly: includes the reason + the exact line to add by hand
+    die(error instanceof Error ? error.message : String(error)) // friendly: includes the reason + the exact line to add by hand
   }
   s2.stop(pc.green('installed') + pc.dim(` → ${HOME}`))
 
@@ -520,22 +515,27 @@ const claudeSettingsPath = (): string =>
  *  overrides ~/.codex. We use hooks.json (not config.toml) so we never touch the user's main Codex config. */
 const codexHooksPath = (): string => join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'hooks.json')
 
+const HookCommand = z.object({ type: z.string().optional(), command: z.string().optional() }).passthrough()
+const HookEntry = z.object({ matcher: z.string().optional(), hooks: z.array(HookCommand).optional() }).passthrough()
+type HookEntry = z.infer<typeof HookEntry>
+const AgentSettings = z
+  .object({
+    hooks: z
+      .object({ SessionStart: z.array(HookEntry).optional() })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough()
+type AgentSettings = z.infer<typeof AgentSettings>
+
 /** Read settings.json (or {} if absent). Throws on malformed JSON so callers refuse to clobber a broken file. */
-function readSettings(path: string): Record<string, unknown> {
+function readSettings(path: string): AgentSettings {
   if (!existsSync(path)) {
     return {}
   }
-  const parsed = parseJson(z.record(z.string(), z.unknown()), readFileSync(path, 'utf8'))
-  if (parsed === undefined) {
-    throw new Error(`malformed JSON in ${path}`)
-  }
-  return parsed
+  return AgentSettings.parse(JSON.parse(readFileSync(path, 'utf8')))
 }
 
-interface HookEntry {
-  matcher?: string
-  hooks?: { type?: string; command?: string }[]
-}
 const isOurHook = (e: HookEntry): boolean => (e.hooks ?? []).some((h) => (h.command ?? '').includes(PRIME_ENGINE))
 
 // Every agent stupify primes reads a SessionStart command hook in the SAME JSON shape
@@ -591,19 +591,15 @@ function selectTargets(agentArg?: string): PrimeTarget[] {
 /** Merge our SessionStart command hook into one agent's hooks file. Never clobbers the user's other hooks or
  *  settings; refreshes our command if already present (the resolved bun path can move); never duplicates. */
 function mergeHook(file: string, matcher: string, command: string): { already: boolean } {
-  let settings: Record<string, unknown>
+  let settings: AgentSettings
   try {
     settings = readSettings(file)
   } catch {
     die(`couldn't parse ${file}, fix or remove it, then retry (left it untouched)`)
   }
-  if (settings.hooks === undefined) {
-    settings.hooks = {}
-  }
-  const hooks = settings.hooks as Record<string, HookEntry[]>
-  if (hooks.SessionStart === undefined) {
-    hooks.SessionStart = []
-  }
+  settings.hooks ??= {}
+  const { hooks } = settings
+  hooks.SessionStart ??= []
   const sessionStart = hooks.SessionStart
   const existing = sessionStart.find((e) => isOurHook(e))
   if (existing) {
@@ -621,13 +617,13 @@ function removeHook(file: string): { removed: boolean } {
   if (!existsSync(file)) {
     return { removed: false }
   }
-  let settings: Record<string, unknown>
+  let settings: AgentSettings
   try {
     settings = readSettings(file)
   } catch {
     die(`couldn't parse ${file}, fix or remove it, then retry (left it untouched)`)
   }
-  const hooks = settings.hooks as Record<string, HookEntry[]> | undefined
+  const { hooks } = settings
   if (!hooks?.SessionStart) {
     return { removed: false }
   }
@@ -806,11 +802,7 @@ function cmdStatus(): void {
     log.warn(`no sweep status yet at ${pc.cyan(file)}. Run ${pc.cyan('stupify run --dry')} or wait for the cron sweep.`)
     return
   }
-  const status = readJsonFile(SweepStatus, file)
-  if (status === undefined) {
-    die(`couldn't read ${file}; check the file or rerun ${pc.cyan('stupify run --dry')}`)
-  }
-  console.log(renderStatus(status))
+  console.log(renderStatus(SweepStatus.parse(JSON.parse(readFileSync(file, 'utf8')))))
 }
 
 // `stupify review <pr-url | owner/repo#123 | #123>` — review ONE PR on demand via the bundled engine (no `setup`
@@ -959,7 +951,7 @@ async function provision(argv: { repo?: string | undefined; yes: boolean; pack?:
     log.error(created.out.trim().slice(0, 400))
     process.exit(1)
   }
-  const dest = parseJson(z.object({ ssh_dest: z.string().optional() }), created.out)?.ssh_dest ?? `${vm}.exe.xyz`
+  const dest = z.object({ ssh_dest: z.string() }).parse(JSON.parse(created.out)).ssh_dest
   s3.stop(pc.green(`VM ${pc.bold(vm)} created`) + pc.dim(` (${dest})`))
 
   // 5.5 attach the exe-llm gateway so Codex can review (creating with --integration <github> drops the auto:all llm)

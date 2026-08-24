@@ -6,36 +6,41 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { parseEnvFile, refreshCheckout } from '@bevyl-ai/agent-tools'
+import { z } from 'zod'
 
 // The deployed engine is a single-file bun bundle, so import.meta.url collapses to the bundle's own location
 // (~/.stupify) no matter which source module evaluates it — config.env sits next to the bundle.
 const KIT_DIR = dirname(fileURLToPath(import.meta.url))
 
-export interface Config {
-  repoDir: string // dedicated checkout we hard-reset — never a working checkout you care about
-  slug: string
-  defaultBranch: string
-  reviewDir: string // resolved review dir holding REVIEW-PROMPT.md / RUBRIC.md / CORPUS.md — the repo's .review/ if it has one, else homeReviewDir (set in main)
-  homeReviewDir: string // fallback taste the CLI assembled under STUPIFY_HOME/.review (packs or bring-your-own)
-  scope: 'label' | 'auto'
-  reviewLabel: string
-  diffLineCap: number
-  dryRun: boolean
-  maxPrs: number
-  maxReviewsPerDay: number
-  failRetryMs: number
-  stateDir: string
-  codexEffort: string
-  codexProvider: string // optional `-c model_provider=...`; empty = codex's own default/auth
-  codexModel: string // optional `-c model=...`; empty = codex's default model
-  githubStatus: boolean // post GitHub commit statuses (`stupify/review`) for PR-head workflow visibility
-  statusAppId: string // GitHub App id for posting commit statuses under our own app identity; empty = post via gh
-  statusAppKeyPath: string // path to that App's PEM private key; statuses fall back to gh when unset/unreadable
-  githubStatusContext: string
-  gatewayPool: string // CODEX_GATEWAY_POOL: ordered comma-separated gateway hostnames codex may rotate through; empty = rotation off
-  rotateCooldownMs: number // min gap between gateway rotations, so a fully-drained pool cycles calmly instead of thrashing
-  codexJobs: number // concurrent codex reviews per sweep; the gh I/O around them stays serial
-}
+export const Scope = z.enum(['label', 'auto'])
+export type Scope = z.infer<typeof Scope>
+
+export const Config = z.object({
+  repoDir: z.string(), // dedicated checkout we hard-reset — never a working checkout you care about
+  slug: z.string(),
+  defaultBranch: z.string(),
+  reviewDir: z.string(), // resolved later to an absolute path (repo .review/ or homeReviewDir)
+  homeReviewDir: z.string(), // fallback taste the CLI assembled under STUPIFY_HOME/.review
+  scope: Scope,
+  reviewLabel: z.string(),
+  diffLineCap: z.number(),
+  dryRun: z.boolean(),
+  maxPrs: z.number(),
+  maxReviewsPerDay: z.number(),
+  failRetryMs: z.number(),
+  stateDir: z.string(),
+  codexEffort: z.string(),
+  codexProvider: z.string(), // optional `-c model_provider=...`; empty = codex's default
+  codexModel: z.string(), // optional `-c model=...`; empty = codex's default
+  githubStatus: z.boolean(),
+  statusAppId: z.string(),
+  statusAppKeyPath: z.string(),
+  githubStatusContext: z.string(),
+  gatewayPool: z.string(),
+  rotateCooldownMs: z.number(),
+  codexJobs: z.number(),
+})
+export type Config = z.infer<typeof Config>
 
 const LOG = { path: '' }
 
@@ -105,7 +110,7 @@ export function loadConfig(): Config {
     log(`config: SCOPE='${scopeRaw}' is not 'label' or 'auto' — using auto`)
   }
 
-  return {
+  return Config.parse({
     repoDir: join(stupifyHome, 'repo'), // HARD-PINNED under STUPIFY_HOME: refreshRepo runs `git reset --hard` here
     slug,
     defaultBranch: pick('DEFAULT_BRANCH', 'main'),
@@ -129,7 +134,7 @@ export function loadConfig(): Config {
     gatewayPool: pick('CODEX_GATEWAY_POOL', ''),
     rotateCooldownMs: int('CODEX_ROTATE_COOLDOWN_MIN', 10, 0) * 60_000,
     codexJobs: int('CODEX_JOBS', 3, 1), // a single codex run takes minutes; a small pool keeps a busy sweep from serializing them
-  }
+  })
 }
 
 function logFail(message: string): false {

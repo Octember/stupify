@@ -4,7 +4,7 @@ import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 
 import { z } from 'zod'
 
-import { type Config } from './config'
+import { type Config, Scope } from './config'
 import { type Pr } from './prs'
 import { statusPath } from './state'
 
@@ -14,7 +14,7 @@ type PrStatusState = z.infer<typeof PrStatusState>
 export const SweepStatus = z.object({
   version: z.literal(1),
   repo: z.string(),
-  scope: z.enum(['label', 'auto']),
+  scope: Scope,
   dryRun: z.boolean(),
   stage: z.enum(['starting', 'refreshing', 'loading_taste', 'listing_prs', 'reviewing', 'done', 'blocked']),
   startedAt: z.string(),

@@ -3,7 +3,6 @@
 import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
 
-import { parseJson } from '../parse-json'
 import { type Config, logRaw } from './config'
 import { diffRightLines } from './diff'
 import { type Comment, type Pr, priorReviewThread } from './prs'
@@ -116,22 +115,14 @@ const GqlThread = z.object({
 type GqlThread = z.infer<typeof GqlThread>
 const GqlReview = z.object({ body: z.string().optional(), author: GqlAuthor.optional() })
 const GqlPull = z.object({
-  data: z
-    .object({
-      repository: z
-        .object({
-          pullRequest: z
-            .object({
-              reviews: z.object({ nodes: z.array(GqlReview).optional() }).optional(),
-              reviewThreads: z.object({ nodes: z.array(GqlThread).optional() }).optional(),
-            })
-            .nullable()
-            .optional(),
-        })
-        .nullable()
-        .optional(),
-    })
-    .optional(),
+  data: z.object({
+    repository: z.object({
+      pullRequest: z.object({
+        reviews: z.object({ nodes: z.array(GqlReview) }),
+        reviewThreads: z.object({ nodes: z.array(GqlThread) }),
+      }),
+    }),
+  }),
 })
 
 // A RESOLVED stupify thread with no human reply = a finding the author dismissed without saying why. Every stupify
@@ -170,17 +161,10 @@ export function prReviews(cfg: Config, pr: Pr): PriorState | null {
   if (!r.ok) {
     return null
   }
-  const parsed = parseJson(GqlPull, r.stdout)
-  if (parsed === undefined) {
-    return null
-  }
-  const pull = parsed.data?.repository?.pullRequest
-  if (!pull) {
-    return null
-  }
+  const pull = GqlPull.parse(JSON.parse(r.stdout)).data.repository.pullRequest
   const mark = markFor(pr)
-  const reviews = pull.reviews?.nodes ?? []
-  const threads = pull.reviewThreads?.nodes ?? []
+  const reviews = pull.reviews.nodes
+  const threads = pull.reviewThreads.nodes
   const everReviewed = reviews.some((rv) => (rv.body ?? '').includes('<!-- stupify:'))
   const reviewedHead = reviews.some((rv) => (rv.body ?? '').includes(mark))
   const comments: Comment[] = []

@@ -25,7 +25,6 @@
   "files": [
     "bin/stupify.js",
     "src/cli.ts",
-    "src/parse-json.ts",
     "src/prime.ts",
     "src/review-sweep.ts",
     "src/sweep",

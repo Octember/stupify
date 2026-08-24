@@ -10,7 +10,6 @@ import { join } from 'node:path'
 
 import { z } from 'zod'
 
-import { parseJson } from './parse-json'
 import {
   appJwt,
   bumpDailyCounter,
@@ -394,13 +393,12 @@ test('appJwt signs verifiable RS256 claims for the status App', () => {
   const jwt = appJwt('12345', privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(), 1_752_900_000)
   const [header = '', payload = '', signature = ''] = jwt.split('.')
   expect(
-    parseJson(z.object({ alg: z.string(), typ: z.string() }), Buffer.from(header, 'base64url').toString()),
+    z.object({ alg: z.string(), typ: z.string() }).parse(JSON.parse(Buffer.from(header, 'base64url').toString())),
   ).toEqual({ alg: 'RS256', typ: 'JWT' })
   expect(
-    parseJson(
-      z.object({ iat: z.number(), exp: z.number(), iss: z.string() }),
-      Buffer.from(payload, 'base64url').toString(),
-    ),
+    z
+      .object({ iat: z.number(), exp: z.number(), iss: z.string() })
+      .parse(JSON.parse(Buffer.from(payload, 'base64url').toString())),
   ).toEqual({ iat: 1_752_899_940, exp: 1_752_900_540, iss: '12345' })
   expect(createVerify('RSA-SHA256').update(`${header}.${payload}`).verify(publicKey, signature, 'base64url')).toBe(true)
 })
@@ -456,7 +454,7 @@ test('sweep state stores persist compact JSON and reload it', () => {
     const dailyPath = join(dir, 'daily.json')
     const today = loadDailyCounter(dailyPath, new Date('2026-06-21T12:00:00Z'))
     bumpDailyCounter(dailyPath, today)
-    expect(parseJson(DailyCounter, readF(dailyPath, 'utf8'))).toEqual({ date: '2026-06-21', count: 1 })
+    expect(DailyCounter.parse(JSON.parse(readF(dailyPath, 'utf8')))).toEqual({ date: '2026-06-21', count: 1 })
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
