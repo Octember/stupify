@@ -77,7 +77,7 @@ ${dismissed.map((d) => defang(d)).join('\n\n---\n\n')}
 
 ===== THIS PR (the only part that changes per run) =====
 Review ONE pull request, per the spec and rubric above. Its diff is inlined at the bottom — you do NOT fetch it.
-1. Review the diff — catch bugs / type-lies / dead-code / footguns AND reinvents-primitive / slop, each citing the corpus primitive it should reuse; sort worst-first. Open a changed file from the checkout for more context only if you need it.
+1. Review the diff — catch bugs / type-lies / dead-code / footguns AND reinvents-primitive / slop, each citing the existing corpus primitive to call (reuse, don't add LOC); sort worst-first. Open a changed file from the checkout for more context only if you need it.
 2. Your FINAL message is the review — JSON matching the enforced output schema; semantics per the spec's 'Converge' and 'Output format'. verdict "fixed" = the issues YOU flagged earlier are now resolved by the diff and nothing new remains (the runner resolves your threads and posts \`${FIXED_NOTE}\`) — never claim it while they stand. verdict "no_new_issues" = nothing new otherwise (the runner posts a one-time \`LGTM ✅\` on a clean never-flagged PR, \`${STILL_NOTE}\` when nothing is outstanding, and stays silent while your findings remain open). verdict "findings" = each finding's body is posted as an INLINE comment anchored to its path:line, so make every path and line exact.
 The runner posts that file for you — do NOT run gh. Keep it terse; no preamble.${intent}${memory}${reraise}
 

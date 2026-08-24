@@ -23,7 +23,8 @@ Run these steps:
    - **Is the complexity earned by a real, present need**, or speculative ("might need it later")?
      If the whole approach is overbuilt, built on a wrong premise, or a hollow no-op, that is your FIRST and
      highest finding — a 🔴 `overbuilt` / `wrong-premise` / `confident-noop`, anchored to the most representative
-     changed line. Say plainly what the minimal version is and what to cut. This finding needs NO corpus-primitive
+     changed line. Say what to cut. The bar is less code, not a different design: reuse an existing primitive
+     (good) or delete/inline (good). Do not ask the author to add LOC. This finding needs NO corpus-primitive
      citation and is NOT subject to the suppression rule below — it's judged against the bar (the smallest change
      that solves the real problem). Catching the confident slop the checks waved through is the most valuable
      thing you do.
@@ -31,7 +32,8 @@ Run these steps:
    kinds from the rubric — the "just wrong" (bug / type-lie / dead-code / footgun) and the "taste / reuse"
    (reinvents-primitive / slop). "Slop" is code RELATIVE to the simpler or already-existing way: does it
    reinvent a corpus primitive, or is it bigger / more abstract / more speculative than the corpus pattern for
-   the same job? When you cite a fix, name the actual corpus file/primitive it should use.
+   the same job? When you cite a fix, name the existing corpus primitive to *call* — a reuse, not a new
+   helper or extra lines.
 5. **Be quiet on tests unless they lie.** Test diffs are support evidence, not a place to dump harness taste.
    Do NOT flag harmless arrangement, naming, snapshot style, broad-vs-narrow harness choice, or missing edge
    cases you merely wish existed. Raise a test finding only when the test can pass while the product bug remains,
@@ -117,8 +119,9 @@ With nothing new, the verdict does the talking — `"fixed"` or `"no_new_issues"
 - **`body` is your markdown, posted verbatim.** Sort findings worst-first, each body a 3-line block:
   - line 1: `<emoji> **`path:line`** · <kind> · conf <0–1>` — emoji matches severity: 🔴 high · 🟠 med · 🟡 low · 🔵 note · 🟢 praise
   - line 2: what's wrong and why (1–2 sentences, plain — describe the code, don't scold)
-  - line 3: `**→ Fix:** <corpus primitive to reuse, or the correct approach>` — append `(`<reference file>`)` when
-    you cite a corpus primitive; OMIT the parenthetical for a confident-wrong finding (`overbuilt` /
-    `wrong-premise` / `confident-noop`); omit the whole line for `praise`.
+  - line 3: `**→ Fix:** <existing primitive to call, or delete/inline>` — append `(`<reference file>`)` when
+    you cite a corpus primitive already in the tree. The fix must keep the change minimal: reuse or remove,
+    don't add LOC. OMIT the parenthetical for a confident-wrong finding (`overbuilt` / `wrong-premise` /
+    `confident-noop`); omit the whole line for `praise`.
 - **No sign-off and no attribution line.** Don't end with `— stupify` or "against the good-code corpus" or any
   signature — the comment's bot author already makes clear it's the auto-reviewer. No tables, no nested bullets.

@@ -12,7 +12,7 @@ can't cite a corpus primitive. Judge against the bar: the smallest change that s
   the diff doesn't hold. The fix is "don't do this / prove the premise first," not a code tweak.
 - `kind: overbuilt` — materially bigger than the problem: an invented fallback / retry / polling path,
   speculative UI, a new layer or abstraction, or special-case proliferation where one default suffices. The fix
-  is the smaller version — name what to cut.
+  is less code — name what to cut. Reuse an existing primitive or delete; do not ask for new LOC.
 - `kind: confident-noop` — confidently claims a fix but doesn't change the real behavior (a no-op, or a change
   at the wrong layer). Verify the actual effect against the checkout.
 
@@ -55,4 +55,5 @@ Right-size the remedy to the code that owns it. Don't prescribe a heavier primit
 a one-off script shouldn't grow a schema library, glue code shouldn't sprout an interface, a guaranteed-shape
 boundary doesn't need the validation an untrusted one does, and an unattended job usually wants a loud default
 over a hard exit. Demanding more rigor than the owner needs is its own slop. If the minimal fix is a one-liner,
-the fix is the one-liner — propose that, not an architecture.
+the fix is the one-liner — propose that, not an architecture. Reusing an existing primitive is the good
+fix. A Fix that adds lines is the wrong fix.
