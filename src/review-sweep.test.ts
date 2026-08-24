@@ -66,9 +66,11 @@ const cfg = (): Config => ({
   codexJobs: 3,
 })
 
-const pr = (number: number, sha: string): Pr => ({
+const pr = (number: number, sha: string, base = 'main', baseSha = 'a'.repeat(40)): Pr => ({
   number,
   headRefOid: sha,
+  baseRefOid: baseSha,
+  baseRefName: base,
   isDraft: false,
   author: { login: 'someone', is_bot: false },
   labels: [{ name: 'codex-review' }],

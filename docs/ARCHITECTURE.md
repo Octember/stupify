@@ -53,10 +53,12 @@ A cron job runs the sweep every minute (`*/1 * * * *`); the sweep self-locks so 
    failed heads are throttled in local state instead.) The marker check falls back to "any comment" when
    `gh api user` is unavailable (a GitHub-App integration 403s on it), so dedup never silently re-reviews forever.
 4. **Build memory** from the remaining comments (see below).
-5. **Review.** The _runner_ fetches the diff (`gh pr diff`) and feeds it to `codex exec` over **stdin**, in a
-   `workspace-write` sandbox restricted to `/tmp` with **network off and no `gh`**. Codex reads the rubric +
-   corpus + the inlined diff and writes the review to a temp file ending in the marker; the _runner_, not Codex,
-   posts it with `gh pr comment`.
+5. **Review.** The _runner_ fetches the diff via GitHub's compare API (`baseRefOid...headRefOid`), so stacked PRs
+   whose base is another feature branch diff against that base, not `main`. It spins a detached worktree at the PR
+   head SHA (`$STUPIFY_HOME/worktrees/<n>-<sha>`) so codex reads the same tree the diff describes, then feeds the
+   diff to `codex exec` over **stdin**, in a `workspace-write` sandbox restricted to `/tmp` with **network off and
+   no `gh`**. Codex reads the rubric + corpus + the inlined diff and writes the review to a temp file ending in the
+   marker; the _runner_, not Codex, posts it with `gh pr comment`.
    Candidates are collected serially (all the cheap gh gates), then reviewed by a pool of up to `CODEX_JOBS`
    (default 3) concurrent codex runs — a busy sweep's wall-clock is the slowest review, not the sum of them. A
    quota wall from any run stops new launches while in-flight runs drain.

@@ -118,7 +118,7 @@ export function collectCandidates(
     }
 
     // Fetch the diff once, here in the runner — codex reviews it from the prompt with no network/gh of its own.
-    const read = getDiff(cfg, pr.number)
+    const read = getDiff(cfg, pr)
     if (!read.ok && read.reason === 'too-large') {
       // Terminal: gh will never hand us this diff, so there is nothing to retry and nothing to measure. Say so
       // plainly — the old wording promised a retry that could not possibly succeed.

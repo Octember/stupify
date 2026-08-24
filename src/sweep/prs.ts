@@ -10,6 +10,8 @@ import { type Config, log } from './config'
 export const Pr = z.object({
   number: z.number(),
   headRefOid: z.string(),
+  baseRefOid: z.string(),
+  baseRefName: z.string(),
   isDraft: z.boolean(),
   author: z.object({ login: z.string(), is_bot: z.boolean() }).nullable(), // is_bot flags GitHub App bots (app/dependabot) the [bot] suffix misses
   labels: z.array(z.object({ name: z.string() })),
@@ -26,7 +28,7 @@ const PR_LIST_LIMIT = 500
 
 export function listPrs(cfg: Config): Pr[] | null {
   // Filter the PR list directly rather than `gh pr list --label` — that search index lags behind labelling.
-  const fields = 'number,headRefOid,isDraft,author,labels,title,body'
+  const fields = 'number,headRefOid,baseRefOid,baseRefName,isDraft,author,labels,title,body'
   const r = exec('gh', [
     'pr',
     'list',

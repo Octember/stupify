@@ -8,7 +8,7 @@
  * `stupify run [--dry]` → run one review sweep right now.
  */
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -72,6 +72,20 @@ function bail<T>(value: T | symbol): asserts value is T {
 function die(message: string): never {
   log.error(message)
   process.exit(1)
+}
+
+/** Trust an extra directory in ~/.codex/config.toml (stacked-PR worktrees live outside the main checkout). */
+function appendCodexProjectTrust(dir: string): void {
+  const file = join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'config.toml')
+  if (!existsSync(file)) {
+    return
+  }
+  const body = readFileSync(file, 'utf8')
+  const key = `[projects."${dir}"]`
+  if (body.includes(key)) {
+    return
+  }
+  appendFileSync(file, `\n${key}\ntrust_level = "trusted"\n`)
 }
 
 async function installSweepEngine(dest = join(HOME, 'review-sweep.ts')): Promise<void> {
@@ -450,10 +464,13 @@ async function setup(argv: {
     .join('\n')
   writeFileSync(join(HOME, 'config.env'), `${cfg}\n`)
   if (host) {
+    const worktrees = join(HOME, 'worktrees')
+    mkdirSync(worktrees, { recursive: true })
     writeCodexGatewayConfig({
       ...(argv.codexHost === undefined ? {} : { gatewayHost: argv.codexHost }),
       trustDir: join(HOME, 'repo'),
     })
+    appendCodexProjectTrust(worktrees)
   } // exe.dev VM: route Codex through the no-key exe-llm gateway
   try {
     installCron({
