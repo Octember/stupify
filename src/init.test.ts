@@ -2,8 +2,7 @@
 // are repo-root-relative (portable + correct from a subdir), real code is inlined, and a --force rebuild
 // PRESERVES the user's hand-written "why" lines. Driven through the real CLI subprocess in throwaway git repos.
 import { expect, test } from 'bun:test'
-import { spawnSync } from 'node:child_process'
-import type { SpawnSyncReturns } from 'node:child_process'
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'

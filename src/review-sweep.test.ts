@@ -4,6 +4,8 @@
 // would thrash and this test would go red. We render against the repo's own real .review/ (no mocks).
 import { expect, test } from 'bun:test'
 import { createVerify, generateKeyPairSync } from 'node:crypto'
+import { mkdtempSync, readFileSync as readF, rmSync, writeFileSync as writeF } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { z } from 'zod'
@@ -11,29 +13,30 @@ import { z } from 'zod'
 import { parseJson } from './parse-json'
 import {
   appJwt,
+  bumpDailyCounter,
   commitStatusDescription,
   commitStatusForSweepResult,
+  type Config,
   DailyCounter,
-  dismissedFindings,
   diffRightLines,
+  dismissedFindings,
   finalCodexMessage,
   isDiffTooLarge,
   isRateLimited,
+  loadDailyCounter,
+  loadHeadAttempts,
+  loadReviewedHeads,
   parseReview,
   pidAlive,
+  type Pr,
   priorReviewThread,
+  recordHeadAttempt,
+  recordReviewedHead,
   REVIEW_SCHEMA,
   reviewPrompt,
   stablePrefix,
   STILL_NOTE,
-  bumpDailyCounter,
-  loadDailyCounter,
-  loadHeadAttempts,
-  loadReviewedHeads,
-  recordHeadAttempt,
-  recordReviewedHead,
 } from './review-sweep'
-import type { Config, Pr } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -91,10 +94,10 @@ const prompts = [
     'diff --git a/three.ts b/three.ts\n+const three = 3',
   ),
 ]
-const prefixes = prompts.map(prefixOf)
+const prefixes = prompts.map((p) => prefixOf(p))
 
 test('the cached prefix is byte-identical across every PR (incl. mid-thread)', () => {
-  const hashes = new Set(prefixes.map(sha256))
+  const hashes = new Set(prefixes.map((p) => sha256(p)))
   expect(hashes.size).toBe(1) // one and only one prefix hash, no matter the PR
   expect(prefixes[0]).toBe(prefixes[1])
   expect(prefixes[0]).toBe(prefixes[2])
@@ -439,9 +442,6 @@ test('the prefix is large enough to be cache-eligible (well past the ~1024-token
 
 // The per-VM sweep state stores (inlined from @stupify/exe-host when the kit absorbed it): parse
 // defensively, persist compact JSON, and never throw mid-sweep on malformed files.
-import { mkdtempSync, readFileSync as readF, rmSync, writeFileSync as writeF } from 'node:fs'
-import { tmpdir } from 'node:os'
-
 test('sweep state stores persist compact JSON and reload it', () => {
   const dir = mkdtempSync(join(tmpdir(), 'stupify-state-'))
   try {

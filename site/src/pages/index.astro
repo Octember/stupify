@@ -221,7 +221,7 @@ const packs = [
     </footer>
 
     <script>
-      document.querySelectorAll('.copy').forEach((btn) => {
+      for (const btn of document.querySelectorAll('.copy')) {
         btn.addEventListener('click', async () => {
           const text = btn.getAttribute('data-copy') ?? '';
           await navigator.clipboard.writeText(text);
@@ -229,9 +229,9 @@ const packs = [
           btn.textContent = 'Copied';
           setTimeout(() => (btn.textContent = prev), 1400);
         });
-      });
+      }
 
-      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      if (!globalThis.matchMedia('(prefers-reduced-motion: reduce)').matches) {
         // sections fade up as they enter view
         const io = new IntersectionObserver(
           (entries) => {
@@ -244,7 +244,9 @@ const packs = [
           },
           { rootMargin: '0px 0px -10% 0px', threshold: 0.12 },
         );
-        document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+        for (const el of document.querySelectorAll('.reveal')) {
+          io.observe(el);
+        }
       }
     </script>
   </body>

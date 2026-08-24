@@ -6,12 +6,10 @@ import { join } from 'node:path'
 
 import { isRateLimited } from '@bevyl-ai/agent-tools'
 
-import { logRaw } from './config'
-import type { Config } from './config'
+import { type Config, logRaw } from './config'
 import { reviewOutPath, reviewPrompt } from './prompt'
-import type { Pr } from './prs'
-import { finalCodexMessage, parseReview, REVIEW_SCHEMA } from './verdict'
-import type { ParsedFinding } from './verdict'
+import { type Pr } from './prs'
+import { finalCodexMessage, type ParsedFinding, parseReview, REVIEW_SCHEMA } from './verdict'
 
 /** The outcome of running codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
  *  the ad-hoc `stupify review` prints it or `--post`s it. */
@@ -50,6 +48,28 @@ async function execAsync(
   } catch (error) {
     return { ok: false, stdout: '', combined: `${cmd}: ${error instanceof Error ? error.message : String(error)}` } // spawn failure (ENOENT etc.)
   }
+}
+
+/** codex prints `tokens used` then the count on the next line — read the last such pair. */
+function parseTokens(out: string): number | null {
+  const lines = out.split('\n')
+  const i = lines.findLastIndex((line) => line !== undefined && /tokens used/i.test(line))
+  if (i === -1) {
+    return null
+  }
+  const digits = (lines[i + 1] ?? '').replaceAll(/\D/g, '')
+  return digits ? Number(digits) : null
+}
+
+function failureReason(out: string): string {
+  const signal = /payment required|credits|quota|rate.?limit|429|5\d\d |timeout|killed|enoent|spawn|error/i
+  const noise = /no error|0 error/i
+  const hit = out
+    .split('\n')
+    .map((l) => l.trim())
+    .findLast((l) => signal.test(l) && !noise.test(l))
+  const cleaned = (hit ?? '').replaceAll('`', ' ').slice(0, 220).trim()
+  return cleaned || 'codex run failed (no output captured — check the sweep log)'
 }
 
 /** Run codex over one PR's diff and classify the result. Does NO gh I/O and NO posting — the caller owns those. */
@@ -117,26 +137,4 @@ export async function runReview(
     return { kind: 'noop', tokens }
   }
   return { kind: 'review', opener: verdict.opener, findings: verdict.findings, tokens }
-}
-
-/** codex prints `tokens used` then the count on the next line — read the last such pair. */
-function parseTokens(out: string): number | null {
-  const lines = out.split('\n')
-  const i = lines.findLastIndex((line) => line !== undefined && /tokens used/i.test(line))
-  if (i === -1) {
-    return null
-  }
-  const digits = (lines[i + 1] ?? '').replaceAll(/\D/g, '')
-  return digits ? Number(digits) : null
-}
-
-function failureReason(out: string): string {
-  const signal = /payment required|credits|quota|rate.?limit|429|5\d\d |timeout|killed|enoent|spawn|error/i
-  const noise = /no error|0 error/i
-  const hit = out
-    .split('\n')
-    .map((l) => l.trim())
-    .findLast((l) => signal.test(l) && !noise.test(l))
-  const cleaned = (hit ?? '').replaceAll('`', ' ').slice(0, 220).trim()
-  return cleaned || 'codex run failed (no output captured — check the sweep log)'
 }

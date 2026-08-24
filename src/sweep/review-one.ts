@@ -7,11 +7,11 @@ import { z } from 'zod'
 
 import { parseJson } from '../parse-json'
 import { runReview } from './codex'
-import type { Config } from './config'
+import { type Config } from './config'
 import { getDiff, GH_DIFF_LIMITS } from './diff'
 import { postReview } from './github'
 import { hasMachinery } from './prompt'
-import type { Pr } from './prs'
+import { type Pr } from './prs'
 
 /** Accepts a PR URL or `owner/repo#123` (the CLI resolves a bare `#123` against the cwd repo before calling here). */
 export async function reviewOne(cfg: Config, ref: string, post: boolean): Promise<void> {

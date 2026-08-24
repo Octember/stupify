@@ -2,7 +2,7 @@
 // malformed JSON and schema drift both come back as undefined, never a thrown or `as`-cast value.
 import { existsSync, readFileSync } from 'node:fs'
 
-import type { z } from 'zod'
+import { type z } from 'zod'
 
 export function parseJson<S extends z.ZodType>(schema: S, text: string): z.infer<S> | undefined {
   try {

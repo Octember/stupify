@@ -3,15 +3,14 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import type { Config } from './config'
-import { defang } from './prs'
-import type { Pr } from './prs'
+import { type Config } from './config'
+import { defang, type Pr } from './prs'
 import { FIXED_NOTE, STILL_NOTE } from './verdict'
 
 // Where the codex CLI writes the final message (--output-last-message) — keyed by a HASH of the repo slug, not
 // the slug itself, so two repos with the same PR number never clobber.
 const slugKey = (slug: string): string =>
-  [...slug].reduce((h, ch) => ((h << 5) + h + ch.charCodeAt(0)) >>> 0, 5381).toString(36)
+  [...slug].reduce((h, ch) => ((h << 5) + h + (ch.codePointAt(0) ?? 0)) >>> 0, 5381).toString(36)
 export const reviewOutPath = (cfg: Config, pr: Pr): string => `/tmp/stupify-review-${pr.number}-${slugKey(cfg.slug)}.md`
 
 /** The taste prefix: instructions + the spec, rubric, and the FULL corpus (code inlined verbatim). It's

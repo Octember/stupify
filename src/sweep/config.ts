@@ -132,6 +132,11 @@ export function loadConfig(): Config {
   }
 }
 
+function logFail(message: string): false {
+  log(message)
+  return false
+}
+
 /** Refresh the dedicated checkout to origin/main. Returns false on any git failure. */
 export function refreshRepo(cfg: Config): boolean {
   const existed = existsSync(join(cfg.repoDir, '.git'))
@@ -140,9 +145,4 @@ export function refreshRepo(cfg: Config): boolean {
     return logFail('clone failed — is `gh` authed for this repo? (private repos need a gh login / exe.dev integration)')
   }
   return ok || logFail(`refresh failed (is the default branch '${cfg.defaultBranch}'? set DEFAULT_BRANCH if not)`)
-}
-
-function logFail(message: string): false {
-  log(message)
-  return false
 }

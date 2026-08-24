@@ -8,9 +8,8 @@ import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
 
 import { parseJson, readJsonFile } from '../parse-json'
-import { log } from './config'
-import type { Config } from './config'
-import type { Pr } from './prs'
+import { type Config, log } from './config'
+import { type Pr } from './prs'
 import { commitStatusPath } from './state'
 
 const CommitStatusState = z.enum(['pending', 'success', 'failure', 'error'])

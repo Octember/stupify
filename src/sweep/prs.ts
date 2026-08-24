@@ -4,8 +4,7 @@ import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
 
 import { parseJson } from '../parse-json'
-import { log } from './config'
-import type { Config } from './config'
+import { type Config, log } from './config'
 
 // The gh pr list --json boundary. gh guarantees the --json shape, but an auth-error page or schema drift would
 // otherwise throw (or silently mis-scope) mid-loop instead of skipping cleanly. z.object (not strictObject)

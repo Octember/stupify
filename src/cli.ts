@@ -601,7 +601,7 @@ function mergeHook(file: string, matcher: string, command: string): { already: b
     hooks.SessionStart = []
   }
   const sessionStart = hooks.SessionStart
-  const existing = sessionStart.find(isOurHook)
+  const existing = sessionStart.find((e) => isOurHook(e))
   if (existing) {
     existing.hooks = [{ type: 'command', command }]
   } else {
@@ -770,8 +770,14 @@ function statusMarker(state: SweepStatus['prs'][number]['state']): string {
 function renderStatus(status: SweepStatus): string {
   const running = status.finishedAt === undefined && status.stage !== 'done' && status.stage !== 'blocked'
   const mode = status.dryRun ? 'dry-run' : 'live'
+  let sweepLabel = pc.green('(last sweep)')
+  if (running) {
+    sweepLabel = pc.cyan('(running)')
+  } else if (status.stage === 'blocked') {
+    sweepLabel = pc.red('(blocked)')
+  }
   const header = [
-    `${pc.bold('stupify status')} ${running ? pc.cyan('(running)') : status.stage === 'blocked' ? pc.red('(blocked)') : pc.green('(last sweep)')}`,
+    `${pc.bold('stupify status')} ${sweepLabel}`,
     `${pc.dim('repo   ')} ${pc.bold(status.repo)}`,
     `${pc.dim('stage  ')} ${status.stage} ${pc.dim(`- ${status.message}`)}`,
     `${pc.dim('scope  ')} ${status.scope} ${pc.dim(`· ${mode}`)}`,
@@ -1086,7 +1092,7 @@ const positional = args.filter(
     args[i - 1] !== '--pack' &&
     args[i - 1] !== '--agent',
 )
-const cmd = positional[0]
+const [cmd] = positional
 
 if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
   help()

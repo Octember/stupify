@@ -2,7 +2,7 @@
 // it reviews the diff straight from the prompt, sandboxed.
 import { exec } from '@bevyl-ai/agent-tools'
 
-import type { Config } from './config'
+import { type Config } from './config'
 
 // GitHub's diff endpoint 406s past EITHER of these, so a big enough PR can't even be MEASURED. They are GitHub's
 // limits, not ours — DIFF_LINE_CAP can be set above the line one but never reached.

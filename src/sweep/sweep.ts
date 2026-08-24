@@ -1,26 +1,23 @@
 // The sweep's front half: load the per-VM state, then collect the PRs that pass the cheap serial gates
 // (dedup, failure throttle, daily/MAX_PRS caps, diff fetch + size cap) into review candidates.
-import { loadCommitStatuses, setCommitStatus } from './commit-status'
-import type { PostedCommitStatus } from './commit-status'
-import { log } from './config'
-import type { Config } from './config'
+import { loadCommitStatuses, type PostedCommitStatus, setCommitStatus } from './commit-status'
+import { type Config, log } from './config'
 import { diffLineCount, getDiff, GH_DIFF_LIMITS } from './diff'
-import type { PriorState } from './github'
-import { hasReviewLabel } from './prs'
-import type { Pr } from './prs'
+import { type PriorState } from './github'
+import { hasReviewLabel, type Pr } from './prs'
 import { commitStatusForSweepResult } from './review-pr'
 import {
   commitStatusPath,
+  type DailyCounter,
   dailyPath,
   failuresPath,
+  type HeadAttempt,
   loadDailyCounter,
   loadHeadAttempts,
   loadReviewedHeads,
   reviewedPath,
 } from './state'
-import type { DailyCounter, HeadAttempt } from './state'
-import { deferQueuedStatusPrs, setStatusPr, skipStatusPr } from './status'
-import type { SweepStatus } from './status'
+import { deferQueuedStatusPrs, setStatusPr, skipStatusPr, type SweepStatus } from './status'
 
 export interface Candidate {
   pr: Pr
