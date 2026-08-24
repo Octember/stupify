@@ -11,6 +11,7 @@
     "src/cli.ts",
     "src/prime.ts",
     "src/review-sweep.ts",
+    "src/sweep",
     ".review",
     "packs",
     "README.md",
