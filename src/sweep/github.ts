@@ -4,13 +4,10 @@ import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
 
 import { parseJson } from '../parse-json'
-import { logRaw } from './config'
-import type { Config } from './config'
+import { type Config, logRaw } from './config'
 import { diffRightLines } from './diff'
-import { priorReviewThread } from './prs'
-import type { Comment, Pr } from './prs'
-import { markFor } from './verdict'
-import type { ParsedFinding } from './verdict'
+import { type Comment, type Pr, priorReviewThread } from './prs'
+import { markFor, type ParsedFinding } from './verdict'
 
 // A hidden tag stamped in every inline finding comment, so a later sweep can find stupify's OWN review threads
 // (to resolve them) without knowing the bot login — `gh api user` 403s for GitHub-App integrations, so we identify

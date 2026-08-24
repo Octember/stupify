@@ -2,8 +2,7 @@
 // are repo-root-relative (portable + correct from a subdir), real code is inlined, and a --force rebuild
 // PRESERVES the user's hand-written "why" lines. Driven through the real CLI subprocess in throwaway git repos.
 import { expect, test } from 'bun:test'
-import { spawnSync } from 'node:child_process'
-import type { SpawnSyncReturns } from 'node:child_process'
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -43,7 +42,10 @@ test('init --force preserves filled-in "why" lines and adds new files', () => {
   const root = repo()
   expectSuccess(initIn(root, ['src/a.ts']))
   const p = join(root, '.review', 'CORPUS.md')
-  writeFileSync(p, readFileSync(p, 'utf8').replace(/^(### `src\/a\.ts` — ).*$/m, '$1branded value, fails fast'))
+  writeFileSync(
+    p,
+    readFileSync(p, 'utf8').replace(/^(?<prefix>### `src\/a\.ts` — ).*$/m, '$<prefix>branded value, fails fast'),
+  )
   expectSuccess(initIn(root, ['src/a.ts', 'src/b.ts', '--force']))
   const c = corpus(root)
   expect(c).toContain('### `src/a.ts` — branded value, fails fast') // kept

@@ -3,11 +3,10 @@
 import { maybeRotateGateway } from '@bevyl-ai/agent-tools'
 
 import { runReview } from './codex'
-import type { CommitStatusState } from './commit-status'
-import { log } from './config'
-import type { Config } from './config'
+import { type CommitStatusState } from './commit-status'
+import { type Config, log } from './config'
 import { postNote, postReview, resolveThreads } from './github'
-import type { Pr } from './prs'
+import { type Pr } from './prs'
 import { FIXED_NOTE, STILL_NOTE } from './verdict'
 
 // A posted review carries its token spend and its blocking-finding count — zero blocking reads as a green status.

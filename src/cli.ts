@@ -120,7 +120,7 @@ const tasteLabel = (packs: string[]): string =>
 
 // Returns the chosen pack ids. `--pack a,b` (or 'own'/'' = your own codebase) skips the prompt; with --yes and
 // no flag it defaults to sindre-sorhus (the broadly-applicable TS/JS taste) so a fresh repo reviews immediately.
-async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<string[]> {
+async function pickPacks(opts: { yes: boolean; packArg?: string | undefined }): Promise<string[]> {
   if (opts.packArg !== undefined) {
     const requested = opts.packArg
       .split(',')
@@ -170,7 +170,7 @@ function assembleReview(packs: string[]): void {
 // `stupify taste [--pack a,b]` — assemble your GLOBAL taste at ~/.stupify/.review from packs, and nothing else.
 // This is the shared core both the reviewer and `stupify prime` read when a repo has no .review/ of its own —
 // so you can set taste once without installing the cron reviewer.
-async function taste(argv: { pack?: string; yes: boolean }): Promise<void> {
+async function taste(argv: { pack?: string | undefined; yes: boolean }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · pick the code yours should look like'))
   const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
@@ -293,8 +293,9 @@ function init(argv: { files: string[]; force: boolean }): void {
   // preserve any "why" lines already filled in, so --force / adding a file never erases the taste work
   const priorWhy = new Map<string, string>()
   if (corpusExists) {
-    for (const m of readFileSync(corpusPath, 'utf8').matchAll(/^### `([^`]+)` — (.+)$/gm)) {
-      const [, path, why] = m
+    for (const m of readFileSync(corpusPath, 'utf8').matchAll(/^### `(?<path>[^`]+)` — (?<why>.+)$/gm)) {
+      const path = m.groups?.path
+      const why = m.groups?.why
       if (path && why && !why.startsWith('⟨')) {
         priorWhy.set(path, why)
       }
@@ -344,11 +345,11 @@ function init(argv: { files: string[]; force: boolean }): void {
 }
 
 async function setup(argv: {
-  repo?: string
-  host?: string
-  codexHost?: string
+  repo?: string | undefined
+  host?: string | undefined
+  codexHost?: string | undefined
   yes: boolean
-  pack?: string
+  pack?: string | undefined
 }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · sounds dumb, reviews sharp'))
@@ -454,7 +455,10 @@ async function setup(argv: {
     .join('\n')
   writeFileSync(join(HOME, 'config.env'), `${cfg}\n`)
   if (host) {
-    writeCodexGatewayConfig({ gatewayHost: argv.codexHost, trustDir: join(HOME, 'repo') })
+    writeCodexGatewayConfig({
+      ...(argv.codexHost === undefined ? {} : { gatewayHost: argv.codexHost }),
+      trustDir: join(HOME, 'repo'),
+    })
   } // exe.dev VM: route Codex through the no-key exe-llm gateway
   try {
     installCron({
@@ -601,7 +605,7 @@ function mergeHook(file: string, matcher: string, command: string): { already: b
     hooks.SessionStart = []
   }
   const sessionStart = hooks.SessionStart
-  const existing = sessionStart.find(isOurHook)
+  const existing = sessionStart.find((e) => isOurHook(e))
   if (existing) {
     existing.hooks = [{ type: 'command', command }]
   } else {
@@ -643,7 +647,7 @@ function removeHook(file: string): { removed: boolean } {
 
 const hasTaste = (d: string): boolean => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md'))
 
-async function installPrimeHook(argv: { pack?: string; agent?: string }): Promise<void> {
+async function installPrimeHook(argv: { pack?: string | undefined; agent?: string | undefined }): Promise<void> {
   console.clear()
   const targets = selectTargets(argv.agent)
   intro(
@@ -770,8 +774,14 @@ function statusMarker(state: SweepStatus['prs'][number]['state']): string {
 function renderStatus(status: SweepStatus): string {
   const running = status.finishedAt === undefined && status.stage !== 'done' && status.stage !== 'blocked'
   const mode = status.dryRun ? 'dry-run' : 'live'
+  let sweepLabel = pc.green('(last sweep)')
+  if (running) {
+    sweepLabel = pc.cyan('(running)')
+  } else if (status.stage === 'blocked') {
+    sweepLabel = pc.red('(blocked)')
+  }
   const header = [
-    `${pc.bold('stupify status')} ${running ? pc.cyan('(running)') : status.stage === 'blocked' ? pc.red('(blocked)') : pc.green('(last sweep)')}`,
+    `${pc.bold('stupify status')} ${sweepLabel}`,
     `${pc.dim('repo   ')} ${pc.bold(status.repo)}`,
     `${pc.dim('stage  ')} ${status.stage} ${pc.dim(`- ${status.message}`)}`,
     `${pc.dim('scope  ')} ${status.scope} ${pc.dim(`· ${mode}`)}`,
@@ -827,7 +837,7 @@ function cmdReview(ref: string | undefined, post: boolean): void {
 
 // --- provision: spin up an exe.dev VM that runs stupify, from your laptop ---
 
-async function provision(argv: { repo?: string; yes: boolean; pack?: string }): Promise<void> {
+async function provision(argv: { repo?: string | undefined; yes: boolean; pack?: string | undefined }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · provision a reviewer on exe.dev'))
 
@@ -1086,7 +1096,7 @@ const positional = args.filter(
     args[i - 1] !== '--pack' &&
     args[i - 1] !== '--agent',
 )
-const cmd = positional[0]
+const [cmd] = positional
 
 if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
   help()

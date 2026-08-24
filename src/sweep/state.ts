@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path'
 import { z } from 'zod'
 
 import { readJsonFile } from '../parse-json'
-import type { Config } from './config'
+import { type Config } from './config'
 
 export const HeadAttempt = z.strictObject({ head: z.string(), at: z.number() })
 export type HeadAttempt = z.infer<typeof HeadAttempt>

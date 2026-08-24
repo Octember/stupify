@@ -60,7 +60,7 @@ ${rubric}
       const cut = Math.max(p.lastIndexOf('\n### ', per), p.lastIndexOf('\n```\n', per)) // whole exemplars only
       return cut > 0 ? p.slice(0, cut) : p.slice(0, per)
     }
-    corpus = `${[intro, ...packs.map(trimSection)].join('\n\n---\n\n')}${trimNote}`
+    corpus = `${[intro, ...packs.map((p) => trimSection(p))].join('\n\n---\n\n')}${trimNote}`
   }
   return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: head + corpus } })
 }

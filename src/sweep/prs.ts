@@ -4,8 +4,7 @@ import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
 
 import { parseJson } from '../parse-json'
-import { log } from './config'
-import type { Config } from './config'
+import { type Config, log } from './config'
 
 // The gh pr list --json boundary. gh guarantees the --json shape, but an auth-error page or schema drift would
 // otherwise throw (or silently mis-scope) mid-loop instead of skipping cleanly. z.object (not strictObject)
@@ -103,7 +102,7 @@ const MEMORY_BYTE_CAP = 16_000 // hard backstop: even 20 essays can't blow the p
 export function defang(body: string): string {
   return body
     .replaceAll(/<!--[\s\S]*?-->/g, '') // hidden markers (incl. our own stupify: markers)
-    .replaceAll(/<(\/?)\s*(prior_reviews|pr_description|dismissed)\s*>/gi, '‹$1$2›') // can't break out of any untrusted fence
+    .replaceAll(/<(?<slash>\/?)\s*(?<tag>prior_reviews|pr_description|dismissed)\s*>/gi, '‹$<slash>$<tag>›') // can't break out of any untrusted fence
     .trim()
 }
 

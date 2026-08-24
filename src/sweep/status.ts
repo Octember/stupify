@@ -4,8 +4,8 @@ import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 
 import { z } from 'zod'
 
-import type { Config } from './config'
-import type { Pr } from './prs'
+import { type Config } from './config'
+import { type Pr } from './prs'
 import { statusPath } from './state'
 
 const PrStatusState = z.enum(['queued', 'reviewing', 'posted', 'clean', 'dry_run', 'skipped', 'deferred', 'failed'])

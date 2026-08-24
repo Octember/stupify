@@ -4,7 +4,7 @@
 import { z } from 'zod'
 
 import { parseJson } from '../parse-json'
-import type { Pr } from './prs'
+import { type Pr } from './prs'
 
 // The output carries only what the runner acts on — path/line (the thread anchor) and severity (→ blocking);
 // `body` is the model's own markdown, posted verbatim. Only high/med block; low/note/praise are non-blocking.

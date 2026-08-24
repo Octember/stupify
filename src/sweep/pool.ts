@@ -3,13 +3,11 @@
 // shared-state mutation (counters, status, throttle files) happens between awaits on the one JS thread, so it
 // needs no locks.
 import { setCommitStatus } from './commit-status'
-import { log } from './config'
-import type { Config } from './config'
+import { type Config, log } from './config'
 import { commitStatusForSweepResult, reviewPr } from './review-pr'
 import { bumpDailyCounter, dailyPath, failuresPath, recordHeadAttempt, recordReviewedHead, reviewedPath } from './state'
-import { setStatusPr, setStatusStage, skipStatusPr } from './status'
-import type { SweepStatus } from './status'
-import type { Candidate, SweepState } from './sweep'
+import { setStatusPr, setStatusStage, skipStatusPr, type SweepStatus } from './status'
+import { type Candidate, type SweepState } from './sweep'
 
 export async function runCandidatePool(
   cfg: Config,
@@ -73,13 +71,13 @@ export async function runCandidatePool(
         setStatusPr(cfg, status, pr, 'clean', 'no new review needed', lines)
       }
       // A notes-only review must not green a PR whose PRIOR blocking threads are still open — 'open' outranks it.
-      const finalStatus = commitStatusForSweepResult(
-        typeof used === 'object'
-          ? used.blocking === 0 && c.prior.openThreadIds.length > 0
-            ? 'open'
-            : used.blocking
-          : used,
-      )
+      let result: number | 'clean' | 'fixed' | 'open'
+      if (typeof used === 'object') {
+        result = used.blocking === 0 && c.prior.openThreadIds.length > 0 ? 'open' : used.blocking
+      } else {
+        result = used
+      }
+      const finalStatus = commitStatusForSweepResult(result)
       setCommitStatus(cfg, state.commitStatuses, pr, finalStatus.state, finalStatus.description)
       status.totals.reviewed = reviewed
       status.totals.tokens = tokens
