@@ -42,7 +42,10 @@ test('init --force preserves filled-in "why" lines and adds new files', () => {
   const root = repo()
   expectSuccess(initIn(root, ['src/a.ts']))
   const p = join(root, '.review', 'CORPUS.md')
-  writeFileSync(p, readFileSync(p, 'utf8').replace(/^(### `src\/a\.ts` — ).*$/m, '$1branded value, fails fast'))
+  writeFileSync(
+    p,
+    readFileSync(p, 'utf8').replace(/^(?<prefix>### `src\/a\.ts` — ).*$/m, '$<prefix>branded value, fails fast'),
+  )
   expectSuccess(initIn(root, ['src/a.ts', 'src/b.ts', '--force']))
   const c = corpus(root)
   expect(c).toContain('### `src/a.ts` — branded value, fails fast') // kept

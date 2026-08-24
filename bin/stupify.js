@@ -28,7 +28,7 @@ async function installBun() {
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const answer = await rl.question(`stupify runs on Bun. Install Bun now? [Y/n] `)
   rl.close()
-  if (/^n(o)?$/i.test(answer.trim())) {
+  if (/^no?$/i.test(answer.trim())) {
     console.error(`Install Bun later with: ${installCommand}`)
     process.exit(127)
   }

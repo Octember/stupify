@@ -12,7 +12,7 @@ export const GH_DIFF_LIMITS = '20000-line / 300-file'
  *  Matches on gh's stable `too_large` code first: the prose differs per limit (lines vs files) and can be reworded,
  *  but both variants carry the code. Missing one variant is what kept #8338/#8241 looping after the first fix. */
 export const isDiffTooLarge = (output: string): boolean =>
-  /PullRequest\.diff too_large|diff exceeded the maximum number of (lines|files)/i.test(output)
+  /PullRequest\.diff too_large|diff exceeded the maximum number of (?:lines|files)/i.test(output)
 
 // Never treat a failed read as "0 lines" (a silent under-cap that would auto-review something it never
 // measured) — and keep the two failure modes apart: 'unreadable' is transient and worth retrying, but
@@ -47,9 +47,9 @@ export function diffRightLines(diff: string): Map<string, Set<number>> {
       cur.inHunk = false
       continue
     }
-    const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
-    if (hunk?.[1] !== undefined) {
-      cur.right = Number(hunk[1])
+    const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(?<right>\d+)(?:,\d+)? @@/)
+    if (hunk?.groups?.right !== undefined) {
+      cur.right = Number(hunk.groups.right)
       cur.inHunk = true
       continue
     }

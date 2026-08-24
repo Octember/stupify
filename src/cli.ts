@@ -293,8 +293,9 @@ function init(argv: { files: string[]; force: boolean }): void {
   // preserve any "why" lines already filled in, so --force / adding a file never erases the taste work
   const priorWhy = new Map<string, string>()
   if (corpusExists) {
-    for (const m of readFileSync(corpusPath, 'utf8').matchAll(/^### `([^`]+)` — (.+)$/gm)) {
-      const [, path, why] = m
+    for (const m of readFileSync(corpusPath, 'utf8').matchAll(/^### `(?<path>[^`]+)` — (?<why>.+)$/gm)) {
+      const path = m.groups?.path
+      const why = m.groups?.why
       if (path && why && !why.startsWith('⟨')) {
         priorWhy.set(path, why)
       }

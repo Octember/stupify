@@ -15,10 +15,10 @@ import { type Pr } from './prs'
 
 /** Accepts a PR URL or `owner/repo#123` (the CLI resolves a bare `#123` against the cwd repo before calling here). */
 export async function reviewOne(cfg: Config, ref: string, post: boolean): Promise<void> {
-  const url = ref.match(/github\.com\/([^/\s]+\/[^/\s]+)\/(?:pull|issues)\/(\d+)/i)
-  const short = ref.match(/^([A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)[#/](\d+)$/)
-  const slug = url?.[1] ?? short?.[1] ?? ''
-  const number = Number(url?.[2] ?? short?.[2] ?? 0)
+  const url = ref.match(/github\.com\/(?<slug>[^/\s]+\/[^/\s]+)\/(?:pull|issues)\/(?<number>\d+)/i)
+  const short = ref.match(/^(?<slug>[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+)[#/](?<number>\d+)$/)
+  const slug = url?.groups?.slug ?? short?.groups?.slug ?? ''
+  const number = Number(url?.groups?.number ?? short?.groups?.number ?? 0)
   if (!slug || !number) {
     console.error(`stupify review: couldn't parse '${ref}'. Pass a PR URL or owner/repo#123.`)
     process.exit(1)
