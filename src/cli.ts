@@ -520,22 +520,31 @@ const claudeSettingsPath = (): string =>
  *  overrides ~/.codex. We use hooks.json (not config.toml) so we never touch the user's main Codex config. */
 const codexHooksPath = (): string => join(process.env.CODEX_HOME ?? join(homedir(), '.codex'), 'hooks.json')
 
+const HookCommand = z.object({ type: z.string().optional(), command: z.string().optional() }).passthrough()
+const HookEntry = z.object({ matcher: z.string().optional(), hooks: z.array(HookCommand).optional() }).passthrough()
+type HookEntry = z.infer<typeof HookEntry>
+const AgentSettings = z
+  .object({
+    hooks: z
+      .object({ SessionStart: z.array(HookEntry).optional() })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough()
+type AgentSettings = z.infer<typeof AgentSettings>
+
 /** Read settings.json (or {} if absent). Throws on malformed JSON so callers refuse to clobber a broken file. */
-function readSettings(path: string): Record<string, unknown> {
+function readSettings(path: string): AgentSettings {
   if (!existsSync(path)) {
     return {}
   }
-  const parsed = parseJson(z.record(z.string(), z.unknown()), readFileSync(path, 'utf8'))
+  const parsed = parseJson(AgentSettings, readFileSync(path, 'utf8'))
   if (parsed === undefined) {
     throw new Error(`malformed JSON in ${path}`)
   }
   return parsed
 }
 
-interface HookEntry {
-  matcher?: string
-  hooks?: { type?: string; command?: string }[]
-}
 const isOurHook = (e: HookEntry): boolean => (e.hooks ?? []).some((h) => (h.command ?? '').includes(PRIME_ENGINE))
 
 // Every agent stupify primes reads a SessionStart command hook in the SAME JSON shape
@@ -591,19 +600,15 @@ function selectTargets(agentArg?: string): PrimeTarget[] {
 /** Merge our SessionStart command hook into one agent's hooks file. Never clobbers the user's other hooks or
  *  settings; refreshes our command if already present (the resolved bun path can move); never duplicates. */
 function mergeHook(file: string, matcher: string, command: string): { already: boolean } {
-  let settings: Record<string, unknown>
+  let settings: AgentSettings
   try {
     settings = readSettings(file)
   } catch {
     die(`couldn't parse ${file}, fix or remove it, then retry (left it untouched)`)
   }
-  if (settings.hooks === undefined) {
-    settings.hooks = {}
-  }
-  const hooks = settings.hooks as Record<string, HookEntry[]>
-  if (hooks.SessionStart === undefined) {
-    hooks.SessionStart = []
-  }
+  settings.hooks ??= {}
+  const { hooks } = settings
+  hooks.SessionStart ??= []
   const sessionStart = hooks.SessionStart
   const existing = sessionStart.find((e) => isOurHook(e))
   if (existing) {
@@ -621,13 +626,13 @@ function removeHook(file: string): { removed: boolean } {
   if (!existsSync(file)) {
     return { removed: false }
   }
-  let settings: Record<string, unknown>
+  let settings: AgentSettings
   try {
     settings = readSettings(file)
   } catch {
     die(`couldn't parse ${file}, fix or remove it, then retry (left it untouched)`)
   }
-  const hooks = settings.hooks as Record<string, HookEntry[]> | undefined
+  const { hooks } = settings
   if (!hooks?.SessionStart) {
     return { removed: false }
   }

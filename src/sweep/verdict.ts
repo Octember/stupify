@@ -23,16 +23,20 @@ const ReviewOutput = z.strictObject({
 })
 export const REVIEW_SCHEMA = z.toJSONSchema(ReviewOutput)
 
-export interface ParsedFinding {
-  path: string
-  line: number
-  body: string
-  blocking: boolean
-}
-export type ReviewVerdict =
-  | { kind: 'no_new_issues' }
-  | { kind: 'fixed' }
-  | { kind: 'findings'; opener: string; findings: ParsedFinding[] }
+export const ParsedFinding = z.object({
+  path: z.string(),
+  line: z.number(),
+  body: z.string(),
+  blocking: z.boolean(),
+})
+export type ParsedFinding = z.infer<typeof ParsedFinding>
+
+export const ReviewVerdict = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('no_new_issues') }),
+  z.object({ kind: z.literal('fixed') }),
+  z.object({ kind: z.literal('findings'), opener: z.string(), findings: z.array(ParsedFinding) }),
+])
+export type ReviewVerdict = z.infer<typeof ReviewVerdict>
 
 const stripMarkers = (s: string): string => s.replaceAll(/<!--[\s\S]*?-->/g, '').trim() // drop any marker codex tacked on
 

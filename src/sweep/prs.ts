@@ -84,10 +84,8 @@ export function inScope(pr: Pr, cfg: Config): boolean {
   return true // auto: any non-draft, non-bot PR
 }
 
-export interface Comment {
-  login: string
-  body: string
-}
+export const Comment = z.object({ login: z.string(), body: z.string() })
+export type Comment = z.infer<typeof Comment>
 
 // The per-PR MEMORY: the existing review conversation — the reviewer's past reviews + the author's replies —
 // fed back into the prompt so it stops re-litigating settled points and knows when to converge. The GitHub
