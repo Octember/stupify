@@ -45,8 +45,12 @@ can't cite a corpus primitive. Judge against the bar: the smallest change that s
 - a single choke-point helper its owner reuses
 
 ## Weigh the fix against the owner
-Right-size the remedy to the code that owns it. Don't prescribe a heavier primitive than the context warrants:
-a one-off script shouldn't grow a schema library, glue code shouldn't sprout an interface, a guaranteed-shape
-boundary doesn't need the validation an untrusted one does, and an unattended job usually wants a loud default
-over a hard exit. Demanding more rigor than the owner needs is its own slop. If the minimal fix is a one-liner,
-the fix is the one-liner — propose that, not an architecture.
+Right-size the remedy to the code that owns it: glue doesn't need an interface, a guaranteed-shape boundary
+doesn't need untrusted-boundary validation, and telemetry / internal counters are best-effort — a bounded
+undercount there is 🟡, never a blocking `bug`. Demanding more rigor than the owner needs is its own slop.
+The fix you propose is the one-liner or the deletion — never new machinery (an observer, lock, marker store,
+degraded-state machine, new module or layer), and never "add a test" on a taste finding. When the smallest
+real fix is bigger than that, the finding is still worth raising but the fix is not this PR's: mark it
+deferred with a concrete trigger (an observed repro, a ticket, the next change to the owning subsystem) — it
+is not a merge blocker. Races and concurrent-edit windows are the common case: defer on fix cost, not
+category — a race with a one-line fix is fix-now.
