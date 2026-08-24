@@ -519,6 +519,8 @@ function removeHook(file: string): { removed: boolean } {
   return { removed }
 }
 
+const hasTaste = (d: string): boolean => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md'))
+
 async function installPrimeHook(argv: { pack?: string; agent?: string }): Promise<void> {
   console.clear()
   const targets = selectTargets(argv.agent)
@@ -527,7 +529,6 @@ async function installPrimeHook(argv: { pack?: string; agent?: string }): Promis
   // 0. ensure GLOBAL taste exists for the hook to inject. The hook runs in EVERY repo; a repo's own .review/
   //    wins, but ~/.stupify/.review is the fallback, so without it the hook would no-op everywhere. Assemble it
   //    here (explicit --pack always (re)assembles; otherwise pick only when none exists) so install just works.
-  const hasTaste = (d: string) => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md'))
   const haveHomeTaste = hasTaste(join(HOME, '.review'))
   const haveRepoTaste = hasTaste(join(repoRoot().root, '.review')) // a BYO .review/ in the repo you're standing in
   let primed = haveHomeTaste || haveRepoTaste

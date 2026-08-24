@@ -771,10 +771,11 @@ function isCommitStatusState(raw: unknown): raw is CommitStatusState {
 export const commitStatusDescription = (description: string): string =>
   description.length <= 140 ? description : `${description.slice(0, 137)}...`
 
+const enc = (o: object): string => Buffer.from(JSON.stringify(o)).toString('base64url')
+
 // The short-lived JWT that authenticates US as our GitHub App (not yet as an installation). iat is backdated 60s
 // for clock skew, exp stays under GitHub's 10-minute cap.
 export function appJwt(appId: string, privateKeyPem: string, nowSec: number): string {
-  const enc = (o: object): string => Buffer.from(JSON.stringify(o)).toString('base64url')
   const signed = `${enc({ alg: 'RS256', typ: 'JWT' })}.${enc({ iat: nowSec - 60, exp: nowSec + 540, iss: appId })}`
   return `${signed}.${createSign('RSA-SHA256').update(signed).sign(privateKeyPem, 'base64url')}`
 }
@@ -794,6 +795,18 @@ interface CachedAppToken {
 }
 
 const appTokenPath = (cfg: Config): string => join(cfg.stateDir, 'gh-app-token.json')
+
+// Lenient field read on a ghAppApi response body — any non-JSON/non-object shape reads as absent.
+const field = (r: { ok: boolean; raw: string }, key: string): unknown => {
+  if (!r.ok) return undefined
+  try {
+    const parsed: unknown = JSON.parse(r.raw)
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
+    return (parsed as Record<string, unknown>)[key]
+  } catch {
+    return undefined
+  }
+}
 
 /** Mint (or reuse) an installation token for our commit-status App. Cached on disk so the every-minute cron mints
  *  roughly once an hour, not once a sweep. Returns null (with a log) on any failure — the caller skips the status,
@@ -815,16 +828,6 @@ function appStatusToken(cfg: Config): string | null {
     return null
   }
   const jwt = appJwt(cfg.statusAppId, pem, Math.floor(Date.now() / 1000))
-  const field = (r: { ok: boolean; raw: string }, key: string): unknown => {
-    if (!r.ok) return undefined
-    try {
-      const parsed: unknown = JSON.parse(r.raw)
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
-      return (parsed as Record<string, unknown>)[key]
-    } catch {
-      return undefined
-    }
-  }
   const inst = ghAppApi('GET', `/repos/${cfg.slug}/installation`, jwt)
   const instId = field(inst, 'id')
   if (typeof instId !== 'number') {
@@ -1224,8 +1227,7 @@ function failureReason(out: string): string {
   const hit = out
     .split('\n')
     .map((l) => l.trim())
-    .filter((l) => signal.test(l) && !noise.test(l))
-    .at(-1)
+    .findLast((l) => signal.test(l) && !noise.test(l))
   const cleaned = (hit ?? '').replace(/`/g, ' ').slice(0, 220).trim()
   return cleaned || 'codex run failed (no output captured — check the sweep log)'
 }
@@ -1402,6 +1404,7 @@ async function main(): Promise<void> {
       const { pr, prior, diff, lines } = c
       setStatusPr(cfg, status, pr, 'reviewing', `running codex over ${lines} diff lines`, lines)
       setCommitStatus(cfg, commitStatuses, pr, 'pending', `stupify is reviewing ${lines} diff lines`)
+      // oxlint-disable-next-line no-await-in-loop -- each worker awaits serially BY DESIGN; the parallelism is across workers
       const used = await reviewPr(cfg, pr, prior.memory, diff, c.firstReview, prior.openThreadIds, prior.dismissed)
       if (used === 'limit') {
         limitHit = true
