@@ -24,12 +24,15 @@
  * into one file at install time, so the split costs the deployed artifact nothing.
  */
 import { join } from 'node:path'
+
 import { acquireLock, releaseLock } from '@bevyl-ai/agent-tools'
+
 import { setCommitStatus } from './sweep/commit-status'
 import { loadConfig, log, refreshRepo } from './sweep/config'
-import { type PriorState, prReviews } from './sweep/github'
-import { hasMachinery } from './sweep/prompt'
+import { prReviews } from './sweep/github'
+import type { PriorState } from './sweep/github'
 import { runCandidatePool } from './sweep/pool'
+import { hasMachinery } from './sweep/prompt'
 import { inScope, listPrs } from './sweep/prs'
 import { reviewOne } from './sweep/review-one'
 import { initialStatus, isoNow, seedStatusPrs, setStatusStage, writeStatus } from './sweep/status'
@@ -57,7 +60,9 @@ export { finalCodexMessage, parseReview, REVIEW_SCHEMA, STILL_NOTE } from './swe
 async function main(): Promise<void> {
   const cfg = loadConfig() // also mkdirs stateDir and sets LOG, so config warnings are already captured
   const ref = process.env.REVIEW_PR
-  if (ref) return reviewOne(cfg, ref, process.env.REVIEW_POST === '1') // `stupify review <pr>` — one-shot, no sweep/lock/checkout
+  if (ref) {
+    return reviewOne(cfg, ref, process.env.REVIEW_POST === '1')
+  } // `stupify review <pr>` — one-shot, no sweep/lock/checkout
 
   const lockPath = join(cfg.stateDir, 'sweep.lock')
   if (!acquireLock(lockPath)) {
@@ -120,13 +125,16 @@ async function main(): Promise<void> {
   for (const pr of queue) {
     const prior = prReviews(cfg, pr)
     priorByPr.set(pr.number, prior)
-    if (prior === null) continue
+    if (prior === null) {
+      continue
+    }
     const reviewedHead = prior.reviewedHead || state.reviewedLocal[String(pr.number)] === pr.headRefOid
     const f = state.failures[String(pr.number)]
     const recentlyFailed = f !== undefined && f.head === pr.headRefOid && Date.now() - f.at < cfg.failRetryMs
     const dailyBlocked = cfg.maxReviewsPerDay > 0 && !cfg.dryRun && state.daily.count >= cfg.maxReviewsPerDay
-    if (!reviewedHead && !recentlyFailed && !dailyBlocked)
+    if (!reviewedHead && !recentlyFailed && !dailyBlocked) {
       setCommitStatus(cfg, state.commitStatuses, pr, 'pending', 'queued for stupify review')
+    }
   }
 
   const { candidates, handled } = collectCandidates(cfg, status, queue, priorByPr, state)
@@ -144,4 +152,6 @@ async function main(): Promise<void> {
   writeStatus(cfg, status)
 }
 
-if (import.meta.main) await main() // run only when invoked directly (cron / `stupify run`); stays importable for tests
+if (import.meta.main) {
+  await main()
+} // run only when invoked directly (cron / `stupify run`); stays importable for tests

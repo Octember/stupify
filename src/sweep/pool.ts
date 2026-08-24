@@ -3,10 +3,12 @@
 // shared-state mutation (counters, status, throttle files) happens between awaits on the one JS thread, so it
 // needs no locks.
 import { setCommitStatus } from './commit-status'
-import { type Config, log } from './config'
+import { log } from './config'
+import type { Config } from './config'
 import { commitStatusForSweepResult, reviewPr } from './review-pr'
 import { bumpDailyCounter, dailyPath, failuresPath, recordHeadAttempt, recordReviewedHead, reviewedPath } from './state'
-import { setStatusPr, setStatusStage, skipStatusPr, type SweepStatus } from './status'
+import { setStatusPr, setStatusStage, skipStatusPr } from './status'
+import type { SweepStatus } from './status'
 import type { Candidate, SweepState } from './sweep'
 
 export async function runCandidatePool(
@@ -22,7 +24,9 @@ export async function runCandidatePool(
   const worker = async (): Promise<void> => {
     while (!limitHit) {
       const c = candidates[next++]
-      if (c === undefined) return
+      if (c === undefined) {
+        return
+      }
       const { pr, prior, diff, lines } = c
       setStatusPr(cfg, status, pr, 'reviewing', `running codex over ${lines} diff lines`, lines)
       setCommitStatus(cfg, state.commitStatuses, pr, 'pending', `stupify is reviewing ${lines} diff lines`)

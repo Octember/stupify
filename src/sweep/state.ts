@@ -3,7 +3,9 @@
 // exactly one consumer, so they live here rather than in the shared kit.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+
 import { z } from 'zod'
+
 import { readJsonFile } from '../parse-json'
 import type { Config } from './config'
 
@@ -59,7 +61,9 @@ export function recordReviewedHead(path: string, reviewed: Record<string, string
 export function loadDailyCounter(path: string, now = new Date()): DailyCounter {
   const today = now.toISOString().slice(0, 10)
   const parsed = readJsonFile(DailyCounter, path)
-  if (parsed === undefined || parsed.date !== today) return { date: today, count: 0 } // stale = a new day, not corruption
+  if (parsed === undefined || parsed.date !== today) {
+    return { date: today, count: 0 }
+  } // stale = a new day, not corruption
   return parsed
 }
 

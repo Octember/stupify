@@ -3,5 +3,6 @@
   "semi": false,
   "singleQuote": true,
   "printWidth": 120,
+  "sortImports": true,
   "ignorePatterns": ["packs/**", "dist/**", ".review/CORPUS.md"]
 }

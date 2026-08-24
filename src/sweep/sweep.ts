@@ -1,23 +1,26 @@
 // The sweep's front half: load the per-VM state, then collect the PRs that pass the cheap serial gates
 // (dedup, failure throttle, daily/MAX_PRS caps, diff fetch + size cap) into review candidates.
-import { loadCommitStatuses, type PostedCommitStatus, setCommitStatus } from './commit-status'
-import { type Config, log } from './config'
+import { loadCommitStatuses, setCommitStatus } from './commit-status'
+import type { PostedCommitStatus } from './commit-status'
+import { log } from './config'
+import type { Config } from './config'
 import { diffLineCount, getDiff, GH_DIFF_LIMITS } from './diff'
 import type { PriorState } from './github'
-import { hasReviewLabel, type Pr } from './prs'
+import { hasReviewLabel } from './prs'
+import type { Pr } from './prs'
 import { commitStatusForSweepResult } from './review-pr'
 import {
-  type DailyCounter,
   commitStatusPath,
   dailyPath,
   failuresPath,
-  type HeadAttempt,
   loadDailyCounter,
   loadHeadAttempts,
   loadReviewedHeads,
   reviewedPath,
 } from './state'
-import { deferQueuedStatusPrs, setStatusPr, skipStatusPr, type SweepStatus } from './status'
+import type { DailyCounter, HeadAttempt } from './state'
+import { deferQueuedStatusPrs, setStatusPr, skipStatusPr } from './status'
+import type { SweepStatus } from './status'
 
 export interface Candidate {
   pr: Pr
@@ -62,7 +65,9 @@ export function collectCandidates(
   const candidates: Candidate[] = []
   for (let i = 0; i < queue.length; i++) {
     const pr = queue[i]
-    if (pr === undefined) continue
+    if (pr === undefined) {
+      continue
+    }
     if (handled >= dailyBudget) {
       log(`daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}) — no more reviews today; resumes tomorrow`)
       deferQueuedStatusPrs(
@@ -138,7 +143,7 @@ export function collectCandidates(
       setCommitStatus(cfg, state.commitStatuses, pr, 'error', "couldn't read PR diff; retrying next sweep")
       continue
     }
-    const diff = read.diff
+    const { diff } = read
     const lines = diffLineCount(diff)
     // auto-scope only: skip oversized diffs UNLESS the PR carries the review label (the documented force-include).
     // (label-scope means you already opted in, so size never gates there.)

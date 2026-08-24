@@ -1,8 +1,10 @@
 // `stupify review <pr>` — review ONE pull request on demand (no cron, no checkout, no lock) and print it,
 // or `--post` it. Always a FRESH perspective: no prior-review memory, so you get the full take.
 import { join } from 'node:path'
+
 import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
+
 import { parseJson } from '../parse-json'
 import { runReview } from './codex'
 import type { Config } from './config'
@@ -60,7 +62,7 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
     )
     process.exit(1)
   }
-  const diff = read.diff
+  const { diff } = read
   console.error(`reviewing ${slug}#${number} …`) // progress on stderr; stdout stays just the review
   const r = await runReview(cfg, pr, '', diff) // no memory: a manual review is always a fresh, full take
   if (r.kind === 'limit' || r.kind === 'fail') {

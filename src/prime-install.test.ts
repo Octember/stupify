@@ -8,7 +8,9 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
 import { z } from 'zod'
+
 import { parseJson } from './parse-json'
 
 const CLI = join(import.meta.dir, 'cli.ts')
@@ -26,11 +28,15 @@ const run = (sub: string[], e: { home: string; cfg: string; codex: string }) =>
   })
 const read = (p: string) => {
   const v = parseJson(z.any(), readFileSync(p, 'utf8'))
-  if (v === undefined) throw new Error(`unreadable ${p}`)
+  if (v === undefined) {
+    throw new Error(`unreadable ${p}`)
+  }
   return v
 }
 const clean = (e: { home: string; cfg: string; codex: string }) => {
-  for (const d of [e.home, e.cfg, e.codex]) rmSync(d, { recursive: true, force: true })
+  for (const d of [e.home, e.cfg, e.codex]) {
+    rmSync(d, { recursive: true, force: true })
+  }
 }
 const seeded = JSON.stringify({
   theme: 'dark',

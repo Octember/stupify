@@ -3,10 +3,13 @@
 import { createSign } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+
 import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
+
 import { parseJson, readJsonFile } from '../parse-json'
-import { type Config, log } from './config'
+import { log } from './config'
+import type { Config } from './config'
 import type { Pr } from './prs'
 import { commitStatusPath } from './state'
 
@@ -56,7 +59,9 @@ function ghAppApi(method: 'GET' | 'POST', path: string, bearer: string, body?: s
     '-',
     `https://api.github.com${path}`,
   ]
-  if (body !== undefined) args.push('-d', body)
+  if (body !== undefined) {
+    args.push('-d', body)
+  }
   const r = exec('curl', args, {
     input: `header = "Authorization: Bearer ${bearer}"\nheader = "Accept: application/vnd.github+json"\n`,
   })
@@ -71,7 +76,9 @@ const appTokenPath = (cfg: Config): string => join(cfg.stateDir, 'gh-app-token.j
 
 // Lenient field read on a ghAppApi response body — any non-JSON/non-object shape reads as absent.
 const field = (r: { ok: boolean; raw: string }, key: string): unknown => {
-  if (!r.ok) return undefined
+  if (!r.ok) {
+    return undefined
+  }
   return parseJson(AppJson, r.raw)?.[key]
 }
 
@@ -81,7 +88,9 @@ const field = (r: { ok: boolean; raw: string }, key: string): unknown => {
 function appStatusToken(cfg: Config): string | null {
   try {
     const cached = readJsonFile(CachedAppToken, appTokenPath(cfg))
-    if (cached !== undefined && cached.expiresAtMs - Date.now() > 5 * 60_000) return cached.token
+    if (cached !== undefined && cached.expiresAtMs - Date.now() > 5 * 60_000) {
+      return cached.token
+    }
   } catch {
     /* no usable cache — mint below */
   }
@@ -101,7 +110,7 @@ function appStatusToken(cfg: Config): string | null {
   const instId = field(inst, 'id')
   if (typeof instId !== 'number') {
     log(
-      `  status App isn't installed on ${cfg.slug} (or the key/app id is wrong) — ${inst.raw.slice(0, 180).replace(/\s+/g, ' ').trim()}`,
+      `  status App isn't installed on ${cfg.slug} (or the key/app id is wrong) — ${inst.raw.slice(0, 180).replaceAll(/\s+/g, ' ').trim()}`,
     )
     return null
   }
@@ -113,7 +122,7 @@ function appStatusToken(cfg: Config): string | null {
   )
   const token = field(minted, 'token')
   if (typeof token !== 'string') {
-    log(`  couldn't mint status App token — ${minted.raw.slice(0, 180).replace(/\s+/g, ' ').trim()}`)
+    log(`  couldn't mint status App token — ${minted.raw.slice(0, 180).replaceAll(/\s+/g, ' ').trim()}`)
     return null
   }
   // GitHub installation tokens live 1h; we cache 55min (the 5-min freshness floor above trims the rest).
@@ -133,11 +142,15 @@ export function setCommitStatus(
   state: CommitStatusState,
   description: string,
 ): void {
-  if (!cfg.githubStatus || cfg.dryRun) return
+  if (!cfg.githubStatus || cfg.dryRun) {
+    return
+  }
   const safeDescription = commitStatusDescription(description)
   const key = `${pr.headRefOid}:${cfg.githubStatusContext}`
   const previous = posted[key]
-  if (previous?.state === state && previous.description === safeDescription) return
+  if (previous?.state === state && previous.description === safeDescription) {
+    return
+  }
 
   const payload = {
     state,
@@ -150,7 +163,9 @@ export function setCommitStatus(
   const r = ((): { ok: boolean; combined: string } | null => {
     if (cfg.statusAppId && cfg.statusAppKeyPath) {
       const token = appStatusToken(cfg)
-      if (token === null) return null // already logged
+      if (token === null) {
+        return null
+      } // already logged
       const post = ghAppApi('POST', `/repos/${cfg.slug}/statuses/${pr.headRefOid}`, token, JSON.stringify(payload))
       return { ok: post.ok, combined: post.raw }
     }
@@ -158,10 +173,12 @@ export function setCommitStatus(
       input: JSON.stringify(payload),
     })
   })()
-  if (r === null) return
+  if (r === null) {
+    return
+  }
   if (!r.ok) {
     log(
-      `  couldn't post GitHub status for #${pr.number} (${state}) — ${r.combined.slice(0, 180).replace(/\s+/g, ' ').trim()}`,
+      `  couldn't post GitHub status for #${pr.number} (${state}) — ${r.combined.slice(0, 180).replaceAll(/\s+/g, ' ').trim()}`,
     )
     return
   }

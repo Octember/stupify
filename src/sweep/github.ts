@@ -2,11 +2,15 @@
 // inline threads; the reviews/threads connection drives dedup, thread-resolution, and the reviewer's memory.
 import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
+
 import { parseJson } from '../parse-json'
-import { type Config, logRaw } from './config'
+import { logRaw } from './config'
+import type { Config } from './config'
 import { diffRightLines } from './diff'
-import { type Comment, type Pr, priorReviewThread } from './prs'
-import { markFor, type ParsedFinding } from './verdict'
+import { priorReviewThread } from './prs'
+import type { Comment, Pr } from './prs'
+import { markFor } from './verdict'
+import type { ParsedFinding } from './verdict'
 
 // A hidden tag stamped in every inline finding comment, so a later sweep can find stupify's OWN review threads
 // (to resolve them) without knowing the bot login — `gh api user` 403s for GitHub-App integrations, so we identify
@@ -38,23 +42,29 @@ export function postReview(cfg: Config, pr: Pr, opener: string, findings: Parsed
   const inline: { path: string; line: number; side: 'RIGHT'; body: string }[] = []
   const demoted: string[] = []
   for (const f of findings) {
-    if (valid.get(f.path)?.has(f.line))
+    if (valid.get(f.path)?.has(f.line)) {
       inline.push({
         path: f.path,
         line: f.line,
         side: 'RIGHT',
         body: `${f.body}\n${f.blocking ? STUPIFY_TAG : STUPIFY_NOTE_TAG}`,
       })
-    else demoted.push(f.body)
+    } else {
+      demoted.push(f.body)
+    }
   }
   const head = opener || '👀 a couple things'
-  if (inline.length === 0) return submitReview(cfg, pr, [head, ...demoted, markFor(pr)].join('\n\n'), []).ok
+  if (inline.length === 0) {
+    return submitReview(cfg, pr, [head, ...demoted, markFor(pr)].join('\n\n'), []).ok
+  }
   const body =
     demoted.length > 0
       ? [head, `couldn't anchor these to a changed line:\n\n${demoted.join('\n\n')}`, markFor(pr)]
       : [head, markFor(pr)]
   const r = submitReview(cfg, pr, body.join('\n\n'), inline)
-  if (r.ok) return true
+  if (r.ok) {
+    return true
+  }
   // GitHub rejects the WHOLE review if any single inline anchor is a line it won't accept (a diff edge
   // diffRightLines didn't catch). Don't lose the findings to one bad line: retry body-only so they still land
   // (visible, just not inline) instead of failing — and re-failing — every sweep.
@@ -134,13 +144,17 @@ const GqlPull = z.object({
 export function dismissedFindings(threads: GqlThread[]): string[] {
   const out: string[] = []
   for (const t of threads) {
-    if (t.isResolved !== true) continue
+    if (t.isResolved !== true) {
+      continue
+    }
     const tc = (t.comments?.nodes ?? []).filter((c) => (c.body ?? '').trim())
     const ours = tc.filter((c) => (c.body ?? '').includes(STUPIFY_TAG))
     const human = tc.filter((c) => !(c.body ?? '').includes(STUPIFY_TAG))
     if (ours.length > 0 && human.length === 0) {
       const body = (ours[0]?.body ?? '').replaceAll(STUPIFY_TAG, '').trim()
-      if (body) out.push(body)
+      if (body) {
+        out.push(body)
+      }
     }
   }
   return out
@@ -148,30 +162,47 @@ export function dismissedFindings(threads: GqlThread[]): string[] {
 
 export function prReviews(cfg: Config, pr: Pr): PriorState | null {
   const [owner, name] = cfg.slug.split('/')
-  if (!owner || !name) return null
+  if (!owner || !name) {
+    return null
+  }
   const query = `query { repository(owner: "${owner}", name: "${name}") { pullRequest(number: ${pr.number}) {
     reviews(last: 30) { nodes { body author { login } } }
     reviewThreads(first: 100) { nodes { id isResolved comments(first: 8) { nodes { body author { login } path line } } } }
   } } }`
   const r = exec('gh', ['api', 'graphql', '-f', `query=${query}`])
-  if (!r.ok) return null
+  if (!r.ok) {
+    return null
+  }
   const parsed = parseJson(GqlPull, r.stdout)
-  if (parsed === undefined) return null
+  if (parsed === undefined) {
+    return null
+  }
   const pull = parsed.data?.repository?.pullRequest
-  if (!pull) return null
+  if (!pull) {
+    return null
+  }
   const mark = markFor(pr)
   const reviews = pull.reviews?.nodes ?? []
   const threads = pull.reviewThreads?.nodes ?? []
   const everReviewed = reviews.some((rv) => (rv.body ?? '').includes('<!-- stupify:'))
   const reviewedHead = reviews.some((rv) => (rv.body ?? '').includes(mark))
   const comments: Comment[] = []
-  for (const rv of reviews) if (rv.body?.trim()) comments.push({ login: rv.author?.login ?? '', body: rv.body })
+  for (const rv of reviews) {
+    if (rv.body?.trim()) {
+      comments.push({ login: rv.author?.login ?? '', body: rv.body })
+    }
+  }
   const openThreadIds: string[] = []
   for (const t of threads) {
     const tc = t.comments?.nodes ?? []
-    if (t.isResolved === false && t.id && tc.some((c) => (c.body ?? '').includes(STUPIFY_TAG))) openThreadIds.push(t.id)
-    for (const c of tc)
-      if (c.body) comments.push({ login: c.author?.login ?? '', body: `${c.path ?? ''}:${c.line ?? ''} ${c.body}` })
+    if (t.isResolved === false && t.id && tc.some((c) => (c.body ?? '').includes(STUPIFY_TAG))) {
+      openThreadIds.push(t.id)
+    }
+    for (const c of tc) {
+      if (c.body) {
+        comments.push({ login: c.author?.login ?? '', body: `${c.path ?? ''}:${c.line ?? ''} ${c.body}` })
+      }
+    }
   }
   return {
     memory: priorReviewThread(comments),

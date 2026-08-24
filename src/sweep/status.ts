@@ -1,7 +1,9 @@
 // The sweep's status file (state/status.json) — what `stupify status` renders as a workflow. Best-effort:
 // writing it must never break the reviewer.
 import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
+
 import { z } from 'zod'
+
 import type { Config } from './config'
 import type { Pr } from './prs'
 import { statusPath } from './state'
@@ -108,10 +110,15 @@ export function setStatusPr(
     detail,
     updatedAt: isoNow(),
   }
-  if (lines !== undefined) next.lines = lines
+  if (lines !== undefined) {
+    next.lines = lines
+  }
   const i = status.prs.findIndex((p) => p.number === pr.number)
-  if (i >= 0) status.prs[i] = next
-  else status.prs.push(next)
+  if (i !== -1) {
+    status.prs[i] = next
+  } else {
+    status.prs.push(next)
+  }
   writeStatus(cfg, status)
 }
 
@@ -130,6 +137,8 @@ export function skipStatusPr(
 export function deferQueuedStatusPrs(cfg: Config, status: SweepStatus, prs: Pr[], start: number, detail: string): void {
   for (const pr of prs.slice(start)) {
     const existing = status.prs.find((p) => p.number === pr.number)
-    if (existing?.state === 'queued') skipStatusPr(cfg, status, pr, 'deferred', detail)
+    if (existing?.state === 'queued') {
+      skipStatusPr(cfg, status, pr, 'deferred', detail)
+    }
   }
 }

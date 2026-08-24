@@ -2,8 +2,10 @@
 // conversation read back and defanged so it can be fed to codex as untrusted data.
 import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
+
 import { parseJson } from '../parse-json'
-import { type Config, log } from './config'
+import { log } from './config'
+import type { Config } from './config'
 
 // The gh pr list --json boundary. gh guarantees the --json shape, but an auth-error page or schema drift would
 // otherwise throw (or silently mis-scope) mid-loop instead of skipping cleanly. z.object (not strictObject)
@@ -52,9 +54,13 @@ export function listPrs(cfg: Config): Pr[] | null {
   const prs: Pr[] = []
   for (const entry of raw) {
     const parsed = Pr.safeParse(entry)
-    if (parsed.success) prs.push(parsed.data)
+    if (parsed.success) {
+      prs.push(parsed.data)
+    }
   }
-  if (prs.length < raw.length) log(`gh pr list: ${raw.length - prs.length} entries failed shape check — skipped`)
+  if (prs.length < raw.length) {
+    log(`gh pr list: ${raw.length - prs.length} entries failed shape check — skipped`)
+  }
   return prs
 }
 
@@ -63,14 +69,19 @@ export function hasReviewLabel(pr: Pr, cfg: Config): boolean {
 }
 
 export function inScope(pr: Pr, cfg: Config): boolean {
-  if (pr.isDraft) return false
+  if (pr.isDraft) {
+    return false
+  }
   // Never review bot PRs, in EITHER scope — UNLESS the PR carries REVIEW_LABEL, the explicit force-include: a
   // bot-authored PR you deliberately label is opted in (e.g. a factory that authors PRs as a GitHub App and wants
   // them reviewed). gh's is_bot catches GitHub App bots (login `app/dependabot`) that the `[bot]` suffix misses;
   // keep the suffix check as a belt-and-suspenders fallback.
-  if ((pr.author?.is_bot === true || (pr.author?.login ?? '').endsWith('[bot]')) && !hasReviewLabel(pr, cfg))
+  if ((pr.author?.is_bot === true || (pr.author?.login ?? '').endsWith('[bot]')) && !hasReviewLabel(pr, cfg)) {
     return false
-  if (cfg.scope === 'label') return hasReviewLabel(pr, cfg)
+  }
+  if (cfg.scope === 'label') {
+    return hasReviewLabel(pr, cfg)
+  }
   return true // auto: any non-draft, non-bot PR
 }
 
@@ -91,8 +102,8 @@ const MEMORY_BYTE_CAP = 16_000 // hard backstop: even 20 essays can't blow the p
 // one — relying on the model to be obedient is not a security control.
 export function defang(body: string): string {
   return body
-    .replace(/<!--[\s\S]*?-->/g, '') // hidden markers (incl. our own stupify: markers)
-    .replace(/<(\/?)\s*(prior_reviews|pr_description|dismissed)\s*>/gi, '‹$1$2›') // can't break out of any untrusted fence
+    .replaceAll(/<!--[\s\S]*?-->/g, '') // hidden markers (incl. our own stupify: markers)
+    .replaceAll(/<(\/?)\s*(prior_reviews|pr_description|dismissed)\s*>/gi, '‹$1$2›') // can't break out of any untrusted fence
     .trim()
 }
 

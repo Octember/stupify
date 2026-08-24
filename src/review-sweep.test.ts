@@ -5,10 +5,11 @@
 import { expect, test } from 'bun:test'
 import { createVerify, generateKeyPairSync } from 'node:crypto'
 import { join } from 'node:path'
+
 import { z } from 'zod'
+
 import { parseJson } from './parse-json'
 import {
-  type Config,
   appJwt,
   commitStatusDescription,
   commitStatusForSweepResult,
@@ -19,14 +20,20 @@ import {
   isDiffTooLarge,
   isRateLimited,
   parseReview,
-  type Pr,
   pidAlive,
   priorReviewThread,
   REVIEW_SCHEMA,
   reviewPrompt,
   stablePrefix,
   STILL_NOTE,
+  bumpDailyCounter,
+  loadDailyCounter,
+  loadHeadAttempts,
+  loadReviewedHeads,
+  recordHeadAttempt,
+  recordReviewedHead,
 } from './review-sweep'
+import type { Config, Pr } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
 const THIS_PR = '===== THIS PR' // the boundary between the cached prefix and the per-PR tail
@@ -216,7 +223,7 @@ test('pidAlive: our own pid is alive, junk/dead pids are not', () => {
   expect(pidAlive(2_000_000_000)).toBe(false) // above any real pid → ESRCH → dead, not a throw
   expect(pidAlive(0)).toBe(false) // 0/negatives are signal-group selectors, never a lock holder
   expect(pidAlive(-1)).toBe(false)
-  expect(pidAlive(NaN)).toBe(false) // a corrupt/empty lock file parses to NaN — must read as dead, not crash
+  expect(pidAlive(Number.NaN)).toBe(false) // a corrupt/empty lock file parses to NaN — must read as dead, not crash
 })
 
 test('the JSON output contract is instructed in the prompt, and the prefix stays stable across PRs', () => {
@@ -288,7 +295,9 @@ test('parseReview: findings map to anchored threads with declared blocking', () 
     ],
   })
   const parsed = parseReview(review)
-  if (parsed?.kind !== 'findings') throw new Error('expected findings')
+  if (parsed?.kind !== 'findings') {
+    throw new Error('expected findings')
+  }
   expect(parsed.opener).toBe('oof, a couple things 👇')
   expect(parsed.findings.map((f) => f.blocking)).toEqual([false, true, false, false])
   expect(parsed.findings[0]).toMatchObject({ path: 'src/x.ts', line: 30 })
@@ -432,14 +441,6 @@ test('the prefix is large enough to be cache-eligible (well past the ~1024-token
 // defensively, persist compact JSON, and never throw mid-sweep on malformed files.
 import { mkdtempSync, readFileSync as readF, rmSync, writeFileSync as writeF } from 'node:fs'
 import { tmpdir } from 'node:os'
-import {
-  bumpDailyCounter,
-  loadDailyCounter,
-  loadHeadAttempts,
-  loadReviewedHeads,
-  recordHeadAttempt,
-  recordReviewedHead,
-} from './review-sweep'
 
 test('sweep state stores persist compact JSON and reload it', () => {
   const dir = mkdtempSync(join(tmpdir(), 'stupify-state-'))

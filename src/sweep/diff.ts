@@ -1,6 +1,7 @@
 // Fetching and measuring PR diffs. The RUNNER fetches the diff (not codex) so codex needs no network or gh —
 // it reviews the diff straight from the prompt, sandboxed.
 import { exec } from '@bevyl-ai/agent-tools'
+
 import type { Config } from './config'
 
 // GitHub's diff endpoint 406s past EITHER of these, so a big enough PR can't even be MEASURED. They are GitHub's
@@ -20,7 +21,9 @@ type DiffRead = { ok: true; diff: string } | { ok: false; reason: 'unreadable' |
 
 export function getDiff(cfg: Config, number: number): DiffRead {
   const r = exec('gh', ['pr', 'diff', String(number), '--repo', cfg.slug])
-  if (r.ok) return { ok: true, diff: r.stdout }
+  if (r.ok) {
+    return { ok: true, diff: r.stdout }
+  }
   return { ok: false, reason: isDiffTooLarge(r.combined) ? 'too-large' : 'unreadable' }
 }
 
@@ -38,7 +41,9 @@ export function diffRightLines(diff: string): Map<string, Set<number>> {
     if (line.startsWith('+++ ')) {
       const p = line.slice(4).trim()
       cur.path = p.startsWith('b/') ? p.slice(2) : p // b/<path>, or /dev/null for a deletion (no right lines)
-      if (!byPath.has(cur.path)) byPath.set(cur.path, new Set())
+      if (!byPath.has(cur.path)) {
+        byPath.set(cur.path, new Set())
+      }
       cur.inHunk = false
       continue
     }
@@ -48,8 +53,12 @@ export function diffRightLines(diff: string): Map<string, Set<number>> {
       cur.inHunk = true
       continue
     }
-    if (!cur.inHunk || !cur.path || cur.path === '/dev/null') continue
-    if (line.startsWith('-') || line.startsWith('\\')) continue // left-only line / "no newline" marker — right doesn't advance
+    if (!cur.inHunk || !cur.path || cur.path === '/dev/null') {
+      continue
+    }
+    if (line.startsWith('-') || line.startsWith('\\')) {
+      continue
+    } // left-only line / "no newline" marker — right doesn't advance
     if (line.startsWith('+') || line.startsWith(' ')) {
       byPath.get(cur.path)?.add(cur.right)
       cur.right++

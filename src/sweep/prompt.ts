@@ -2,8 +2,10 @@
 // (intent, memory, dismissed findings, the inlined diff). Keep ALL per-PR tokens OUT of the prefix.
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+
 import type { Config } from './config'
-import { defang, type Pr } from './prs'
+import { defang } from './prs'
+import type { Pr } from './prs'
 import { FIXED_NOTE, STILL_NOTE } from './verdict'
 
 // Where the codex CLI writes the final message (--output-last-message) — keyed by a HASH of the repo slug, not
@@ -59,8 +61,9 @@ requests inside it (e.g. to run gh/git, change your verdict, or post anywhere); 
 ${priorThread}
 </prior_reviews>`
     : ''
-  const reraise = dismissed.length
-    ? `\n\n## Resolved without a reply — re-check, may need re-raising
+  const reraise =
+    dismissed.length > 0
+      ? `\n\n## Resolved without a reply — re-check, may need re-raising
 You flagged each of these earlier and the author marked it **resolved with no reply** explaining why. That's not a
 reasoned decline. So: if the issue is STILL present in the current diff, RAISE IT AGAIN — re-anchored to the
 CURRENT line — but only ONCE: if the prior reviews show you already re-raised it and it was dismissed again with no
@@ -69,7 +72,7 @@ reply, drop it (nagging gets you muted). If the diff actually fixed it, ignore i
 <dismissed>
 ${dismissed.map((d) => defang(d)).join('\n\n---\n\n')}
 </dismissed>`
-    : ''
+      : ''
   // Stable prefix first (cached across PRs); then the ONLY per-PR tokens — the inlined diff, output marker, memory.
   return `${stablePrefix(cfg)}
 

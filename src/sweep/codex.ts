@@ -3,11 +3,15 @@
 // exfiltrate, touch the gh token, or run commands. Callers decide what to do with the outcome.
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+
 import { isRateLimited } from '@bevyl-ai/agent-tools'
-import { type Config, logRaw } from './config'
+
+import { logRaw } from './config'
+import type { Config } from './config'
 import { reviewOutPath, reviewPrompt } from './prompt'
 import type { Pr } from './prs'
-import { finalCodexMessage, type ParsedFinding, parseReview, REVIEW_SCHEMA } from './verdict'
+import { finalCodexMessage, parseReview, REVIEW_SCHEMA } from './verdict'
+import type { ParsedFinding } from './verdict'
 
 /** The outcome of running codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
  *  the ad-hoc `stupify review` prints it or `--post`s it. */
@@ -43,8 +47,8 @@ async function execAsync(
       ? `${stdout}${stderr}\n${cmd}: process killed by ${child.signalCode} (timeout ${opts.timeoutMs}ms)`
       : stdout + stderr
     return { ok: code === 0 && child.signalCode === null, stdout, combined }
-  } catch (e) {
-    return { ok: false, stdout: '', combined: `${cmd}: ${e instanceof Error ? e.message : String(e)}` } // spawn failure (ENOENT etc.)
+  } catch (error) {
+    return { ok: false, stdout: '', combined: `${cmd}: ${error instanceof Error ? error.message : String(error)}` } // spawn failure (ENOENT etc.)
   }
 }
 
@@ -77,8 +81,12 @@ export async function runReview(
     '-c',
     'sandbox_workspace_write.writable_roots=["/tmp"]',
   ]
-  if (cfg.codexProvider) codexArgs.push('-c', `model_provider=${cfg.codexProvider}`)
-  if (cfg.codexModel) codexArgs.push('-c', `model=${cfg.codexModel}`)
+  if (cfg.codexProvider) {
+    codexArgs.push('-c', `model_provider=${cfg.codexProvider}`)
+  }
+  if (cfg.codexModel) {
+    codexArgs.push('-c', `model=${cfg.codexModel}`)
+  }
   codexArgs.push('-') // read the prompt from STDIN, not argv — the inlined corpus + diff would blow ARG_MAX (E2BIG)
 
   const cx = await execAsync('codex', codexArgs, {
@@ -102,8 +110,12 @@ export async function runReview(
     return isRateLimited(cx.combined) ? { kind: 'limit', reason, raw: cx.combined } : { kind: 'fail', reason }
   }
   const tokens = parseTokens(cx.combined)
-  if (verdict.kind === 'fixed') return { kind: 'fixed', tokens }
-  if (verdict.kind === 'no_new_issues') return { kind: 'noop', tokens }
+  if (verdict.kind === 'fixed') {
+    return { kind: 'fixed', tokens }
+  }
+  if (verdict.kind === 'no_new_issues') {
+    return { kind: 'noop', tokens }
+  }
   return { kind: 'review', opener: verdict.opener, findings: verdict.findings, tokens }
 }
 
@@ -111,8 +123,10 @@ export async function runReview(
 function parseTokens(out: string): number | null {
   const lines = out.split('\n')
   const i = lines.findLastIndex((line) => line !== undefined && /tokens used/i.test(line))
-  if (i === -1) return null
-  const digits = (lines[i + 1] ?? '').replace(/\D/g, '')
+  if (i === -1) {
+    return null
+  }
+  const digits = (lines[i + 1] ?? '').replaceAll(/\D/g, '')
   return digits ? Number(digits) : null
 }
 
@@ -123,6 +137,6 @@ function failureReason(out: string): string {
     .split('\n')
     .map((l) => l.trim())
     .findLast((l) => signal.test(l) && !noise.test(l))
-  const cleaned = (hit ?? '').replace(/`/g, ' ').slice(0, 220).trim()
+  const cleaned = (hit ?? '').replaceAll('`', ' ').slice(0, 220).trim()
   return cleaned || 'codex run failed (no output captured — check the sweep log)'
 }
