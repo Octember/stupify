@@ -22,7 +22,11 @@ export function primePayload(cwd: string = process.cwd(), home: string = HOME): 
   // A repo's .review/ lives at its git ROOT — so a session opened in a subdir still finds it (cwd → root → home).
   const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' })
   const root = r.status === 0 ? (r.stdout ?? '').trim() : ''
-  const candidates = [join(cwd, '.review'), ...(root && root !== cwd ? [join(root, '.review')] : []), join(home, '.review')]
+  const candidates = [
+    join(cwd, '.review'),
+    ...(root && root !== cwd ? [join(root, '.review')] : []),
+    join(home, '.review'),
+  ]
   const dir = candidates.find((d) => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md')))
   if (dir === undefined) return null
   const rubric = readFileSync(join(dir, 'RUBRIC.md'), 'utf8').trim()

@@ -8,11 +8,8 @@ import { FIXED_NOTE, STILL_NOTE } from './verdict'
 
 // Where the codex CLI writes the final message (--output-last-message) — keyed by a HASH of the repo slug, not
 // the slug itself, so two repos with the same PR number never clobber.
-const slugKey = (slug: string): string => {
-  let h = 5381
-  for (let i = 0; i < slug.length; i++) h = ((h << 5) + h + slug.charCodeAt(i)) >>> 0
-  return h.toString(36)
-}
+const slugKey = (slug: string): string =>
+  [...slug].reduce((h, ch) => ((h << 5) + h + ch.charCodeAt(0)) >>> 0, 5381).toString(36)
 export const reviewOutPath = (cfg: Config, pr: Pr): string => `/tmp/stupify-review-${pr.number}-${slugKey(cfg.slug)}.md`
 
 /** The taste prefix: instructions + the spec, rubric, and the FULL corpus (code inlined verbatim). It's

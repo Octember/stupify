@@ -6,6 +6,11 @@
     "suspicious": "error",
     "perf": "error"
   },
+  "rules": {
+    "prefer-const": "error",
+    "no-var": "error",
+    "no-param-reassign": "error"
+  },
   "env": {
     "node": true,
     "browser": false

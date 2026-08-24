@@ -2,6 +2,7 @@
 // conversation read back and defanged so it can be fed to codex as untrusted data.
 import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
+import { parseJson } from '../parse-json'
 import { type Config, log } from './config'
 
 // The gh pr list --json boundary. gh guarantees the --json shape, but an auth-error page or schema drift would
@@ -27,20 +28,25 @@ const PR_LIST_LIMIT = 500
 export function listPrs(cfg: Config): Pr[] | null {
   // Filter the PR list directly rather than `gh pr list --label` — that search index lags behind labelling.
   const fields = 'number,headRefOid,isDraft,author,labels,title,body'
-  const r = exec('gh', ['pr', 'list', '--repo', cfg.slug, '--state', 'open', '--limit', String(PR_LIST_LIMIT), '--json', fields])
+  const r = exec('gh', [
+    'pr',
+    'list',
+    '--repo',
+    cfg.slug,
+    '--state',
+    'open',
+    '--limit',
+    String(PR_LIST_LIMIT),
+    '--json',
+    fields,
+  ])
   if (!r.ok) {
     log('gh pr list failed (auth/network down?) — aborting sweep')
     return null
   }
-  let raw: unknown
-  try {
-    raw = JSON.parse(r.stdout)
-  } catch {
+  const raw = parseJson(z.array(z.unknown()), r.stdout)
+  if (raw === undefined) {
     log('gh pr list returned unparseable JSON — aborting sweep')
-    return null
-  }
-  if (!Array.isArray(raw)) {
-    log('gh pr list returned a non-array — aborting sweep')
     return null
   }
   const prs: Pr[] = []
@@ -62,7 +68,8 @@ export function inScope(pr: Pr, cfg: Config): boolean {
   // bot-authored PR you deliberately label is opted in (e.g. a factory that authors PRs as a GitHub App and wants
   // them reviewed). gh's is_bot catches GitHub App bots (login `app/dependabot`) that the `[bot]` suffix misses;
   // keep the suffix check as a belt-and-suspenders fallback.
-  if ((pr.author?.is_bot === true || (pr.author?.login ?? '').endsWith('[bot]')) && !hasReviewLabel(pr, cfg)) return false
+  if ((pr.author?.is_bot === true || (pr.author?.login ?? '').endsWith('[bot]')) && !hasReviewLabel(pr, cfg))
+    return false
   if (cfg.scope === 'label') return hasReviewLabel(pr, cfg)
   return true // auto: any non-draft, non-bot PR
 }

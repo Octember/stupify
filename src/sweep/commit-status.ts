@@ -5,9 +5,10 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
+import { parseJson, readJsonFile } from '../parse-json'
 import { type Config, log } from './config'
 import type { Pr } from './prs'
-import { commitStatusPath, readJson } from './state'
+import { commitStatusPath } from './state'
 
 const CommitStatusState = z.enum(['pending', 'success', 'failure', 'error'])
 export type CommitStatusState = z.infer<typeof CommitStatusState>
@@ -18,12 +19,7 @@ export type PostedCommitStatus = z.infer<typeof PostedCommitStatus>
 const PostedCommitStatuses = z.record(z.string(), PostedCommitStatus)
 
 export function loadCommitStatuses(path: string): Record<string, PostedCommitStatus> {
-  try {
-    const parsed = PostedCommitStatuses.safeParse(readJson(path))
-    return parsed.success ? parsed.data : {}
-  } catch {
-    return {}
-  }
+  return readJsonFile(PostedCommitStatuses, path) ?? {}
 }
 
 function writeCommitStatuses(path: string, statuses: Record<string, PostedCommitStatus>): void {
@@ -49,27 +45,34 @@ export function appJwt(appId: string, privateKeyPem: string, nowSec: number): st
 // curl (not gh) for App-authenticated calls: gh on the VMs is wired to the exe.dev proxy via GH_HOST, and these
 // calls must hit api.github.com with OUR credentials. The bearer token goes through curl's stdin config, never argv.
 function ghAppApi(method: 'GET' | 'POST', path: string, bearer: string, body?: string): { ok: boolean; raw: string } {
-  const args = ['-sS', '--fail-with-body', '--max-time', '30', '-X', method, '--config', '-', `https://api.github.com${path}`]
+  const args = [
+    '-sS',
+    '--fail-with-body',
+    '--max-time',
+    '30',
+    '-X',
+    method,
+    '--config',
+    '-',
+    `https://api.github.com${path}`,
+  ]
   if (body !== undefined) args.push('-d', body)
-  const r = exec('curl', args, { input: `header = "Authorization: Bearer ${bearer}"\nheader = "Accept: application/vnd.github+json"\n` })
+  const r = exec('curl', args, {
+    input: `header = "Authorization: Bearer ${bearer}"\nheader = "Accept: application/vnd.github+json"\n`,
+  })
   return { ok: r.ok, raw: r.combined }
 }
 
 const CachedAppToken = z.strictObject({ token: z.string(), expiresAtMs: z.number() })
 type CachedAppToken = z.infer<typeof CachedAppToken>
+const AppJson = z.record(z.string(), z.unknown())
 
 const appTokenPath = (cfg: Config): string => join(cfg.stateDir, 'gh-app-token.json')
 
 // Lenient field read on a ghAppApi response body — any non-JSON/non-object shape reads as absent.
 const field = (r: { ok: boolean; raw: string }, key: string): unknown => {
   if (!r.ok) return undefined
-  try {
-    const parsed: unknown = JSON.parse(r.raw)
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return undefined
-    return (parsed as Record<string, unknown>)[key]
-  } catch {
-    return undefined
-  }
+  return parseJson(AppJson, r.raw)?.[key]
 }
 
 /** Mint (or reuse) an installation token for our commit-status App. Cached on disk so the every-minute cron mints
@@ -77,15 +80,19 @@ const field = (r: { ok: boolean; raw: string }, key: string): unknown => {
  *  same degraded state as a gh outage. */
 function appStatusToken(cfg: Config): string | null {
   try {
-    const cached = CachedAppToken.safeParse(readJson(appTokenPath(cfg)))
-    if (cached.success && cached.data.expiresAtMs - Date.now() > 5 * 60_000) return cached.data.token
+    const cached = readJsonFile(CachedAppToken, appTokenPath(cfg))
+    if (cached !== undefined && cached.expiresAtMs - Date.now() > 5 * 60_000) return cached.token
   } catch {
     /* no usable cache — mint below */
   }
-  let pem: string
-  try {
-    pem = readFileSync(cfg.statusAppKeyPath, 'utf8')
-  } catch {
+  const pem = (() => {
+    try {
+      return readFileSync(cfg.statusAppKeyPath, 'utf8')
+    } catch {
+      return null
+    }
+  })()
+  if (pem === null) {
     log(`  couldn't read GITHUB_STATUS_APP_KEY at ${cfg.statusAppKeyPath} — skipping commit status`)
     return null
   }
@@ -93,10 +100,17 @@ function appStatusToken(cfg: Config): string | null {
   const inst = ghAppApi('GET', `/repos/${cfg.slug}/installation`, jwt)
   const instId = field(inst, 'id')
   if (typeof instId !== 'number') {
-    log(`  status App isn't installed on ${cfg.slug} (or the key/app id is wrong) — ${inst.raw.slice(0, 180).replace(/\s+/g, ' ').trim()}`)
+    log(
+      `  status App isn't installed on ${cfg.slug} (or the key/app id is wrong) — ${inst.raw.slice(0, 180).replace(/\s+/g, ' ').trim()}`,
+    )
     return null
   }
-  const minted = ghAppApi('POST', `/app/installations/${instId}/access_tokens`, jwt, JSON.stringify({ permissions: { statuses: 'write' } }))
+  const minted = ghAppApi(
+    'POST',
+    `/app/installations/${instId}/access_tokens`,
+    jwt,
+    JSON.stringify({ permissions: { statuses: 'write' } }),
+  )
   const token = field(minted, 'token')
   if (typeof token !== 'string') {
     log(`  couldn't mint status App token — ${minted.raw.slice(0, 180).replace(/\s+/g, ' ').trim()}`)
@@ -112,7 +126,13 @@ function appStatusToken(cfg: Config): string | null {
   return token
 }
 
-export function setCommitStatus(cfg: Config, posted: Record<string, PostedCommitStatus>, pr: Pr, state: CommitStatusState, description: string): void {
+export function setCommitStatus(
+  cfg: Config,
+  posted: Record<string, PostedCommitStatus>,
+  pr: Pr,
+  state: CommitStatusState,
+  description: string,
+): void {
   if (!cfg.githubStatus || cfg.dryRun) return
   const safeDescription = commitStatusDescription(description)
   const key = `${pr.headRefOid}:${cfg.githubStatusContext}`
@@ -127,17 +147,22 @@ export function setCommitStatus(cfg: Config, posted: Record<string, PostedCommit
   }
   // Our own App (when configured) posts the status so it carries our bot identity and statuses:write; the exe.dev
   // integration's gh token is statuses:read-only. gh remains the fallback for setups without an App.
-  let r: { ok: boolean; combined: string }
-  if (cfg.statusAppId && cfg.statusAppKeyPath) {
-    const token = appStatusToken(cfg)
-    if (token === null) return // already logged
-    const post = ghAppApi('POST', `/repos/${cfg.slug}/statuses/${pr.headRefOid}`, token, JSON.stringify(payload))
-    r = { ok: post.ok, combined: post.raw }
-  } else {
-    r = exec('gh', ['api', `repos/${cfg.slug}/statuses/${pr.headRefOid}`, '--method', 'POST', '--input', '-'], { input: JSON.stringify(payload) })
-  }
+  const r = ((): { ok: boolean; combined: string } | null => {
+    if (cfg.statusAppId && cfg.statusAppKeyPath) {
+      const token = appStatusToken(cfg)
+      if (token === null) return null // already logged
+      const post = ghAppApi('POST', `/repos/${cfg.slug}/statuses/${pr.headRefOid}`, token, JSON.stringify(payload))
+      return { ok: post.ok, combined: post.raw }
+    }
+    return exec('gh', ['api', `repos/${cfg.slug}/statuses/${pr.headRefOid}`, '--method', 'POST', '--input', '-'], {
+      input: JSON.stringify(payload),
+    })
+  })()
+  if (r === null) return
   if (!r.ok) {
-    log(`  couldn't post GitHub status for #${pr.number} (${state}) — ${r.combined.slice(0, 180).replace(/\s+/g, ' ').trim()}`)
+    log(
+      `  couldn't post GitHub status for #${pr.number} (${state}) — ${r.combined.slice(0, 180).replace(/\s+/g, ' ').trim()}`,
+    )
     return
   }
   posted[key] = { state, description: safeDescription }

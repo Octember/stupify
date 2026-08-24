@@ -36,17 +36,17 @@ export interface Config {
   codexJobs: number // concurrent codex reviews per sweep; the gh I/O around them stays serial
 }
 
-let LOG = ''
+const LOG = { path: '' }
 
 export function log(message: string): void {
   const line = `${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')} ${message}`
-  if (LOG) appendFileSync(LOG, `${line}\n`)
+  if (LOG.path) appendFileSync(LOG.path, `${line}\n`)
   console.log(line)
 }
 
 /** Append raw text (codex transcripts, gh error excerpts) to the sweep log WITHOUT a timestamp or stdout echo. */
 export function logRaw(text: string): void {
-  if (LOG) appendFileSync(LOG, text)
+  if (LOG.path) appendFileSync(LOG.path, text)
 }
 
 export function loadConfig(): Config {
@@ -77,7 +77,7 @@ export function loadConfig(): Config {
   const stupifyHome = pick('STUPIFY_HOME', KIT_DIR)
   const stateDir = join(stupifyHome, 'state')
   mkdirSync(stateDir, { recursive: true })
-  LOG = join(stateDir, 'sweep.log') // set before parsing knobs so config warnings reach sweep.log, not just cron.log
+  LOG.path = join(stateDir, 'sweep.log') // set before parsing knobs so config warnings reach sweep.log, not just cron.log
 
   const slug = pick('REPO_SLUG', '').trim()
   if (!slug && !process.env.REVIEW_PR) {
@@ -86,7 +86,8 @@ export function loadConfig(): Config {
     process.exit(1)
   }
   const scopeRaw = pick('SCOPE', 'auto').trim().toLowerCase()
-  if (scopeRaw !== 'label' && scopeRaw !== 'auto') log(`config: SCOPE='${scopeRaw}' is not 'label' or 'auto' — using auto`)
+  if (scopeRaw !== 'label' && scopeRaw !== 'auto')
+    log(`config: SCOPE='${scopeRaw}' is not 'label' or 'auto' — using auto`)
 
   return {
     repoDir: join(stupifyHome, 'repo'), // HARD-PINNED under STUPIFY_HOME: refreshRepo runs `git reset --hard` here
@@ -119,7 +120,8 @@ export function loadConfig(): Config {
 export function refreshRepo(cfg: Config): boolean {
   const existed = existsSync(join(cfg.repoDir, '.git'))
   const ok = refreshCheckout({ repoDir: cfg.repoDir, slug: cfg.slug, defaultBranch: cfg.defaultBranch, log })
-  if (!ok && !existed) return logFail('clone failed — is `gh` authed for this repo? (private repos need a gh login / exe.dev integration)')
+  if (!ok && !existed)
+    return logFail('clone failed — is `gh` authed for this repo? (private repos need a gh login / exe.dev integration)')
   return ok || logFail(`refresh failed (is the default branch '${cfg.defaultBranch}'? set DEFAULT_BRANCH if not)`)
 }
 

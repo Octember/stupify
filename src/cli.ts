@@ -28,10 +28,17 @@ import {
 } from '@bevyl-ai/agent-tools'
 import { writeCodexGatewayConfig } from '@bevyl-ai/agent-tools'
 import pc from 'picocolors'
+import { z } from 'zod'
+import { parseJson, readJsonFile } from './parse-json'
+import { SweepStatus } from './sweep/status'
 
 const PKG_DIR = dirname(fileURLToPath(import.meta.url))
 const PKG_ROOT = join(PKG_DIR, '..') // the published package root: holds .review/ and packs/
-const VERSION = (JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')) as { version: string }).version
+const VERSION = parseJson(
+  z.object({ version: z.string() }),
+  readFileSync(join(PKG_ROOT, 'package.json'), 'utf8'),
+)?.version
+if (VERSION === undefined) throw new Error('package.json is missing a version')
 const HOME = process.env.STUPIFY_HOME ?? join(homedir(), '.stupify')
 const STATE = join(HOME, 'state')
 const REQUIRED = ['bun', 'gh', 'codex', 'git'] as const
@@ -75,7 +82,10 @@ async function installSweepEngine(dest = join(HOME, 'review-sweep.ts')): Promise
     format: 'esm',
   })
   if (!built.success) {
-    const details = built.logs.map((l) => l.message).join('\n').trim()
+    const details = built.logs
+      .map((l) => l.message)
+      .join('\n')
+      .trim()
     throw new Error(details || 'could not bundle review-sweep.ts')
   }
   const [artifact] = built.outputs
@@ -98,16 +108,22 @@ function progress(start: string): { stop: (msg: string) => void } {
 
 // The short human label for a set of picked packs, e.g. "Sindre Sorhus + devshorts" — for plan/success notes.
 const tasteLabel = (packs: string[]): string =>
-  PACKS.filter((p) => packs.includes(p.id)).map((p) => p.label.split(' · ')[0]).join(' + ')
+  PACKS.filter((p) => packs.includes(p.id))
+    .map((p) => p.label.split(' · ')[0])
+    .join(' + ')
 
 // Returns the chosen pack ids. `--pack a,b` (or 'own'/'' = your own codebase) skips the prompt; with --yes and
 // no flag it defaults to sindre-sorhus (the broadly-applicable TS/JS taste) so a fresh repo reviews immediately.
 async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<string[]> {
   if (opts.packArg !== undefined) {
-    const requested = opts.packArg.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+    const requested = opts.packArg
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
     const known = (id: string) => PACKS.some((p) => p.id === id)
     const unknown = requested.filter((id) => id !== 'own' && !known(id))
-    if (unknown.length) log.warn(`unknown pack(s): ${pc.bold(unknown.join(', '))}, valid: ${PACKS.map((p) => p.id).join(', ')}`)
+    if (unknown.length)
+      log.warn(`unknown pack(s): ${pc.bold(unknown.join(', '))}, valid: ${PACKS.map((p) => p.id).join(', ')}`)
     return requested.filter((id) => id !== 'own' && known(id))
   }
   if (opts.yes) return ['sindre-sorhus']
@@ -172,9 +188,31 @@ async function taste(argv: { pack?: string; yes: boolean }): Promise<void> {
 
 // Fence language tag from a file extension — best-effort, blank when unknown (still renders fine).
 const LANG: Record<string, string> = {
-  ts: 'ts', tsx: 'tsx', js: 'js', jsx: 'jsx', mjs: 'js', cjs: 'js', py: 'python', rb: 'ruby', go: 'go',
-  rs: 'rust', java: 'java', kt: 'kotlin', c: 'c', h: 'c', cpp: 'cpp', cc: 'cpp', cs: 'csharp', zig: 'zig',
-  swift: 'swift', php: 'php', ex: 'elixir', exs: 'elixir', scala: 'scala', sh: 'bash', sql: 'sql',
+  ts: 'ts',
+  tsx: 'tsx',
+  js: 'js',
+  jsx: 'jsx',
+  mjs: 'js',
+  cjs: 'js',
+  py: 'python',
+  rb: 'ruby',
+  go: 'go',
+  rs: 'rust',
+  java: 'java',
+  kt: 'kotlin',
+  c: 'c',
+  h: 'c',
+  cpp: 'cpp',
+  cc: 'cpp',
+  cs: 'csharp',
+  zig: 'zig',
+  swift: 'swift',
+  php: 'php',
+  ex: 'elixir',
+  exs: 'elixir',
+  scala: 'scala',
+  sh: 'bash',
+  sql: 'sql',
 }
 const langOf = (p: string): string => LANG[p.split('.').pop()?.toLowerCase() ?? ''] ?? ''
 
@@ -253,7 +291,8 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
     const total = content.split('\n').length
     if (total > CORPUS_CAP) truncated.push(rel)
     const body = total > CORPUS_CAP ? content.split('\n').slice(0, CORPUS_CAP).join('\n') : content
-    const tail = total > CORPUS_CAP ? `\n\n_(first ${CORPUS_CAP} of ${total} lines — trim to the part that matters)_` : ''
+    const tail =
+      total > CORPUS_CAP ? `\n\n_(first ${CORPUS_CAP} of ${total} lines — trim to the part that matters)_` : ''
     return `### \`${rel}\` — ${priorWhy.get(rel) ?? WHY_PLACEHOLDER}\n\`\`\`${langOf(f)}\n${body}\n\`\`\`${tail}`
   })
   // a path outside the repo would commit a non-portable ../ reference — reject it rather than write a broken corpus
@@ -264,7 +303,9 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
   note(
     [
       `built ${pc.cyan(corpusPath)} from ${pc.bold(String(argv.files.length))} file(s)${priorWhy.size ? pc.dim(` (kept ${priorWhy.size} of your “why” lines)`) : ''}.`,
-      truncated.length ? pc.yellow(`truncated to ${CORPUS_CAP} lines: ${truncated.join(', ')}, a tighter exemplar reads better`) : '',
+      truncated.length
+        ? pc.yellow(`truncated to ${CORPUS_CAP} lines: ${truncated.join(', ')}, a tighter exemplar reads better`)
+        : '',
       ``,
       `${pc.bold('1.')} edit the ${pc.cyan('⟨why⟩')} line on each block ${pc.dim('(that one line is your taste)')}`,
       inGit ? `${pc.bold('2.')} commit ${pc.cyan('.review/')} ${pc.dim('· version it with your code')}` : '',
@@ -277,7 +318,13 @@ async function init(argv: { files: string[]; force: boolean }): Promise<void> {
   outro(pc.green("fill in the whys and you're set 🎯"))
 }
 
-async function setup(argv: { repo?: string; host?: string; codexHost?: string; yes: boolean; pack?: string }): Promise<void> {
+async function setup(argv: {
+  repo?: string
+  host?: string
+  codexHost?: string
+  yes: boolean
+  pack?: string
+}): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · sounds dumb, reviews sharp'))
 
@@ -334,13 +381,12 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
     host = answer.trim()
   }
   if (host && !validHost(host)) die(`'${host}' is not a valid host, hostname characters only (e.g. acme.int.exe.xyz)`)
-  if (argv.codexHost && !validHost(argv.codexHost)) die(`'${argv.codexHost}' is not a valid Codex gateway host, hostname characters only`)
+  if (argv.codexHost && !validHost(argv.codexHost))
+    die(`'${argv.codexHost}' is not a valid Codex gateway host, hostname characters only`)
 
   // 3.5 taste — pick a pack (or your own code)
   const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
-  const tasteLine = packs.length
-    ? tasteLabel(packs)
-    : 'your own codebase'
+  const tasteLine = packs.length ? tasteLabel(packs) : 'your own codebase'
 
   // 4. plan + confirm
   note(
@@ -375,7 +421,12 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
   writeFileSync(join(HOME, 'config.env'), cfg + '\n')
   if (host) writeCodexGatewayConfig({ gatewayHost: argv.codexHost, trustDir: join(HOME, 'repo') }) // exe.dev VM: route Codex through the no-key exe-llm gateway
   try {
-    installCron({ stateDir: STATE, engineFile: join(HOME, 'review-sweep.ts'), ghHost: host, removeMarker: 'review-sweep.ts' })
+    installCron({
+      stateDir: STATE,
+      engineFile: join(HOME, 'review-sweep.ts'),
+      ghHost: host,
+      removeMarker: 'review-sweep.ts',
+    })
   } catch (e) {
     s2.stop(pc.yellow('files installed, but the cron job failed'))
     die((e as Error).message) // friendly: includes the reason + the exact line to add by hand
@@ -422,7 +473,8 @@ async function setup(argv: { repo?: string; host?: string; codexHost?: string; y
 const PRIME_ENGINE = join(HOME, 'prime.ts') // the dep-free copy the hook actually runs; also our marker in settings.json
 
 /** Claude Code's user settings file. CLAUDE_CONFIG_DIR overrides ~/.claude (and makes this testable). */
-const claudeSettingsPath = (): string => join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'settings.json')
+const claudeSettingsPath = (): string =>
+  join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'settings.json')
 
 /** Codex's user hooks file. Same JSON shape as Claude's settings.json (hooks.SessionStart[]). CODEX_HOME
  *  overrides ~/.codex. We use hooks.json (not config.toml) so we never touch the user's main Codex config. */
@@ -431,7 +483,9 @@ const codexHooksPath = (): string => join(process.env.CODEX_HOME ?? join(homedir
 /** Read settings.json (or {} if absent). Throws on malformed JSON so callers refuse to clobber a broken file. */
 function readSettings(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {}
-  return JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>
+  const parsed = parseJson(z.record(z.string(), z.unknown()), readFileSync(path, 'utf8'))
+  if (parsed === undefined) throw new Error(`malformed JSON in ${path}`)
+  return parsed
 }
 
 type HookEntry = { matcher?: string; hooks?: { type?: string; command?: string }[] }
@@ -455,7 +509,8 @@ const PRIME_TARGETS: PrimeTarget[] = [
     label: 'Claude Code',
     file: claudeSettingsPath,
     matcher: 'startup',
-    installed: () => Bun.which('claude') !== null || existsSync(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')),
+    installed: () =>
+      Bun.which('claude') !== null || existsSync(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude')),
   },
   {
     id: 'codex',
@@ -471,9 +526,14 @@ const PRIME_TARGETS: PrimeTarget[] = [
  *  so `prime --install` on a bare machine still wires something). */
 function selectTargets(agentArg?: string): PrimeTarget[] {
   if (agentArg !== undefined) {
-    const ids = agentArg.toLowerCase().split(',').map((s) => s.trim()).filter(Boolean)
+    const ids = agentArg
+      .toLowerCase()
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
     const unknown = ids.filter((id) => !PRIME_TARGETS.some((t) => t.id === id))
-    if (unknown.length) die(`unknown --agent: ${unknown.join(', ')} (known: ${PRIME_TARGETS.map((t) => t.id).join(', ')})`)
+    if (unknown.length)
+      die(`unknown --agent: ${unknown.join(', ')} (known: ${PRIME_TARGETS.map((t) => t.id).join(', ')})`)
     return PRIME_TARGETS.filter((t) => ids.includes(t.id))
   }
   const detected = PRIME_TARGETS.filter((t) => t.installed())
@@ -524,7 +584,9 @@ const hasTaste = (d: string): boolean => existsSync(join(d, 'RUBRIC.md')) && exi
 async function installPrimeHook(argv: { pack?: string; agent?: string }): Promise<void> {
   console.clear()
   const targets = selectTargets(argv.agent)
-  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(` · prime ${targets.map((t) => t.label).join(' + ')} with your taste`))
+  intro(
+    pc.bgMagenta(pc.black(' stupify ')) + pc.dim(` · prime ${targets.map((t) => t.label).join(' + ')} with your taste`),
+  )
 
   // 0. ensure GLOBAL taste exists for the hook to inject. The hook runs in EVERY repo; a repo's own .review/
   //    wins, but ~/.stupify/.review is the fallback, so without it the hook would no-op everywhere. Assemble it
@@ -540,7 +602,9 @@ async function installPrimeHook(argv: { pack?: string; agent?: string }): Promis
       const tasteLine = tasteLabel(packs)
       log.success(`global taste assembled → ${pc.cyan(join(HOME, '.review'))} ${pc.dim(`(${tasteLine})`)}`)
     } else if (!primed) {
-      log.warn(`no taste yet. the hook will no-op until this repo has a ${pc.cyan('.review/')} (${pc.cyan('stupify init')}) or you run ${pc.cyan('stupify taste')}`)
+      log.warn(
+        `no taste yet. the hook will no-op until this repo has a ${pc.cyan('.review/')} (${pc.cyan('stupify init')}) or you run ${pc.cyan('stupify taste')}`,
+      )
     }
   }
 
@@ -569,7 +633,11 @@ async function installPrimeHook(argv: { pack?: string; agent?: string }): Promis
     ].join('\n'),
     primed ? "you're primed" : 'hooks wired (no taste yet)',
   )
-  outro(primed ? pc.green('your agents will write to your taste from the first line 🧠') : pc.yellow('add taste to bring it to life ↑'))
+  outro(
+    primed
+      ? pc.green('your agents will write to your taste from the first line 🧠')
+      : pc.yellow('add taste to bring it to life ↑'),
+  )
 }
 
 function uninstallPrimeHook(): void {
@@ -592,120 +660,14 @@ function uninstallPrimeHook(): void {
 function run(dry: boolean): void {
   const sweep = join(HOME, 'review-sweep.ts')
   if (!existsSync(sweep)) {
-    log.error(`not set up yet. run ${pc.cyan('stupify setup')} to install on this machine, or ${pc.cyan('stupify')} to provision an exe.dev VM`)
+    log.error(
+      `not set up yet. run ${pc.cyan('stupify setup')} to install on this machine, or ${pc.cyan('stupify')} to provision an exe.dev VM`,
+    )
     process.exit(1)
   }
   const env = { ...process.env, ...(dry ? { DRY_RUN: '1' } : {}) }
   const r = spawnSync(stableBun(), [sweep], { stdio: 'inherit', env }) // same bun the cron uses, not ambient PATH
   process.exit(r.status ?? 1)
-}
-
-type CliPrStatusState = 'queued' | 'reviewing' | 'posted' | 'clean' | 'dry_run' | 'skipped' | 'deferred' | 'failed'
-type CliStage = 'starting' | 'refreshing' | 'loading_taste' | 'listing_prs' | 'reviewing' | 'done' | 'blocked'
-interface CliPrStatus {
-  number: number
-  title: string
-  head: string
-  state: CliPrStatusState
-  detail: string
-  lines?: number
-  updatedAt: string
-}
-interface CliSweepStatus {
-  repo: string
-  scope: 'label' | 'auto'
-  dryRun: boolean
-  stage: CliStage
-  startedAt: string
-  updatedAt: string
-  finishedAt?: string
-  message: string
-  totals: {
-    openPrs: number
-    inScope: number
-    handled: number
-    reviewed: number
-    skipped: number
-    tokens: number
-    maxPrs: number
-  }
-  prs: CliPrStatus[]
-}
-
-const isObject = (raw: unknown): raw is Record<string, unknown> => typeof raw === 'object' && raw !== null && !Array.isArray(raw)
-const isPrStatusState = (raw: unknown): raw is CliPrStatusState =>
-  raw === 'queued' || raw === 'reviewing' || raw === 'posted' || raw === 'clean' || raw === 'dry_run' || raw === 'skipped' || raw === 'deferred' || raw === 'failed'
-const isStage = (raw: unknown): raw is CliStage =>
-  raw === 'starting' || raw === 'refreshing' || raw === 'loading_taste' || raw === 'listing_prs' || raw === 'reviewing' || raw === 'done' || raw === 'blocked'
-const textField = (o: Record<string, unknown>, key: string): string | null => {
-  const value = o[key]
-  return typeof value === 'string' ? value : null
-}
-const numField = (o: Record<string, unknown>, key: string): number | null => {
-  const value = o[key]
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-const boolField = (o: Record<string, unknown>, key: string): boolean | null => {
-  const value = o[key]
-  return typeof value === 'boolean' ? value : null
-}
-
-function parseStatus(raw: unknown): CliSweepStatus | null {
-  if (!isObject(raw) || raw.version !== 1) return null
-  const repo = textField(raw, 'repo')
-  const scope = textField(raw, 'scope')
-  const dryRun = boolField(raw, 'dryRun')
-  const stageRaw = raw.stage
-  const startedAt = textField(raw, 'startedAt')
-  const updatedAt = textField(raw, 'updatedAt')
-  const message = textField(raw, 'message')
-  const totals = raw.totals
-  const prsRaw = raw.prs
-  if (repo === null || (scope !== 'label' && scope !== 'auto') || dryRun === null || !isStage(stageRaw) || startedAt === null || updatedAt === null || message === null) return null
-  if (!isObject(totals) || !Array.isArray(prsRaw)) return null
-  const openPrs = numField(totals, 'openPrs')
-  const inScope = numField(totals, 'inScope')
-  const handled = numField(totals, 'handled')
-  const reviewed = numField(totals, 'reviewed')
-  const skipped = numField(totals, 'skipped')
-  const tokens = numField(totals, 'tokens')
-  const maxPrs = numField(totals, 'maxPrs')
-  if (openPrs === null || inScope === null || handled === null || reviewed === null || skipped === null || tokens === null || maxPrs === null) return null
-
-  const prs: CliPrStatus[] = []
-  for (const item of prsRaw) {
-    if (!isObject(item)) return null
-    const number = numField(item, 'number')
-    const title = textField(item, 'title')
-    const head = textField(item, 'head')
-    const stateRaw = item.state
-    const detail = textField(item, 'detail')
-    const updated = textField(item, 'updatedAt')
-    const lines = item.lines
-    if (number === null || title === null || head === null || !isPrStatusState(stateRaw) || detail === null || updated === null) return null
-    if (lines !== undefined && (typeof lines !== 'number' || !Number.isFinite(lines))) return null
-    const pr: CliPrStatus = { number, title, head, state: stateRaw, detail, updatedAt: updated }
-    if (typeof lines === 'number') pr.lines = lines
-    prs.push(pr)
-  }
-
-  const status: CliSweepStatus = {
-    repo,
-    scope,
-    dryRun,
-    stage: stageRaw,
-    startedAt,
-    updatedAt,
-    message,
-    totals: { openPrs, inScope, handled, reviewed, skipped, tokens, maxPrs },
-    prs,
-  }
-  const finishedAt = raw.finishedAt
-  if (finishedAt !== undefined) {
-    if (typeof finishedAt !== 'string') return null
-    status.finishedAt = finishedAt
-  }
-  return status
 }
 
 function formatWhen(iso: string): string {
@@ -720,7 +682,7 @@ function formatWhen(iso: string): string {
   return new Date(time).toLocaleString()
 }
 
-function statusMarker(state: CliPrStatusState): string {
+function statusMarker(state: SweepStatus['prs'][number]['state']): string {
   if (state === 'reviewing') return pc.cyan('[>]')
   if (state === 'posted' || state === 'clean' || state === 'dry_run') return pc.green('[x]')
   if (state === 'failed') return pc.red('[!]')
@@ -728,7 +690,7 @@ function statusMarker(state: CliPrStatusState): string {
   return pc.dim('[ ]')
 }
 
-function renderStatus(status: CliSweepStatus): string {
+function renderStatus(status: SweepStatus): string {
   const running = status.finishedAt === undefined && status.stage !== 'done' && status.stage !== 'blocked'
   const mode = status.dryRun ? 'dry-run' : 'live'
   const header = [
@@ -755,14 +717,8 @@ function cmdStatus(): void {
     log.warn(`no sweep status yet at ${pc.cyan(file)}. Run ${pc.cyan('stupify run --dry')} or wait for the cron sweep.`)
     return
   }
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(readFileSync(file, 'utf8'))
-  } catch {
-    die(`couldn't parse ${file}; check the file or rerun ${pc.cyan('stupify run --dry')}`)
-  }
-  const status = parseStatus(parsed)
-  if (status === null) die(`couldn't read ${file}; status schema is not recognized`)
+  const status = readJsonFile(SweepStatus, file)
+  if (status === undefined) die(`couldn't read ${file}; check the file or rerun ${pc.cyan('stupify run --dry')}`)
   console.log(renderStatus(status))
 }
 
@@ -774,7 +730,8 @@ function cmdReview(ref: string | undefined, post: boolean): void {
   let target = ref
   if (/^#?\d+$/.test(ref)) {
     const repo = detectRepo()
-    if (!repo) die(`'${ref}' is just a number — run this inside the target repo, or pass owner/repo#${ref.replace(/^#/, '')}`)
+    if (!repo)
+      die(`'${ref}' is just a number — run this inside the target repo, or pass owner/repo#${ref.replace(/^#/, '')}`)
     target = `${repo}#${ref.replace(/^#/, '')}`
   }
   const engine = join(PKG_DIR, 'review-sweep.ts') // the bundled engine, run directly — review needs no install
@@ -795,7 +752,10 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
   const who = exe(['whoami'])
   if (!who.ok) {
     s.stop(pc.red('not connected to exe.dev'))
-    note(`onboarding is one step. run this once, then re-run stupify:\n\n  ${pc.cyan('ssh exe.dev')}`, 'connect exe.dev')
+    note(
+      `onboarding is one step. run this once, then re-run stupify:\n\n  ${pc.cyan('ssh exe.dev')}`,
+      'connect exe.dev',
+    )
     process.exit(1)
   }
   s.stop(pc.green('exe.dev ready') + pc.dim(` · ${(who.out.match(/[\w.+-]+@[\w.-]+/) ?? [''])[0]}`))
@@ -842,23 +802,27 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
       s2.stop(pc.green(`created integration ${pc.bold(name)}`))
     } else {
       s2.stop(pc.red(`no GitHub integration for ${repo}`))
-      note(`link your GitHub account once (web), then re-run stupify:\n\n  ${pc.cyan('https://exe.dev/integrations')}\n\n${pc.dim(add.out.trim().slice(0, 200))}`, 'connect GitHub')
+      note(
+        `link your GitHub account once (web), then re-run stupify:\n\n  ${pc.cyan('https://exe.dev/integrations')}\n\n${pc.dim(add.out.trim().slice(0, 200))}`,
+        'connect GitHub',
+      )
       process.exit(1)
     }
   }
   // The integration name comes back from the exe.dev API and gets baked into the VM's first-boot setup SCRIPT
   // (which runs in a shell) and into the host. Refuse anything with shell metacharacters before interpolating it.
   if (!integration || !validHost(integration)) {
-    die(`exe.dev returned an unexpected integration name${integration ? ` (${integration})` : ''}. refusing to build a setup script with it`)
+    die(
+      `exe.dev returned an unexpected integration name${integration ? ` (${integration})` : ''}. refusing to build a setup script with it`,
+    )
   }
   const host = `${integration}.int.exe.xyz`
   // Codex on the VM runs on the no-key exe-llm gateway, fronted by the `llm` integration (auto-installed for most
   // exe.dev users). We point Codex at it in setup and attach it to the VM below; without it every review 401s.
   const llm = llmIntegrationFor()
-  if (llm && !validHost(llm)) die(`exe.dev returned an unexpected exe-llm integration name (${llm}). refusing to use it`)
-  const tasteLine = packs.length
-    ? tasteLabel(packs)
-    : 'your own codebase'
+  if (llm && !validHost(llm))
+    die(`exe.dev returned an unexpected exe-llm integration name (${llm}). refusing to use it`)
+  const tasteLine = packs.length ? tasteLabel(packs) : 'your own codebase'
 
   // 4. plan + confirm
   note(
@@ -884,18 +848,16 @@ async function provision(argv: { repo?: string; yes: boolean; pack?: string }): 
   const vm = vmNameFor(repo)
   const setupCommand = `exec bunx @stupify/cli@${VERSION} setup ${repo} --host ${host} --pack ${packs.join(',') || 'own'} --yes`
   const script = exeSetupScript(setupCommand, llm ? `${llm}.int.exe.xyz` : undefined)
-  const created = exe(['new', '--name', vm, '--integration', integration, '--json', '--setup-script', '/dev/stdin'], script)
+  const created = exe(
+    ['new', '--name', vm, '--integration', integration, '--json', '--setup-script', '/dev/stdin'],
+    script,
+  )
   if (!created.ok) {
     s3.stop(pc.red('provision failed'))
     log.error(created.out.trim().slice(0, 400))
     process.exit(1)
   }
-  let dest = `${vm}.exe.xyz`
-  try {
-    dest = (JSON.parse(created.out) as { ssh_dest?: string }).ssh_dest ?? dest
-  } catch {
-    /* keep the derived dest */
-  }
+  const dest = parseJson(z.object({ ssh_dest: z.string().optional() }), created.out)?.ssh_dest ?? `${vm}.exe.xyz`
   s3.stop(pc.green(`VM ${pc.bold(vm)} created`) + pc.dim(` (${dest})`))
 
   // 5.5 attach the exe-llm gateway so Codex can review (creating with --integration <github> drops the auto:all llm)
@@ -988,14 +950,20 @@ async function upgrade(repoArg?: string): Promise<void> {
     const r = spawnSync('ssh', ['-o', 'ConnectTimeout=25', dest, remote], { encoding: 'utf8', timeout: 180_000 })
     if (r.status !== 0) {
       s.stop(pc.red(`couldn't upgrade ${repo}`))
-      die(((r.stderr ?? '') + (r.stdout ?? '')).trim().slice(0, 300) || r.error?.message || `ssh ${dest} exited ${r.status ?? '?'}`)
+      die(
+        ((r.stderr ?? '') + (r.stdout ?? '')).trim().slice(0, 300) ||
+          r.error?.message ||
+          `ssh ${dest} exited ${r.status ?? '?'}`,
+      )
     }
     s.stop(pc.green(`${repo}'s reviewer is on the latest engine`) + pc.dim(' · the cron picks it up within ~60s'))
     return
   }
   // local: refresh THIS box's engine from this package; leave config.env, taste, and the cron line untouched.
   if (!existsSync(join(HOME, 'review-sweep.ts'))) {
-    die(`nothing installed at ${HOME} to upgrade — run ${pc.cyan('stupify setup')} (this machine) or ${pc.cyan('stupify <owner/repo>')} (a VM) first`)
+    die(
+      `nothing installed at ${HOME} to upgrade — run ${pc.cyan('stupify setup')} (this machine) or ${pc.cyan('stupify <owner/repo>')} (a VM) first`,
+    )
   }
   await installSweepEngine()
   if (existsSync(PRIME_ENGINE)) copyFileSync(join(PKG_DIR, 'prime.ts'), PRIME_ENGINE) // only where `prime --install` put it
@@ -1032,7 +1000,10 @@ if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
 } else if (cmd === 'prime') {
   if (args.includes('--install')) await installPrimeHook({ pack, agent })
   else if (args.includes('--uninstall')) uninstallPrimeHook()
-  else die('`stupify prime --install` to wire it up (or `--uninstall`). The hook itself runs ~/.stupify/prime.ts directly.')
+  else
+    die(
+      '`stupify prime --install` to wire it up (or `--uninstall`). The hook itself runs ~/.stupify/prime.ts directly.',
+    )
 } else if (cmd === 'run') {
   run(args.includes('--dry'))
 } else if (cmd === 'status') {

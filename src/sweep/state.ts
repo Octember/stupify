@@ -1,9 +1,10 @@
 // --- Per-VM sweep state: tiny best-effort JSON files (a parse error or fresh VM just re-attempts once). ---
 // These lived in @stupify/exe-host, but they are review-sweep domain vocabulary (heads, reviews/day) with
 // exactly one consumer, so they live here rather than in the shared kit.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
+import { readJsonFile } from '../parse-json'
 import type { Config } from './config'
 
 export const HeadAttempt = z.strictObject({ head: z.string(), at: z.number() })
@@ -11,10 +12,6 @@ export type HeadAttempt = z.infer<typeof HeadAttempt>
 
 export const DailyCounter = z.strictObject({ date: z.string(), count: z.number() })
 export type DailyCounter = z.infer<typeof DailyCounter>
-
-export function readJson(path: string): unknown {
-  return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined
-}
 
 function writeJson(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true })
@@ -26,15 +23,16 @@ function writeJson(path: string, value: unknown): void {
 const HeadAttempts = z.record(z.string(), HeadAttempt)
 
 export function loadHeadAttempts(path: string): Record<string, HeadAttempt> {
-  try {
-    const parsed = HeadAttempts.safeParse(readJson(path))
-    return parsed.success ? parsed.data : {}
-  } catch {
-    return {}
-  }
+  return readJsonFile(HeadAttempts, path) ?? {}
 }
 
-export function recordHeadAttempt(path: string, attempts: Record<string, HeadAttempt>, key: string, head: string, at = Date.now()): void {
+export function recordHeadAttempt(
+  path: string,
+  attempts: Record<string, HeadAttempt>,
+  key: string,
+  head: string,
+  at = Date.now(),
+): void {
   attempts[key] = { head, at }
   try {
     writeJson(path, attempts)
@@ -46,12 +44,7 @@ export function recordHeadAttempt(path: string, attempts: Record<string, HeadAtt
 const ReviewedHeads = z.record(z.string(), z.string())
 
 export function loadReviewedHeads(path: string): Record<string, string> {
-  try {
-    const parsed = ReviewedHeads.safeParse(readJson(path))
-    return parsed.success ? parsed.data : {}
-  } catch {
-    return {}
-  }
+  return readJsonFile(ReviewedHeads, path) ?? {}
 }
 
 export function recordReviewedHead(path: string, reviewed: Record<string, string>, key: string, head: string): void {
@@ -65,13 +58,9 @@ export function recordReviewedHead(path: string, reviewed: Record<string, string
 
 export function loadDailyCounter(path: string, now = new Date()): DailyCounter {
   const today = now.toISOString().slice(0, 10)
-  try {
-    const parsed = DailyCounter.safeParse(readJson(path))
-    if (!parsed.success || parsed.data.date !== today) return { date: today, count: 0 } // stale = a new day, not corruption
-    return parsed.data
-  } catch {
-    return { date: today, count: 0 }
-  }
+  const parsed = readJsonFile(DailyCounter, path)
+  if (parsed === undefined || parsed.date !== today) return { date: today, count: 0 } // stale = a new day, not corruption
+  return parsed
 }
 
 export function bumpDailyCounter(path: string, daily: DailyCounter): void {

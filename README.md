@@ -12,7 +12,7 @@
 
 ![A real stupify review with four kinds of finding in one pass: a high-confidence bug, a fail-open footgun, a reinvented SDK primitive, and a dead config seam.](docs/proof/00-slop.png)
 
-*actual issues, tells the coding agent exactly how + what to fix* **[more catches, on real PRs →](docs/PROOF.md)**
+_actual issues, tells the coding agent exactly how + what to fix_ **[more catches, on real PRs →](docs/PROOF.md)**
 
 ### What you get
 
@@ -70,7 +70,7 @@ Don't have a corpus yet? Borrow one. Pick a programmer whose code you'd point a 
 [devshorts](packs/devshorts.md) · [Jarred Sumner](packs/jarred-sumner.md) · [browse all →](packs)
 
 Each pack is concrete principles plus commit-pinned exemplar files. Or **bring your own**: point stupify at the
-files you *wish* all your code looked like, and it scaffolds a `.review/` in your repo:
+files you _wish_ all your code looked like, and it scaffolds a `.review/` in your repo:
 
 ```bash
 npx @stupify/cli init src/best.ts src/clean-service.ts   # inlines them; you add one line of "why" each

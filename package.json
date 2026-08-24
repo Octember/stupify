@@ -2,13 +2,30 @@
   "name": "@stupify/cli",
   "version": "0.4.5",
   "description": "A code reviewer that talks like an idiot and catches real bugs — corpus-grounded, anti-slop, runs on Codex.",
-  "type": "module",
+  "keywords": [
+    "ai",
+    "anti-slop",
+    "code-review",
+    "codex",
+    "developer-tools",
+    "pull-request"
+  ],
+  "homepage": "https://stupif.ai",
+  "bugs": {
+    "url": "https://github.com/Octember/stupify/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Octember/stupify.git"
+  },
   "bin": {
     "stupify": "bin/stupify.js"
   },
   "files": [
     "bin/stupify.js",
     "src/cli.ts",
+    "src/parse-json.ts",
     "src/prime.ts",
     "src/review-sweep.ts",
     "src/sweep",
@@ -17,27 +34,7 @@
     "README.md",
     "LICENSE"
   ],
-  "license": "MIT",
-  "homepage": "https://stupif.ai",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Octember/stupify.git"
-  },
-  "bugs": {
-    "url": "https://github.com/Octember/stupify/issues"
-  },
-  "keywords": [
-    "code-review",
-    "codex",
-    "ai",
-    "pull-request",
-    "developer-tools",
-    "anti-slop"
-  ],
-  "engines": {
-    "node": ">=18",
-    "bun": ">=1.3"
-  },
+  "type": "module",
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -46,6 +43,8 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "bun test",
     "lint": "oxlint",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
     "cli": "bun src/cli.ts"
   },
   "dependencies": {
@@ -57,7 +56,12 @@
   "devDependencies": {
     "@types/bun": "^1.3.14",
     "@types/node": "^22.10.2",
+    "oxfmt": "^0.64.0",
     "oxlint": "^1.79.0",
     "typescript": "^7.0.2"
+  },
+  "engines": {
+    "bun": ">=1.3",
+    "node": ">=18"
   }
 }

@@ -43,7 +43,15 @@ export { dismissedFindings } from './sweep/github'
 export { reviewPrompt, stablePrefix } from './sweep/prompt'
 export { type Pr, priorReviewThread } from './sweep/prs'
 export { commitStatusForSweepResult } from './sweep/review-pr'
-export { bumpDailyCounter, loadDailyCounter, loadHeadAttempts, loadReviewedHeads, recordHeadAttempt, recordReviewedHead } from './sweep/state'
+export {
+  bumpDailyCounter,
+  DailyCounter,
+  loadDailyCounter,
+  loadHeadAttempts,
+  loadReviewedHeads,
+  recordHeadAttempt,
+  recordReviewedHead,
+} from './sweep/state'
 export { finalCodexMessage, parseReview, REVIEW_SCHEMA, STILL_NOTE } from './sweep/verdict'
 
 async function main(): Promise<void> {
@@ -79,7 +87,9 @@ async function main(): Promise<void> {
   const repoReview = join(cfg.repoDir, cfg.reviewDir)
   cfg.reviewDir = hasMachinery(repoReview) ? repoReview : cfg.homeReviewDir
   if (!hasMachinery(cfg.reviewDir)) {
-    log(`no review machinery at ${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Run \`stupify setup\` to assemble taste, or add a .review/ to ${cfg.slug}.`)
+    log(
+      `no review machinery at ${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Run \`stupify setup\` to assemble taste, or add a .review/ to ${cfg.slug}.`,
+    )
     status.stage = 'done'
     status.message = 'no review machinery found'
     status.finishedAt = isoNow()
@@ -98,7 +108,12 @@ async function main(): Promise<void> {
   const queue = prs.filter((pr) => inScope(pr, cfg)) // MAX_PRS is applied to PRs actually HANDLED, not iterated (collectCandidates)
   status.totals.openPrs = prs.length
   seedStatusPrs(cfg, status, queue)
-  setStatusStage(cfg, status, 'reviewing', queue.length === 0 ? 'no PRs in scope' : `reviewing ${queue.length} PR(s) in scope`)
+  setStatusStage(
+    cfg,
+    status,
+    'reviewing',
+    queue.length === 0 ? 'no PRs in scope' : `reviewing ${queue.length} PR(s) in scope`,
+  )
 
   const state = loadSweepState(cfg)
   const priorByPr = new Map<number, PriorState | null>()
@@ -110,7 +125,8 @@ async function main(): Promise<void> {
     const f = state.failures[String(pr.number)]
     const recentlyFailed = f !== undefined && f.head === pr.headRefOid && Date.now() - f.at < cfg.failRetryMs
     const dailyBlocked = cfg.maxReviewsPerDay > 0 && !cfg.dryRun && state.daily.count >= cfg.maxReviewsPerDay
-    if (!reviewedHead && !recentlyFailed && !dailyBlocked) setCommitStatus(cfg, state.commitStatuses, pr, 'pending', 'queued for stupify review')
+    if (!reviewedHead && !recentlyFailed && !dailyBlocked)
+      setCommitStatus(cfg, state.commitStatuses, pr, 'pending', 'queued for stupify review')
   }
 
   const { candidates, handled } = collectCandidates(cfg, status, queue, priorByPr, state)

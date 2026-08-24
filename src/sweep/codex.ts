@@ -20,14 +20,28 @@ export type ReviewOutcome =
 
 // Async twin of the kit's `exec`, same result shape — ONLY for the codex child, so several multi-minute reviews
 // can run at once while every gh call around them stays the kit's sync exec.
-async function execAsync(cmd: string, args: string[], opts: { cwd: string; input: string; timeoutMs: number }): Promise<{ ok: boolean; stdout: string; combined: string }> {
+async function execAsync(
+  cmd: string,
+  args: string[],
+  opts: { cwd: string; input: string; timeoutMs: number },
+): Promise<{ ok: boolean; stdout: string; combined: string }> {
   try {
-    const child = Bun.spawn([cmd, ...args], { cwd: opts.cwd, stdin: new TextEncoder().encode(opts.input), stdout: 'pipe', stderr: 'pipe' })
+    const child = Bun.spawn([cmd, ...args], {
+      cwd: opts.cwd,
+      stdin: new TextEncoder().encode(opts.input),
+      stdout: 'pipe',
+      stderr: 'pipe',
+    })
     const timer = setTimeout(() => child.kill(), opts.timeoutMs)
-    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ])
     clearTimeout(timer)
-    let combined = stdout + stderr
-    if (child.signalCode) combined += `\n${cmd}: process killed by ${child.signalCode} (timeout ${opts.timeoutMs}ms)`
+    const combined = child.signalCode
+      ? `${stdout}${stderr}\n${cmd}: process killed by ${child.signalCode} (timeout ${opts.timeoutMs}ms)`
+      : stdout + stderr
     return { ok: code === 0 && child.signalCode === null, stdout, combined }
   } catch (e) {
     return { ok: false, stdout: '', combined: `${cmd}: ${e instanceof Error ? e.message : String(e)}` } // spawn failure (ENOENT etc.)
@@ -35,7 +49,13 @@ async function execAsync(cmd: string, args: string[], opts: { cwd: string; input
 }
 
 /** Run codex over one PR's diff and classify the result. Does NO gh I/O and NO posting — the caller owns those. */
-export async function runReview(cfg: Config, pr: Pr, priorThread: string, diff: string, dismissed: string[] = []): Promise<ReviewOutcome> {
+export async function runReview(
+  cfg: Config,
+  pr: Pr,
+  priorThread: string,
+  diff: string,
+  dismissed: string[] = [],
+): Promise<ReviewOutcome> {
   const outPath = reviewOutPath(cfg, pr)
   rmSync(outPath, { force: true }) // clear any stale file so we never read a previous run's review
   const schemaPath = join(cfg.stateDir, 'review-schema.json')
@@ -61,12 +81,16 @@ export async function runReview(cfg: Config, pr: Pr, priorThread: string, diff: 
   if (cfg.codexModel) codexArgs.push('-c', `model=${cfg.codexModel}`)
   codexArgs.push('-') // read the prompt from STDIN, not argv — the inlined corpus + diff would blow ARG_MAX (E2BIG)
 
-  const cx = await execAsync('codex', codexArgs, { cwd: cfg.repoDir, timeoutMs: 1_200_000, input: reviewPrompt(cfg, pr, priorThread, diff, dismissed) })
+  const cx = await execAsync('codex', codexArgs, {
+    cwd: cfg.repoDir,
+    timeoutMs: 1_200_000,
+    input: reviewPrompt(cfg, pr, priorThread, diff, dismissed),
+  })
   logRaw(`${cx.combined}\n`)
-  let review = cx.ok && existsSync(outPath) ? readFileSync(outPath, 'utf8').trim() : ''
+  const fromFile = cx.ok && existsSync(outPath) ? readFileSync(outPath, 'utf8').trim() : ''
   // Belt: if the CLI didn't write the last-message file, recover the final message from the transcript. It still
   // has to parse as ReviewOutput, so anything looser fails visibly.
-  if (review.length === 0 && cx.ok) review = finalCodexMessage(cx.combined)
+  const review = fromFile || (cx.ok ? finalCodexMessage(cx.combined) : '')
   if (review.length === 0) {
     const reason = failureReason(cx.combined)
     return isRateLimited(cx.combined) ? { kind: 'limit', reason, raw: cx.combined } : { kind: 'fail', reason }
@@ -86,14 +110,10 @@ export async function runReview(cfg: Config, pr: Pr, priorThread: string, diff: 
 /** codex prints `tokens used` then the count on the next line — read the last such pair. */
 function parseTokens(out: string): number | null {
   const lines = out.split('\n')
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]
-    if (line !== undefined && /tokens used/i.test(line)) {
-      const digits = (lines[i + 1] ?? '').replace(/\D/g, '')
-      return digits ? Number(digits) : null
-    }
-  }
-  return null
+  const i = lines.findLastIndex((line) => line !== undefined && /tokens used/i.test(line))
+  if (i === -1) return null
+  const digits = (lines[i + 1] ?? '').replace(/\D/g, '')
+  return digits ? Number(digits) : null
 }
 
 function failureReason(out: string): string {

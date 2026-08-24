@@ -8,6 +8,8 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { z } from 'zod'
+import { parseJson } from './parse-json'
 
 const CLI = join(import.meta.dir, 'cli.ts')
 
@@ -22,11 +24,18 @@ const run = (sub: string[], e: { home: string; cfg: string; codex: string }) =>
     env: { ...process.env, STUPIFY_HOME: e.home, CLAUDE_CONFIG_DIR: e.cfg, CODEX_HOME: e.codex },
     encoding: 'utf8',
   })
-const read = (p: string) => JSON.parse(readFileSync(p, 'utf8'))
+const read = (p: string) => {
+  const v = parseJson(z.any(), readFileSync(p, 'utf8'))
+  if (v === undefined) throw new Error(`unreadable ${p}`)
+  return v
+}
 const clean = (e: { home: string; cfg: string; codex: string }) => {
   for (const d of [e.home, e.cfg, e.codex]) rmSync(d, { recursive: true, force: true })
 }
-const seeded = JSON.stringify({ theme: 'dark', hooks: { PostToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'echo keep' }] }] } })
+const seeded = JSON.stringify({
+  theme: 'dark',
+  hooks: { PostToolUse: [{ matcher: 'Edit', hooks: [{ type: 'command', command: 'echo keep' }] }] },
+})
 
 test('--install merges into existing settings without clobbering, and is idempotent', () => {
   const e = env()
@@ -167,8 +176,24 @@ test('status renders the latest sweep workflow from state/status.json', () => {
       message: 'reviewing 2 PR(s) in scope',
       totals: { openPrs: 3, inScope: 2, handled: 1, reviewed: 0, skipped: 1, tokens: 0, maxPrs: 15 },
       prs: [
-        { number: 7, title: 'tighten parser', head: 'abcdef123456', state: 'reviewing', detail: 'running codex over 91 diff lines', lines: 91, updatedAt: '2026-06-22T10:00:30Z' },
-        { number: 8, title: 'huge import', head: '999999999999', state: 'skipped', detail: 'diff 7000 lines > cap 5000', lines: 7000, updatedAt: '2026-06-22T10:00:20Z' },
+        {
+          number: 7,
+          title: 'tighten parser',
+          head: 'abcdef123456',
+          state: 'reviewing',
+          detail: 'running codex over 91 diff lines',
+          lines: 91,
+          updatedAt: '2026-06-22T10:00:30Z',
+        },
+        {
+          number: 8,
+          title: 'huge import',
+          head: '999999999999',
+          state: 'skipped',
+          detail: 'diff 7000 lines > cap 5000',
+          lines: 7000,
+          updatedAt: '2026-06-22T10:00:20Z',
+        },
       ],
     }),
   )
