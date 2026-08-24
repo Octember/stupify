@@ -35,8 +35,9 @@ import { SweepStatus } from './sweep/status'
 
 const PKG_DIR = dirname(fileURLToPath(import.meta.url))
 const PKG_ROOT = join(PKG_DIR, '..') // the published package root: holds .review/ and packs/
-const VERSION = z.object({ version: z.string() }).parse(JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8')))
-  .version
+const VERSION = z
+  .object({ version: z.string() })
+  .parse(JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8'))).version
 const HOME = process.env.STUPIFY_HOME ?? join(homedir(), '.stupify')
 const STATE = join(HOME, 'state')
 const REQUIRED = ['bun', 'gh', 'codex', 'git'] as const
