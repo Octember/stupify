@@ -4,7 +4,6 @@ import { join } from 'node:path'
 
 import { exec } from '@bevyl-ai/agent-tools'
 
-import { parseJson } from '../parse-json'
 import { runReview } from './codex'
 import { type Config } from './config'
 import { getDiff, GH_DIFF_LIMITS } from './diff'
@@ -38,15 +37,13 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
     console.error(`stupify review: couldn't read ${slug}#${number} via gh (auth? does it exist?).`)
     process.exit(1)
   }
-  const meta = parseJson(Pr.pick({ headRefOid: true, title: true, body: true }).partial(), head.stdout) ?? {}
-  const pr: Pr = {
+  const meta = Pr.pick({ headRefOid: true, title: true, body: true }).parse(JSON.parse(head.stdout))
+  const pr = {
     number,
-    headRefOid: meta.headRefOid ?? '',
+    ...meta,
     isDraft: false,
     author: { login: '', is_bot: false },
     labels: [],
-    title: meta.title ?? '',
-    body: meta.body ?? '',
   }
   const read = getDiff(cfg, number)
   if (!read.ok) {

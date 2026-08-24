@@ -7,7 +7,6 @@ import { join } from 'node:path'
 import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
 
-import { parseJson, readJsonFile } from '../parse-json'
 import { type Config, log } from './config'
 import { type Pr } from './prs'
 import { commitStatusPath } from './state'
@@ -21,7 +20,11 @@ export type PostedCommitStatus = z.infer<typeof PostedCommitStatus>
 const PostedCommitStatuses = z.record(z.string(), PostedCommitStatus)
 
 export function loadCommitStatuses(path: string): Record<string, PostedCommitStatus> {
-  return readJsonFile(PostedCommitStatuses, path) ?? {}
+  try {
+    return PostedCommitStatuses.parse(JSON.parse(readFileSync(path, 'utf8')))
+  } catch {
+    return {}
+  }
 }
 
 function writeCommitStatuses(path: string, statuses: Record<string, PostedCommitStatus>): void {
@@ -68,26 +71,18 @@ function ghAppApi(method: 'GET' | 'POST', path: string, bearer: string, body?: s
 }
 
 const CachedAppToken = z.strictObject({ token: z.string(), expiresAtMs: z.number() })
-type CachedAppToken = z.infer<typeof CachedAppToken>
-const AppJson = z.record(z.string(), z.unknown())
+const Installation = z.object({ id: z.number() })
+const AccessToken = z.object({ token: z.string() })
 
 const appTokenPath = (cfg: Config): string => join(cfg.stateDir, 'gh-app-token.json')
-
-// Lenient field read on a ghAppApi response body — any non-JSON/non-object shape reads as absent.
-const field = (r: { ok: boolean; raw: string }, key: string): unknown => {
-  if (!r.ok) {
-    return undefined
-  }
-  return parseJson(AppJson, r.raw)?.[key]
-}
 
 /** Mint (or reuse) an installation token for our commit-status App. Cached on disk so the every-minute cron mints
  *  roughly once an hour, not once a sweep. Returns null (with a log) on any failure — the caller skips the status,
  *  same degraded state as a gh outage. */
 function appStatusToken(cfg: Config): string | null {
   try {
-    const cached = readJsonFile(CachedAppToken, appTokenPath(cfg))
-    if (cached !== undefined && cached.expiresAtMs - Date.now() > 5 * 60_000) {
+    const cached = CachedAppToken.parse(JSON.parse(readFileSync(appTokenPath(cfg), 'utf8')))
+    if (cached.expiresAtMs - Date.now() > 5 * 60_000) {
       return cached.token
     }
   } catch {
@@ -106,32 +101,32 @@ function appStatusToken(cfg: Config): string | null {
   }
   const jwt = appJwt(cfg.statusAppId, pem, Math.floor(Date.now() / 1000))
   const inst = ghAppApi('GET', `/repos/${cfg.slug}/installation`, jwt)
-  const instId = field(inst, 'id')
-  if (typeof instId !== 'number') {
+  if (!inst.ok) {
     log(
       `  status App isn't installed on ${cfg.slug} (or the key/app id is wrong) — ${inst.raw.slice(0, 180).replaceAll(/\s+/g, ' ').trim()}`,
     )
     return null
   }
+  const installation = Installation.parse(JSON.parse(inst.raw))
   const minted = ghAppApi(
     'POST',
-    `/app/installations/${instId}/access_tokens`,
+    `/app/installations/${installation.id}/access_tokens`,
     jwt,
     JSON.stringify({ permissions: { statuses: 'write' } }),
   )
-  const token = field(minted, 'token')
-  if (typeof token !== 'string') {
+  if (!minted.ok) {
     log(`  couldn't mint status App token — ${minted.raw.slice(0, 180).replaceAll(/\s+/g, ' ').trim()}`)
     return null
   }
+  const mintedToken = AccessToken.parse(JSON.parse(minted.raw))
   // GitHub installation tokens live 1h; we cache 55min (the 5-min freshness floor above trims the rest).
-  const cache: CachedAppToken = { token, expiresAtMs: Date.now() + 55 * 60_000 }
+  const cache = { token: mintedToken.token, expiresAtMs: Date.now() + 55 * 60_000 }
   try {
     writeFileSync(appTokenPath(cfg), JSON.stringify(cache))
   } catch {
     /* best-effort — re-minting next sweep is just one extra round-trip */
   }
-  return token
+  return mintedToken.token
 }
 
 export function setCommitStatus(

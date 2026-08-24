@@ -45,8 +45,8 @@ A cron job runs the sweep every minute (`*/1 * * * *`); the sweep self-locks so 
    non-draft PRs under `DIFF_LINE_CAP`, with `REVIEW_LABEL` as a force-include override for oversized ones;
    `SCOPE=label` flips to opt-in (only labelled PRs). Bot and draft authors are skipped in _either_ scope (`gh`'s
    `is_bot` flag) — unless the PR carries `REVIEW_LABEL`, which force-includes a bot-authored PR you deliberately
-   opted in. The JSON is fully validated at the boundary (`isPr`), so a malformed shape skips cleanly instead of
-   throwing mid-loop.
+   opted in. The JSON is `Pr.parse`'d at the boundary — a malformed list or entry throws rather than
+   skipping mid-loop.
 3. **Dedup.** For each candidate it reads the PR's comments and skips if one already contains the hidden marker
    `<!-- stupify:<headSHA> -->` for the _current_ head. A new push moves the SHA, the marker no longer matches, and
    it re-reviews. **One review per head.** (Failures aren't posted, see _Safety_, so there's no fail marker;
