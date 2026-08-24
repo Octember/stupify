@@ -152,20 +152,21 @@ test('the still-clean convergence note carries the ✅ approval mark per-head ga
   expect(prompts[0]).toContain(STILL_NOTE) // codex is told the runner posts it, so it keeps emitting the bare token
 })
 
+const gqlThread = (isResolved: boolean, bodies: string[]) => ({ isResolved, comments: { nodes: bodies.map((body) => ({ body })) } })
+
 // Re-raise on silent dismissal: a finding the author RESOLVED without replying isn't a reasoned decline. We detect
 // it from the threads we already fetch — every stupify finding carries the hidden tag, a human reply doesn't — so
 // "tagged comment, no untagged one, resolved" is the signal. A reply (reasoned decline) or an open thread is left be.
 test('dismissedFindings: resolved + stupify-only → dismissed; with a human reply → settled; open → neither', () => {
   const TAG = '<!-- stupify -->'
   const finding = '🟠 **`src/x.ts:30`** · bug · conf 0.8\nit breaks\n**→ Fix:** reuse (`src/y.ts`)'
-  const thread = (isResolved: boolean, bodies: string[]) => ({ isResolved, comments: { nodes: bodies.map((body) => ({ body })) } })
   const ours = `${finding}\n${TAG}`
   const reply = 'nah — intentional, see the PR body'
   const out = dismissedFindings([
-    thread(true, [ours]), // resolved, no reply → silently dismissed
-    thread(true, [ours, reply]), // resolved WITH a reply → reasoned decline, leave it
-    thread(false, [ours]), // still open → not dismissed (it's in openThreadIds instead)
-    thread(true, [reply]), // a resolved thread that isn't even ours → ignore
+    gqlThread(true, [ours]), // resolved, no reply → silently dismissed
+    gqlThread(true, [ours, reply]), // resolved WITH a reply → reasoned decline, leave it
+    gqlThread(false, [ours]), // still open → not dismissed (it's in openThreadIds instead)
+    gqlThread(true, [reply]), // a resolved thread that isn't even ours → ignore
   ])
   expect(out.length).toBe(1)
   expect(out[0]).toContain('src/x.ts:30')
@@ -214,7 +215,7 @@ test('diffRightLines: anchorable lines are the new-file added/context lines', ()
     ' return a',
   ].join('\n')
   const lines = diffRightLines(diff)
-  expect([...(lines.get('src/x.ts') ?? new Set())].sort((a, b) => a - b)).toEqual([10, 11, 12, 13])
+  expect([...(lines.get('src/x.ts') ?? new Set())].toSorted((a, b) => a - b)).toEqual([10, 11, 12, 13])
 })
 
 // codex's markdown review parses back into per-line findings (so each becomes an anchored thread) plus the opener.
