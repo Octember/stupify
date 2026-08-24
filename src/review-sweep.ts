@@ -141,15 +141,19 @@ function logFail(message: string): false {
   return false
 }
 
-export interface Pr {
-  number: number
-  headRefOid: string
-  isDraft: boolean
-  author: { login: string; is_bot: boolean } | null // is_bot flags GitHub App bots (app/dependabot) the [bot] suffix misses
-  labels: { name: string }[]
-  title: string // title + body carry the author's STATED INTENT — fed (untrusted) into the prompt so the reviewer can weigh "I did this on purpose, here's why" instead of flagging a deliberate call as a mistake
-  body: string
-}
+// The gh pr list --json boundary. gh guarantees the --json shape, but an auth-error page or schema drift would
+// otherwise throw (or silently mis-scope) mid-loop instead of skipping cleanly. z.object (not strictObject)
+// STRIPS any extra keys gh adds — same leniency as the old `in`-narrowing, no assertions.
+export const Pr = z.object({
+  number: z.number(),
+  headRefOid: z.string(),
+  isDraft: z.boolean(),
+  author: z.object({ login: z.string(), is_bot: z.boolean() }).nullable(), // is_bot flags GitHub App bots (app/dependabot) the [bot] suffix misses
+  labels: z.array(z.object({ name: z.string() })),
+  title: z.string(), // title + body carry the author's STATED INTENT — fed (untrusted) into the prompt so the reviewer can weigh "I did this on purpose, here's why" instead of flagging a deliberate call as a mistake
+  body: z.string(), // gh returns "" for an empty description, never absent
+})
+export type Pr = z.infer<typeof Pr>
 
 // gh's default --limit is 30, NEWEST-first — on a repo with more open PRs than that, the older ones silently
 // fall off the sweep's radar entirely: never re-reviewed, no log line, no skip status. (Observed on a 129-open-PR
@@ -176,33 +180,13 @@ function listPrs(cfg: Config): Pr[] | null {
     log('gh pr list returned a non-array — aborting sweep')
     return null
   }
-  const prs = raw.filter(isPr)
+  const prs: Pr[] = []
+  for (const entry of raw) {
+    const parsed = Pr.safeParse(entry)
+    if (parsed.success) prs.push(parsed.data)
+  }
   if (prs.length < raw.length) log(`gh pr list: ${raw.length - prs.length} entries failed shape check — skipped`)
   return prs
-}
-
-// Fully validate the gh boundary. gh guarantees the --json shape, but an auth-error page or schema drift
-// would otherwise throw (or silently mis-scope) mid-loop instead of skipping cleanly. `in`-narrowing, no
-// assertions. This is a complete `is Pr` — every field inScope/the loop trust is checked here.
-function isPr(raw: unknown): raw is Pr {
-  if (typeof raw !== 'object' || raw === null) return false
-  if (!('number' in raw) || typeof raw.number !== 'number') return false
-  if (!('headRefOid' in raw) || typeof raw.headRefOid !== 'string') return false
-  if (!('isDraft' in raw) || typeof raw.isDraft !== 'boolean') return false
-  if (!('labels' in raw) || !Array.isArray(raw.labels) || !raw.labels.every(isLabel)) return false
-  if (!('title' in raw) || typeof raw.title !== 'string') return false
-  if (!('body' in raw) || typeof raw.body !== 'string') return false // gh returns "" for an empty description, never absent
-  return 'author' in raw && isAuthor(raw.author)
-}
-
-function isLabel(raw: unknown): raw is { name: string } {
-  return typeof raw === 'object' && raw !== null && 'name' in raw && typeof raw.name === 'string'
-}
-
-function isAuthor(raw: unknown): raw is { login: string; is_bot: boolean } | null {
-  if (raw === null) return true
-  if (typeof raw !== 'object') return false
-  return 'login' in raw && typeof raw.login === 'string' && 'is_bot' in raw && typeof raw.is_bot === 'boolean'
 }
 
 function hasReviewLabel(pr: Pr, cfg: Config): boolean {
@@ -535,17 +519,11 @@ function prReviews(cfg: Config, pr: Pr): PriorState | null {
 // --- Per-VM sweep state: tiny best-effort JSON files (a parse error or fresh VM just re-attempts once). ---
 // These lived in @stupify/exe-host, but they are review-sweep domain vocabulary (heads, reviews/day) with
 // exactly one consumer, so they live here rather than in the shared kit.
-export interface HeadAttempt {
-  head: string
-  at: number
-}
+export const HeadAttempt = z.strictObject({ head: z.string(), at: z.number() })
+export type HeadAttempt = z.infer<typeof HeadAttempt>
 
-export interface DailyCounter {
-  date: string
-  count: number
-}
-
-const isJsonObject = (raw: unknown): raw is Record<string, unknown> => typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+export const DailyCounter = z.strictObject({ date: z.string(), count: z.number() })
+export type DailyCounter = z.infer<typeof DailyCounter>
 
 function readJson(path: string): unknown {
   return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined
@@ -556,16 +534,14 @@ function writeJson(path: string, value: unknown): void {
   writeFileSync(path, JSON.stringify(value))
 }
 
+// Whole-file parse-or-{}: these are best-effort caches the sweep itself wrote, so one corrupt entry means the
+// file is suspect — re-attempting everything once is the documented failure mode anyway.
+const HeadAttempts = z.record(z.string(), HeadAttempt)
+
 export function loadHeadAttempts(path: string): Record<string, HeadAttempt> {
   try {
-    const raw = readJson(path)
-    if (!isJsonObject(raw)) return {}
-    const out: Record<string, HeadAttempt> = {}
-    for (const [key, value] of Object.entries(raw)) {
-      if (!isJsonObject(value)) continue
-      if (typeof value.head === 'string' && typeof value.at === 'number') out[key] = { head: value.head, at: value.at }
-    }
-    return out
+    const parsed = HeadAttempts.safeParse(readJson(path))
+    return parsed.success ? parsed.data : {}
   } catch {
     return {}
   }
@@ -580,13 +556,12 @@ export function recordHeadAttempt(path: string, attempts: Record<string, HeadAtt
   }
 }
 
+const ReviewedHeads = z.record(z.string(), z.string())
+
 export function loadReviewedHeads(path: string): Record<string, string> {
   try {
-    const raw = readJson(path)
-    if (!isJsonObject(raw)) return {}
-    const out: Record<string, string> = {}
-    for (const [key, value] of Object.entries(raw)) if (typeof value === 'string') out[key] = value
-    return out
+    const parsed = ReviewedHeads.safeParse(readJson(path))
+    return parsed.success ? parsed.data : {}
   } catch {
     return {}
   }
@@ -604,9 +579,9 @@ export function recordReviewedHead(path: string, reviewed: Record<string, string
 export function loadDailyCounter(path: string, now = new Date()): DailyCounter {
   const today = now.toISOString().slice(0, 10)
   try {
-    const raw = readJson(path)
-    if (!isJsonObject(raw) || raw.date !== today || typeof raw.count !== 'number') return { date: today, count: 0 }
-    return { date: today, count: raw.count }
+    const parsed = DailyCounter.safeParse(readJson(path))
+    if (!parsed.success || parsed.data.date !== today) return { date: today, count: 0 } // stale = a new day, not corruption
+    return parsed.data
   } catch {
     return { date: today, count: 0 }
   }
@@ -628,7 +603,8 @@ const statusPath = (cfg: Config): string => join(cfg.stateDir, 'status.json')
 const commitStatusPath = (cfg: Config): string => join(cfg.stateDir, 'commit-statuses.json')
 
 type PrStatusState = 'queued' | 'reviewing' | 'posted' | 'clean' | 'dry_run' | 'skipped' | 'deferred' | 'failed'
-type CommitStatusState = 'pending' | 'success' | 'failure' | 'error'
+const CommitStatusState = z.enum(['pending', 'success', 'failure', 'error'])
+type CommitStatusState = z.infer<typeof CommitStatusState>
 interface PrStatus {
   number: number
   title: string
@@ -733,24 +709,15 @@ function deferQueuedStatusPrs(cfg: Config, status: SweepStatus, prs: Pr[], start
   }
 }
 
-interface PostedCommitStatus {
-  state: CommitStatusState
-  description: string
-}
+const PostedCommitStatus = z.strictObject({ state: CommitStatusState, description: z.string() })
+type PostedCommitStatus = z.infer<typeof PostedCommitStatus>
+
+const PostedCommitStatuses = z.record(z.string(), PostedCommitStatus)
 
 function loadCommitStatuses(path: string): Record<string, PostedCommitStatus> {
   try {
-    if (!existsSync(path)) return {}
-    const raw: unknown = JSON.parse(readFileSync(path, 'utf8'))
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return {}
-    const out: Record<string, PostedCommitStatus> = {}
-    for (const [key, value] of Object.entries(raw)) {
-      if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
-      if (!('state' in value) || !isCommitStatusState(value.state)) continue
-      if (!('description' in value) || typeof value.description !== 'string') continue
-      out[key] = { state: value.state, description: value.description }
-    }
-    return out
+    const parsed = PostedCommitStatuses.safeParse(readJson(path))
+    return parsed.success ? parsed.data : {}
   } catch {
     return {}
   }
@@ -762,10 +729,6 @@ function writeCommitStatuses(path: string, statuses: Record<string, PostedCommit
   } catch {
     /* best-effort */
   }
-}
-
-function isCommitStatusState(raw: unknown): raw is CommitStatusState {
-  return raw === 'pending' || raw === 'success' || raw === 'failure' || raw === 'error'
 }
 
 export const commitStatusDescription = (description: string): string =>
@@ -789,10 +752,8 @@ function ghAppApi(method: 'GET' | 'POST', path: string, bearer: string, body?: s
   return { ok: r.ok, raw: r.combined }
 }
 
-interface CachedAppToken {
-  token: string
-  expiresAtMs: number
-}
+const CachedAppToken = z.strictObject({ token: z.string(), expiresAtMs: z.number() })
+type CachedAppToken = z.infer<typeof CachedAppToken>
 
 const appTokenPath = (cfg: Config): string => join(cfg.stateDir, 'gh-app-token.json')
 
@@ -813,10 +774,8 @@ const field = (r: { ok: boolean; raw: string }, key: string): unknown => {
  *  same degraded state as a gh outage. */
 function appStatusToken(cfg: Config): string | null {
   try {
-    const raw: unknown = JSON.parse(readFileSync(appTokenPath(cfg), 'utf8'))
-    if (typeof raw === 'object' && raw !== null && 'token' in raw && typeof raw.token === 'string' && 'expiresAtMs' in raw && typeof raw.expiresAtMs === 'number' && raw.expiresAtMs - Date.now() > 5 * 60_000) {
-      return raw.token
-    }
+    const cached = CachedAppToken.safeParse(readJson(appTokenPath(cfg)))
+    if (cached.success && cached.data.expiresAtMs - Date.now() > 5 * 60_000) return cached.data.token
   } catch {
     /* no usable cache — mint below */
   }
