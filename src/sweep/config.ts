@@ -4,6 +4,7 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
 import { parseEnvFile, refreshCheckout } from '@bevyl-ai/agent-tools'
 
 // The deployed engine is a single-file bun bundle, so import.meta.url collapses to the bundle's own location
@@ -36,17 +37,21 @@ export interface Config {
   codexJobs: number // concurrent codex reviews per sweep; the gh I/O around them stays serial
 }
 
-let LOG = ''
+const LOG = { path: '' }
 
 export function log(message: string): void {
   const line = `${new Date().toISOString().replace(/\.\d{3}Z$/, 'Z')} ${message}`
-  if (LOG) appendFileSync(LOG, `${line}\n`)
+  if (LOG.path) {
+    appendFileSync(LOG.path, `${line}\n`)
+  }
   console.log(line)
 }
 
 /** Append raw text (codex transcripts, gh error excerpts) to the sweep log WITHOUT a timestamp or stdout echo. */
 export function logRaw(text: string): void {
-  if (LOG) appendFileSync(LOG, text)
+  if (LOG.path) {
+    appendFileSync(LOG.path, text)
+  }
 }
 
 export function loadConfig(): Config {
@@ -56,19 +61,29 @@ export function loadConfig(): Config {
   const pick = (key: string, fallback: string): string => process.env[key] ?? file[key] ?? fallback
   const int = (key: string, fallback: number, min: number): number => {
     const set = process.env[key] ?? file[key]
-    if (set === undefined) return fallback
+    if (set === undefined) {
+      return fallback
+    }
     const trimmed = set.trim()
     const n = Number(trimmed)
-    if (/^\d+$/.test(trimmed) && n >= min) return n
+    if (/^\d+$/.test(trimmed) && n >= min) {
+      return n
+    }
     log(`config: ${key}='${set}' is not an integer ≥ ${min} — using ${fallback}`)
     return fallback
   }
   const bool = (key: string, unset: boolean, onInvalid: boolean): boolean => {
     const set = process.env[key] ?? file[key]
-    if (set === undefined) return unset
+    if (set === undefined) {
+      return unset
+    }
     const v = set.trim().toLowerCase()
-    if (v === '1' || v === 'true' || v === 'yes' || v === 'on') return true
-    if (v === '0' || v === 'false' || v === 'no' || v === 'off') return false
+    if (v === '1' || v === 'true' || v === 'yes' || v === 'on') {
+      return true
+    }
+    if (v === '0' || v === 'false' || v === 'no' || v === 'off') {
+      return false
+    }
     log(`config: ${key}='${set}' is not a boolean (1/0/true/false/yes/no/on/off) — using ${onInvalid} (fail-safe)`)
     return onInvalid
   }
@@ -77,7 +92,7 @@ export function loadConfig(): Config {
   const stupifyHome = pick('STUPIFY_HOME', KIT_DIR)
   const stateDir = join(stupifyHome, 'state')
   mkdirSync(stateDir, { recursive: true })
-  LOG = join(stateDir, 'sweep.log') // set before parsing knobs so config warnings reach sweep.log, not just cron.log
+  LOG.path = join(stateDir, 'sweep.log') // set before parsing knobs so config warnings reach sweep.log, not just cron.log
 
   const slug = pick('REPO_SLUG', '').trim()
   if (!slug && !process.env.REVIEW_PR) {
@@ -86,7 +101,9 @@ export function loadConfig(): Config {
     process.exit(1)
   }
   const scopeRaw = pick('SCOPE', 'auto').trim().toLowerCase()
-  if (scopeRaw !== 'label' && scopeRaw !== 'auto') log(`config: SCOPE='${scopeRaw}' is not 'label' or 'auto' — using auto`)
+  if (scopeRaw !== 'label' && scopeRaw !== 'auto') {
+    log(`config: SCOPE='${scopeRaw}' is not 'label' or 'auto' — using auto`)
+  }
 
   return {
     repoDir: join(stupifyHome, 'repo'), // HARD-PINNED under STUPIFY_HOME: refreshRepo runs `git reset --hard` here
@@ -96,7 +113,7 @@ export function loadConfig(): Config {
     homeReviewDir: join(stupifyHome, '.review'),
     scope: scopeRaw === 'label' ? 'label' : 'auto', // auto is the default; only the explicit string 'label' opts into per-PR tagging
     reviewLabel: pick('REVIEW_LABEL', 'codex-review'),
-    diffLineCap: int('DIFF_LINE_CAP', 20000, 1), // generous by design — only skips genuinely huge PRs; override via config.env
+    diffLineCap: int('DIFF_LINE_CAP', 20_000, 1), // generous by design — only skips genuinely huge PRs; override via config.env
     dryRun: bool('DRY_RUN', false, true), // unset = live (cron's normal mode); garbage = preview (never post on a typo)
     maxPrs: int('MAX_PRS', 15, 1),
     maxReviewsPerDay: int('MAX_REVIEWS_PER_DAY', 0, 0), // daily cap; 0 = OFF (default). Per-head dedup + MAX_PRS/sweep + the rate-limit early-exit already bound spend; set a number for a hard daily ceiling.
@@ -119,7 +136,9 @@ export function loadConfig(): Config {
 export function refreshRepo(cfg: Config): boolean {
   const existed = existsSync(join(cfg.repoDir, '.git'))
   const ok = refreshCheckout({ repoDir: cfg.repoDir, slug: cfg.slug, defaultBranch: cfg.defaultBranch, log })
-  if (!ok && !existed) return logFail('clone failed — is `gh` authed for this repo? (private repos need a gh login / exe.dev integration)')
+  if (!ok && !existed) {
+    return logFail('clone failed — is `gh` authed for this repo? (private repos need a gh login / exe.dev integration)')
+  }
   return ok || logFail(`refresh failed (is the default branch '${cfg.defaultBranch}'? set DEFAULT_BRANCH if not)`)
 }
 

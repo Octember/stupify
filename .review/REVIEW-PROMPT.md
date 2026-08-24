@@ -21,12 +21,12 @@ Run these steps:
      fallback / retry / polling / UI path, a new abstraction or config seam, special-case proliferation where
      one default would do. If a competent engineer would write a third of this, the rest is slop.
    - **Is the complexity earned by a real, present need**, or speculative ("might need it later")?
-   If the whole approach is overbuilt, built on a wrong premise, or a hollow no-op, that is your FIRST and
-   highest finding — a 🔴 `overbuilt` / `wrong-premise` / `confident-noop`, anchored to the most representative
-   changed line. Say plainly what the minimal version is and what to cut. This finding needs NO corpus-primitive
-   citation and is NOT subject to the suppression rule below — it's judged against the bar (the smallest change
-   that solves the real problem). Catching the confident slop the checks waved through is the most valuable
-   thing you do.
+     If the whole approach is overbuilt, built on a wrong premise, or a hollow no-op, that is your FIRST and
+     highest finding — a 🔴 `overbuilt` / `wrong-premise` / `confident-noop`, anchored to the most representative
+     changed line. Say plainly what the minimal version is and what to cut. This finding needs NO corpus-primitive
+     citation and is NOT subject to the suppression rule below — it's judged against the bar (the smallest change
+     that solves the real problem). Catching the confident slop the checks waved through is the most valuable
+     thing you do.
 4. Review every changed code file (skip lockfiles, generated/snapshot files, pure deletions). Catch BOTH
    kinds from the rubric — the "just wrong" (bug / type-lie / dead-code / footgun) and the "taste / reuse"
    (reinvents-primitive / slop). "Slop" is code RELATIVE to the simpler or already-existing way: does it
@@ -42,7 +42,7 @@ Run these steps:
    `wrong-premise` / `confident-noop` finding from step 3, which is judged against the simplest version, not a
    primitive.) SUPPRESS generic best-practice nitpicks, style preferences, and low-confidence guesses: a reviewer that cries
    wolf gets muted, a precise one gets read — and the corpus exists so you don't dump every model reflex. If you
-   can't tie a finding to a real defect or a specific corpus primitive, drop it. And verify anything you *can*
+   can't tie a finding to a real defect or a specific corpus primitive, drop it. And verify anything you _can_
    check against the checkout (an import, a definition, a type) by opening the file before you assert it, rather
    than inferring a defect from the diff surface. For a claimed crash or wrong-value path specifically, TRACE the
    path in the checkout before asserting it: read the enclosing function and every guard above the flagged line —
@@ -89,8 +89,12 @@ With findings:
   "verdict": "findings",
   "opener": "oof, a couple things 👇",
   "findings": [
-    { "path": "src/x.ts", "line": 30, "severity": "med",
-      "body": "🟠 **`src/x.ts:30`** · slop · conf 0.86\nspeculative seam nothing needs yet\n**→ Fix:** inline it (`a.ts`)" }
+    {
+      "path": "src/x.ts",
+      "line": 30,
+      "severity": "med",
+      "body": "🟠 **`src/x.ts:30`** · slop · conf 0.86\nspeculative seam nothing needs yet\n**→ Fix:** inline it (`a.ts`)"
+    }
   ]
 }
 ```

@@ -3,13 +3,20 @@
 // shared-state mutation (counters, status, throttle files) happens between awaits on the one JS thread, so it
 // needs no locks.
 import { setCommitStatus } from './commit-status'
-import { type Config, log } from './config'
+import { log } from './config'
+import type { Config } from './config'
 import { commitStatusForSweepResult, reviewPr } from './review-pr'
 import { bumpDailyCounter, dailyPath, failuresPath, recordHeadAttempt, recordReviewedHead, reviewedPath } from './state'
-import { setStatusPr, setStatusStage, skipStatusPr, type SweepStatus } from './status'
+import { setStatusPr, setStatusStage, skipStatusPr } from './status'
+import type { SweepStatus } from './status'
 import type { Candidate, SweepState } from './sweep'
 
-export async function runCandidatePool(cfg: Config, status: SweepStatus, candidates: Candidate[], state: SweepState): Promise<{ reviewed: number; tokens: number }> {
+export async function runCandidatePool(
+  cfg: Config,
+  status: SweepStatus,
+  candidates: Candidate[],
+  state: SweepState,
+): Promise<{ reviewed: number; tokens: number }> {
   let reviewed = 0
   let tokens = 0
   let next = 0
@@ -17,7 +24,9 @@ export async function runCandidatePool(cfg: Config, status: SweepStatus, candida
   const worker = async (): Promise<void> => {
     while (!limitHit) {
       const c = candidates[next++]
-      if (c === undefined) return
+      if (c === undefined) {
+        return
+      }
       const { pr, prior, diff, lines } = c
       setStatusPr(cfg, status, pr, 'reviewing', `running codex over ${lines} diff lines`, lines)
       setCommitStatus(cfg, state.commitStatuses, pr, 'pending', `stupify is reviewing ${lines} diff lines`)
@@ -25,7 +34,9 @@ export async function runCandidatePool(cfg: Config, status: SweepStatus, candida
       const used = await reviewPr(cfg, pr, prior.memory, diff, c.firstReview, prior.openThreadIds, prior.dismissed)
       if (used === 'limit') {
         limitHit = true
-        log('codex plan is rate-limited — no new reviews this sweep (the rest would fail the same way); retries next sweep')
+        log(
+          'codex plan is rate-limited — no new reviews this sweep (the rest would fail the same way); retries next sweep',
+        )
         setStatusPr(cfg, status, pr, 'failed', 'codex plan is rate-limited; ending sweep early', lines)
         setStatusStage(cfg, status, 'blocked', 'codex plan is rate-limited')
         setCommitStatus(cfg, state.commitStatuses, pr, 'error', 'codex plan is rate-limited; retrying later')
@@ -46,7 +57,14 @@ export async function runCandidatePool(cfg: Config, status: SweepStatus, candida
       if (typeof used === 'object') {
         reviewed += 1
         tokens += used.tokens
-        setStatusPr(cfg, status, pr, 'posted', `posted review (${used.tokens} tokens${used.blocking === 0 ? ', non-blocking only' : ''})`, lines)
+        setStatusPr(
+          cfg,
+          status,
+          pr,
+          'posted',
+          `posted review (${used.tokens} tokens${used.blocking === 0 ? ', non-blocking only' : ''})`,
+          lines,
+        )
       } else if (used === 'open') {
         setStatusPr(cfg, status, pr, 'skipped', 'prior findings still open; no new review posted', lines)
       } else if (used === 'fixed') {
@@ -55,7 +73,13 @@ export async function runCandidatePool(cfg: Config, status: SweepStatus, candida
         setStatusPr(cfg, status, pr, 'clean', 'no new review needed', lines)
       }
       // A notes-only review must not green a PR whose PRIOR blocking threads are still open — 'open' outranks it.
-      const finalStatus = commitStatusForSweepResult(typeof used === 'object' ? (used.blocking === 0 && c.prior.openThreadIds.length > 0 ? 'open' : used.blocking) : used)
+      const finalStatus = commitStatusForSweepResult(
+        typeof used === 'object'
+          ? used.blocking === 0 && c.prior.openThreadIds.length > 0
+            ? 'open'
+            : used.blocking
+          : used,
+      )
       setCommitStatus(cfg, state.commitStatuses, pr, finalStatus.state, finalStatus.description)
       status.totals.reviewed = reviewed
       status.totals.tokens = tokens

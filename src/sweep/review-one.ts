@@ -1,7 +1,11 @@
 // `stupify review <pr>` — review ONE pull request on demand (no cron, no checkout, no lock) and print it,
 // or `--post` it. Always a FRESH perspective: no prior-review memory, so you get the full take.
 import { join } from 'node:path'
+
 import { exec } from '@bevyl-ai/agent-tools'
+import { z } from 'zod'
+
+import { parseJson } from '../parse-json'
 import { runReview } from './codex'
 import type { Config } from './config'
 import { getDiff, GH_DIFF_LIMITS } from './diff'
@@ -35,13 +39,20 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
     console.error(`stupify review: couldn't read ${slug}#${number} via gh (auth? does it exist?).`)
     process.exit(1)
   }
-  let meta: { headRefOid?: string; title?: string; body?: string } = {}
-  try {
-    meta = JSON.parse(head.stdout) as { headRefOid?: string; title?: string; body?: string }
-  } catch {
-    /* the marker just won't carry a real SHA — harmless for a one-off */
+  const meta =
+    parseJson(
+      z.object({ headRefOid: z.string().optional(), title: z.string().optional(), body: z.string().optional() }),
+      head.stdout,
+    ) ?? {}
+  const pr: Pr = {
+    number,
+    headRefOid: meta.headRefOid ?? '',
+    isDraft: false,
+    author: { login: '', is_bot: false },
+    labels: [],
+    title: meta.title ?? '',
+    body: meta.body ?? '',
   }
-  const pr: Pr = { number, headRefOid: meta.headRefOid ?? '', isDraft: false, author: { login: '', is_bot: false }, labels: [], title: meta.title ?? '', body: meta.body ?? '' }
   const read = getDiff(cfg, number)
   if (!read.ok) {
     console.error(
@@ -51,11 +62,13 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
     )
     process.exit(1)
   }
-  const diff = read.diff
+  const { diff } = read
   console.error(`reviewing ${slug}#${number} …`) // progress on stderr; stdout stays just the review
   const r = await runReview(cfg, pr, '', diff) // no memory: a manual review is always a fresh, full take
   if (r.kind === 'limit' || r.kind === 'fail') {
-    console.error(`stupify review: ${r.kind === 'limit' ? 'codex is out of credits / rate-limited' : "codex couldn't produce a review"} — ${r.reason}`)
+    console.error(
+      `stupify review: ${r.kind === 'limit' ? 'codex is out of credits / rate-limited' : "codex couldn't produce a review"} — ${r.reason}`,
+    )
     process.exit(1)
   }
   if (r.kind === 'noop' || r.kind === 'fixed') {

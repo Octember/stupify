@@ -24,12 +24,15 @@
  * into one file at install time, so the split costs the deployed artifact nothing.
  */
 import { join } from 'node:path'
+
 import { acquireLock, releaseLock } from '@bevyl-ai/agent-tools'
+
 import { setCommitStatus } from './sweep/commit-status'
 import { loadConfig, log, refreshRepo } from './sweep/config'
-import { type PriorState, prReviews } from './sweep/github'
-import { hasMachinery } from './sweep/prompt'
+import { prReviews } from './sweep/github'
+import type { PriorState } from './sweep/github'
 import { runCandidatePool } from './sweep/pool'
+import { hasMachinery } from './sweep/prompt'
 import { inScope, listPrs } from './sweep/prs'
 import { reviewOne } from './sweep/review-one'
 import { initialStatus, isoNow, seedStatusPrs, setStatusStage, writeStatus } from './sweep/status'
@@ -43,13 +46,23 @@ export { dismissedFindings } from './sweep/github'
 export { reviewPrompt, stablePrefix } from './sweep/prompt'
 export { type Pr, priorReviewThread } from './sweep/prs'
 export { commitStatusForSweepResult } from './sweep/review-pr'
-export { bumpDailyCounter, loadDailyCounter, loadHeadAttempts, loadReviewedHeads, recordHeadAttempt, recordReviewedHead } from './sweep/state'
+export {
+  bumpDailyCounter,
+  DailyCounter,
+  loadDailyCounter,
+  loadHeadAttempts,
+  loadReviewedHeads,
+  recordHeadAttempt,
+  recordReviewedHead,
+} from './sweep/state'
 export { finalCodexMessage, parseReview, REVIEW_SCHEMA, STILL_NOTE } from './sweep/verdict'
 
 async function main(): Promise<void> {
   const cfg = loadConfig() // also mkdirs stateDir and sets LOG, so config warnings are already captured
   const ref = process.env.REVIEW_PR
-  if (ref) return reviewOne(cfg, ref, process.env.REVIEW_POST === '1') // `stupify review <pr>` — one-shot, no sweep/lock/checkout
+  if (ref) {
+    return reviewOne(cfg, ref, process.env.REVIEW_POST === '1')
+  } // `stupify review <pr>` — one-shot, no sweep/lock/checkout
 
   const lockPath = join(cfg.stateDir, 'sweep.lock')
   if (!acquireLock(lockPath)) {
@@ -79,7 +92,9 @@ async function main(): Promise<void> {
   const repoReview = join(cfg.repoDir, cfg.reviewDir)
   cfg.reviewDir = hasMachinery(repoReview) ? repoReview : cfg.homeReviewDir
   if (!hasMachinery(cfg.reviewDir)) {
-    log(`no review machinery at ${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Run \`stupify setup\` to assemble taste, or add a .review/ to ${cfg.slug}.`)
+    log(
+      `no review machinery at ${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Run \`stupify setup\` to assemble taste, or add a .review/ to ${cfg.slug}.`,
+    )
     status.stage = 'done'
     status.message = 'no review machinery found'
     status.finishedAt = isoNow()
@@ -98,19 +113,28 @@ async function main(): Promise<void> {
   const queue = prs.filter((pr) => inScope(pr, cfg)) // MAX_PRS is applied to PRs actually HANDLED, not iterated (collectCandidates)
   status.totals.openPrs = prs.length
   seedStatusPrs(cfg, status, queue)
-  setStatusStage(cfg, status, 'reviewing', queue.length === 0 ? 'no PRs in scope' : `reviewing ${queue.length} PR(s) in scope`)
+  setStatusStage(
+    cfg,
+    status,
+    'reviewing',
+    queue.length === 0 ? 'no PRs in scope' : `reviewing ${queue.length} PR(s) in scope`,
+  )
 
   const state = loadSweepState(cfg)
   const priorByPr = new Map<number, PriorState | null>()
   for (const pr of queue) {
     const prior = prReviews(cfg, pr)
     priorByPr.set(pr.number, prior)
-    if (prior === null) continue
+    if (prior === null) {
+      continue
+    }
     const reviewedHead = prior.reviewedHead || state.reviewedLocal[String(pr.number)] === pr.headRefOid
     const f = state.failures[String(pr.number)]
     const recentlyFailed = f !== undefined && f.head === pr.headRefOid && Date.now() - f.at < cfg.failRetryMs
     const dailyBlocked = cfg.maxReviewsPerDay > 0 && !cfg.dryRun && state.daily.count >= cfg.maxReviewsPerDay
-    if (!reviewedHead && !recentlyFailed && !dailyBlocked) setCommitStatus(cfg, state.commitStatuses, pr, 'pending', 'queued for stupify review')
+    if (!reviewedHead && !recentlyFailed && !dailyBlocked) {
+      setCommitStatus(cfg, state.commitStatuses, pr, 'pending', 'queued for stupify review')
+    }
   }
 
   const { candidates, handled } = collectCandidates(cfg, status, queue, priorByPr, state)
@@ -128,4 +152,6 @@ async function main(): Promise<void> {
   writeStatus(cfg, status)
 }
 
-if (import.meta.main) await main() // run only when invoked directly (cron / `stupify run`); stays importable for tests
+if (import.meta.main) {
+  await main()
+} // run only when invoked directly (cron / `stupify run`); stays importable for tests

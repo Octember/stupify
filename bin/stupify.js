@@ -41,14 +41,18 @@ async function installBun() {
       console.error(downloaded.error.message)
       process.exit(1)
     }
-    if (downloaded.status !== 0) process.exit(downloaded.status ?? 1)
+    if (downloaded.status !== 0) {
+      process.exit(downloaded.status ?? 1)
+    }
 
     const installed = run('bash', [installer])
     if (installed.error) {
       console.error(installed.error.message)
       process.exit(1)
     }
-    if (installed.status !== 0) process.exit(installed.status ?? 1)
+    if (installed.status !== 0) {
+      process.exit(installed.status ?? 1)
+    }
     process.env.PATH = `${process.env.HOME}/.bun/bin:${process.env.PATH ?? ''}`
   } finally {
     rmSync(dir, { recursive: true, force: true })

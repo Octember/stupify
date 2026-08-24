@@ -1,6 +1,7 @@
 // Fetching and measuring PR diffs. The RUNNER fetches the diff (not codex) so codex needs no network or gh —
 // it reviews the diff straight from the prompt, sandboxed.
 import { exec } from '@bevyl-ai/agent-tools'
+
 import type { Config } from './config'
 
 // GitHub's diff endpoint 406s past EITHER of these, so a big enough PR can't even be MEASURED. They are GitHub's
@@ -20,11 +21,14 @@ type DiffRead = { ok: true; diff: string } | { ok: false; reason: 'unreadable' |
 
 export function getDiff(cfg: Config, number: number): DiffRead {
   const r = exec('gh', ['pr', 'diff', String(number), '--repo', cfg.slug])
-  if (r.ok) return { ok: true, diff: r.stdout }
+  if (r.ok) {
+    return { ok: true, diff: r.stdout }
+  }
   return { ok: false, reason: isDiffTooLarge(r.combined) ? 'too-large' : 'unreadable' }
 }
 
-export const diffLineCount = (diff: string): number => (diff ? diff.split('\n').length - (diff.endsWith('\n') ? 1 : 0) : 0)
+export const diffLineCount = (diff: string): number =>
+  diff ? diff.split('\n').length - (diff.endsWith('\n') ? 1 : 0) : 0
 
 // Which RIGHT-side (new-file) line numbers a unified diff actually touches, per path — the only lines GitHub lets
 // you anchor an inline review comment to. Added (`+`) and context (` `) lines are anchorable; removed (`-`) lines
@@ -32,28 +36,32 @@ export const diffLineCount = (diff: string): number => (diff ? diff.split('\n').
 // runner demotes it into the review body instead of 422-ing the whole review.
 export function diffRightLines(diff: string): Map<string, Set<number>> {
   const byPath = new Map<string, Set<number>>()
-  let path = ''
-  let right = 0
-  let inHunk = false
+  const cur = { path: '', right: 0, inHunk: false }
   for (const line of diff.split('\n')) {
     if (line.startsWith('+++ ')) {
       const p = line.slice(4).trim()
-      path = p.startsWith('b/') ? p.slice(2) : p // b/<path>, or /dev/null for a deletion (no right lines)
-      if (!byPath.has(path)) byPath.set(path, new Set())
-      inHunk = false
+      cur.path = p.startsWith('b/') ? p.slice(2) : p // b/<path>, or /dev/null for a deletion (no right lines)
+      if (!byPath.has(cur.path)) {
+        byPath.set(cur.path, new Set())
+      }
+      cur.inHunk = false
       continue
     }
     const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
     if (hunk?.[1] !== undefined) {
-      right = Number(hunk[1])
-      inHunk = true
+      cur.right = Number(hunk[1])
+      cur.inHunk = true
       continue
     }
-    if (!inHunk || !path || path === '/dev/null') continue
-    if (line.startsWith('-') || line.startsWith('\\')) continue // left-only line / "no newline" marker — right doesn't advance
+    if (!cur.inHunk || !cur.path || cur.path === '/dev/null') {
+      continue
+    }
+    if (line.startsWith('-') || line.startsWith('\\')) {
+      continue
+    } // left-only line / "no newline" marker — right doesn't advance
     if (line.startsWith('+') || line.startsWith(' ')) {
-      byPath.get(path)?.add(right)
-      right++
+      byPath.get(cur.path)?.add(cur.right)
+      cur.right++
     }
   }
   return byPath

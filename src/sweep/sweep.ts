@@ -1,23 +1,26 @@
 // The sweep's front half: load the per-VM state, then collect the PRs that pass the cheap serial gates
 // (dedup, failure throttle, daily/MAX_PRS caps, diff fetch + size cap) into review candidates.
-import { loadCommitStatuses, type PostedCommitStatus, setCommitStatus } from './commit-status'
-import { type Config, log } from './config'
+import { loadCommitStatuses, setCommitStatus } from './commit-status'
+import type { PostedCommitStatus } from './commit-status'
+import { log } from './config'
+import type { Config } from './config'
 import { diffLineCount, getDiff, GH_DIFF_LIMITS } from './diff'
 import type { PriorState } from './github'
-import { hasReviewLabel, type Pr } from './prs'
+import { hasReviewLabel } from './prs'
+import type { Pr } from './prs'
 import { commitStatusForSweepResult } from './review-pr'
 import {
-  type DailyCounter,
   commitStatusPath,
   dailyPath,
   failuresPath,
-  type HeadAttempt,
   loadDailyCounter,
   loadHeadAttempts,
   loadReviewedHeads,
   reviewedPath,
 } from './state'
-import { deferQueuedStatusPrs, setStatusPr, skipStatusPr, type SweepStatus } from './status'
+import type { DailyCounter, HeadAttempt } from './state'
+import { deferQueuedStatusPrs, setStatusPr, skipStatusPr } from './status'
+import type { SweepStatus } from './status'
 
 export interface Candidate {
   pr: Pr
@@ -48,17 +51,32 @@ export function loadSweepState(cfg: Config): SweepState {
 // the front of the list can't consume the budget and starve later ones. Candidates are collected here (all the
 // cheap serial gates) and reviewed by pool.ts's CODEX_JOBS concurrent codex runs — the sweep's wall-clock
 // was dominated by running those multi-minute reviews strictly one after another.
-export function collectCandidates(cfg: Config, status: SweepStatus, queue: Pr[], priorByPr: Map<number, PriorState | null>, state: SweepState): { candidates: Candidate[]; handled: number } {
+export function collectCandidates(
+  cfg: Config,
+  status: SweepStatus,
+  queue: Pr[],
+  priorByPr: Map<number, PriorState | null>,
+  state: SweepState,
+): { candidates: Candidate[]; handled: number } {
   let handled = 0
   // Each candidate is one codex run, so the daily ceiling gates collection up front.
-  const dailyBudget = cfg.maxReviewsPerDay > 0 && !cfg.dryRun ? cfg.maxReviewsPerDay - state.daily.count : Number.POSITIVE_INFINITY
+  const dailyBudget =
+    cfg.maxReviewsPerDay > 0 && !cfg.dryRun ? cfg.maxReviewsPerDay - state.daily.count : Number.POSITIVE_INFINITY
   const candidates: Candidate[] = []
   for (let i = 0; i < queue.length; i++) {
     const pr = queue[i]
-    if (pr === undefined) continue
+    if (pr === undefined) {
+      continue
+    }
     if (handled >= dailyBudget) {
       log(`daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}) — no more reviews today; resumes tomorrow`)
-      deferQueuedStatusPrs(cfg, status, queue, i, `daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}); resumes tomorrow`)
+      deferQueuedStatusPrs(
+        cfg,
+        status,
+        queue,
+        i,
+        `daily cap hit (MAX_REVIEWS_PER_DAY=${cfg.maxReviewsPerDay}); resumes tomorrow`,
+      )
       break
     }
     // What stupify has already said here — read from the reviews/threads connection (findings are inline threads now).
@@ -92,7 +110,13 @@ export function collectCandidates(cfg: Config, status: SweepStatus, queue: Pr[],
     if (handled >= cfg.maxPrs) {
       log(`reached MAX_PRS=${cfg.maxPrs} this sweep — deferring remaining candidates to the next sweep`)
       deferQueuedStatusPrs(cfg, status, queue, i, `reached MAX_PRS=${cfg.maxPrs}; deferring to next sweep`)
-      setCommitStatus(cfg, state.commitStatuses, pr, 'pending', `reached MAX_PRS=${cfg.maxPrs}; deferring to next sweep`)
+      setCommitStatus(
+        cfg,
+        state.commitStatuses,
+        pr,
+        'pending',
+        `reached MAX_PRS=${cfg.maxPrs}; deferring to next sweep`,
+      )
       break
     }
 
@@ -104,7 +128,13 @@ export function collectCandidates(cfg: Config, status: SweepStatus, queue: Pr[],
       const why = `diff over GitHub's ${GH_DIFF_LIMITS} API limit — gh can't return it, so it can't be reviewed; split the PR`
       log(`skip #${pr.number} — ${why}`)
       skipStatusPr(cfg, status, pr, 'skipped', why)
-      setCommitStatus(cfg, state.commitStatuses, pr, 'success', `diff over GitHub's ${GH_DIFF_LIMITS} API limit; split the PR to get a review`)
+      setCommitStatus(
+        cfg,
+        state.commitStatuses,
+        pr,
+        'success',
+        `diff over GitHub's ${GH_DIFF_LIMITS} API limit; split the PR to get a review`,
+      )
       continue
     }
     if (!read.ok) {
@@ -113,14 +143,27 @@ export function collectCandidates(cfg: Config, status: SweepStatus, queue: Pr[],
       setCommitStatus(cfg, state.commitStatuses, pr, 'error', "couldn't read PR diff; retrying next sweep")
       continue
     }
-    const diff = read.diff
+    const { diff } = read
     const lines = diffLineCount(diff)
     // auto-scope only: skip oversized diffs UNLESS the PR carries the review label (the documented force-include).
     // (label-scope means you already opted in, so size never gates there.)
     if (cfg.scope === 'auto' && lines > cfg.diffLineCap && !hasReviewLabel(pr, cfg)) {
       log(`skip #${pr.number} — diff ${lines} lines > cap ${cfg.diffLineCap} (add '${cfg.reviewLabel}' to force)`)
-      skipStatusPr(cfg, status, pr, 'skipped', `diff ${lines} lines > cap ${cfg.diffLineCap} (add '${cfg.reviewLabel}' to force)`, lines)
-      setCommitStatus(cfg, state.commitStatuses, pr, 'success', `diff ${lines} lines > cap ${cfg.diffLineCap}; add '${cfg.reviewLabel}' to force`)
+      skipStatusPr(
+        cfg,
+        status,
+        pr,
+        'skipped',
+        `diff ${lines} lines > cap ${cfg.diffLineCap} (add '${cfg.reviewLabel}' to force)`,
+        lines,
+      )
+      setCommitStatus(
+        cfg,
+        state.commitStatuses,
+        pr,
+        'success',
+        `diff ${lines} lines > cap ${cfg.diffLineCap}; add '${cfg.reviewLabel}' to force`,
+      )
       continue
     }
     handled += 1 // count only PRs that pass the gates and actually get a review slot — size/read skips above don't burn it

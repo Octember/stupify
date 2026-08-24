@@ -2,6 +2,8 @@
 // `codex exec --output-schema`), and parseReview is the boundary guard behind that enforcement. Also the marker /
 // convergence-note vocabulary every posted review carries.
 import { z } from 'zod'
+
+import { parseJson } from '../parse-json'
 import type { Pr } from './prs'
 
 // The output carries only what the runner acts on — path/line (the thread anchor) and severity (→ blocking);
@@ -21,39 +23,44 @@ const ReviewOutput = z.strictObject({
 })
 export const REVIEW_SCHEMA = z.toJSONSchema(ReviewOutput)
 
-export type ParsedFinding = { path: string; line: number; body: string; blocking: boolean }
+export interface ParsedFinding {
+  path: string
+  line: number
+  body: string
+  blocking: boolean
+}
 export type ReviewVerdict =
   | { kind: 'no_new_issues' }
   | { kind: 'fixed' }
   | { kind: 'findings'; opener: string; findings: ParsedFinding[] }
 
-const stripMarkers = (s: string): string => s.replace(/<!--[\s\S]*?-->/g, '').trim() // drop any marker codex tacked on
+const stripMarkers = (s: string): string => s.replaceAll(/<!--[\s\S]*?-->/g, '').trim() // drop any marker codex tacked on
 
 /** Boundary guard behind the enforced schema: a provider that ignores response_format degrades to a loud,
  *  retryable null — never a guessed or partially-posted review. */
 export function parseReview(raw: string): ReviewVerdict | null {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(raw)
-  } catch {
+  const data = parseJson(ReviewOutput, raw)
+  if (data === undefined) {
     return null
   }
-  const r = ReviewOutput.safeParse(parsed)
-  if (!r.success) return null
-  if (r.data.verdict !== 'findings') {
+  if (data.verdict !== 'findings') {
     // A convergence verdict that ALSO carries findings is contradictory — fail loud rather than resolve threads
     // and post a ✅ while silently dropping what the model found.
-    return r.data.findings.length === 0 ? { kind: r.data.verdict } : null
+    return data.findings.length === 0 ? { kind: data.verdict } : null
   }
-  if (r.data.findings.length === 0) return null
+  if (data.findings.length === 0) {
+    return null
+  }
   const findings: ParsedFinding[] = []
-  for (const f of r.data.findings) {
+  for (const f of data.findings) {
     const path = f.path.trim()
     const body = stripMarkers(f.body)
-    if (!path || !body) return null
+    if (!path || !body) {
+      return null
+    }
     findings.push({ path, line: f.line, blocking: BLOCKING.has(f.severity), body })
   }
-  return { kind: 'findings', opener: stripMarkers(r.data.opener), findings }
+  return { kind: 'findings', opener: stripMarkers(data.opener), findings }
 }
 
 // The hidden marker stupify ends every posted review with, keyed to the head SHA — how a later sweep recognizes a
@@ -80,7 +87,9 @@ export const finalCodexMessage = (out: string): string => {
   const lines = out.split('\n')
   const end = lines.findLastIndex((l) => /^tokens used\b/i.test(l.trim()))
   const start = lines.slice(0, end === -1 ? lines.length : end).findLastIndex((l) => l.trim() === 'codex')
-  if (start === -1 || end === -1) return ''
+  if (start === -1 || end === -1) {
+    return ''
+  }
   return lines
     .slice(start + 1, end)
     .join('\n')

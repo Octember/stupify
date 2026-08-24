@@ -22,9 +22,15 @@ export function primePayload(cwd: string = process.cwd(), home: string = HOME): 
   // A repo's .review/ lives at its git ROOT — so a session opened in a subdir still finds it (cwd → root → home).
   const r = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' })
   const root = r.status === 0 ? (r.stdout ?? '').trim() : ''
-  const candidates = [join(cwd, '.review'), ...(root && root !== cwd ? [join(root, '.review')] : []), join(home, '.review')]
+  const candidates = [
+    join(cwd, '.review'),
+    ...(root && root !== cwd ? [join(root, '.review')] : []),
+    join(home, '.review'),
+  ]
   const dir = candidates.find((d) => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md')))
-  if (dir === undefined) return null
+  if (dir === undefined) {
+    return null
+  }
   const rubric = readFileSync(join(dir, 'RUBRIC.md'), 'utf8').trim()
   let corpus = readFileSync(join(dir, 'CORPUS.md'), 'utf8').trim()
   const head = `# Your taste, loaded by stupify — write to this standard
@@ -48,7 +54,9 @@ ${rubric}
     const trimNote = '\n\n_(trimmed per pack to fit the session-start budget — full corpus in .review/CORPUS.md)_'
     const per = Math.max(400, (room - intro.length - trimNote.length) / Math.max(1, packs.length))
     const trimSection = (p: string) => {
-      if (p.length <= per) return p
+      if (p.length <= per) {
+        return p
+      }
       const cut = Math.max(p.lastIndexOf('\n### ', per), p.lastIndexOf('\n```\n', per)) // whole exemplars only
       return cut > 0 ? p.slice(0, cut) : p.slice(0, per)
     }
@@ -61,10 +69,14 @@ ${rubric}
 export function emitPrime(): void {
   try {
     const payload = primePayload()
-    if (payload !== null) process.stdout.write(payload)
+    if (payload !== null) {
+      process.stdout.write(payload)
+    }
   } catch {
     /* never break session start */
   }
 }
 
-if (import.meta.main) emitPrime() // run directly (the installed hook calls `bun ~/.stupify/prime.ts`)
+if (import.meta.main) {
+  emitPrime()
+} // run directly (the installed hook calls `bun ~/.stupify/prime.ts`)

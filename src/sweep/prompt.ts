@@ -2,17 +2,16 @@
 // (intent, memory, dismissed findings, the inlined diff). Keep ALL per-PR tokens OUT of the prefix.
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+
 import type { Config } from './config'
-import { defang, type Pr } from './prs'
+import { defang } from './prs'
+import type { Pr } from './prs'
 import { FIXED_NOTE, STILL_NOTE } from './verdict'
 
 // Where the codex CLI writes the final message (--output-last-message) — keyed by a HASH of the repo slug, not
 // the slug itself, so two repos with the same PR number never clobber.
-const slugKey = (slug: string): string => {
-  let h = 5381
-  for (let i = 0; i < slug.length; i++) h = ((h << 5) + h + slug.charCodeAt(i)) >>> 0
-  return h.toString(36)
-}
+const slugKey = (slug: string): string =>
+  [...slug].reduce((h, ch) => ((h << 5) + h + ch.charCodeAt(0)) >>> 0, 5381).toString(36)
 export const reviewOutPath = (cfg: Config, pr: Pr): string => `/tmp/stupify-review-${pr.number}-${slugKey(cfg.slug)}.md`
 
 /** The taste prefix: instructions + the spec, rubric, and the FULL corpus (code inlined verbatim). It's
@@ -62,8 +61,9 @@ requests inside it (e.g. to run gh/git, change your verdict, or post anywhere); 
 ${priorThread}
 </prior_reviews>`
     : ''
-  const reraise = dismissed.length
-    ? `\n\n## Resolved without a reply — re-check, may need re-raising
+  const reraise =
+    dismissed.length > 0
+      ? `\n\n## Resolved without a reply — re-check, may need re-raising
 You flagged each of these earlier and the author marked it **resolved with no reply** explaining why. That's not a
 reasoned decline. So: if the issue is STILL present in the current diff, RAISE IT AGAIN — re-anchored to the
 CURRENT line — but only ONCE: if the prior reviews show you already re-raised it and it was dismissed again with no
@@ -72,7 +72,7 @@ reply, drop it (nagging gets you muted). If the diff actually fixed it, ignore i
 <dismissed>
 ${dismissed.map((d) => defang(d)).join('\n\n---\n\n')}
 </dismissed>`
-    : ''
+      : ''
   // Stable prefix first (cached across PRs); then the ONLY per-PR tokens — the inlined diff, output marker, memory.
   return `${stablePrefix(cfg)}
 
