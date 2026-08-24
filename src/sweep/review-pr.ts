@@ -2,12 +2,13 @@
 // threads when its findings are fixed, post the convergence notes, or stay silent while findings stand.
 import { maybeRotateGateway } from '@bevyl-ai/agent-tools'
 
-import { runReview } from './codex'
 import { type CommitStatusState } from './commit-status'
+import { runReview } from './codex'
 import { type Config, log } from './config'
 import { postNote, postReview, resolveThreads } from './github'
 import { type Pr } from './prs'
 import { FIXED_NOTE, STILL_NOTE } from './verdict'
+import { prepareHeadWorktree, removeHeadWorktree } from './worktree'
 
 // A posted review carries its token spend and its blocking-finding count — zero blocking reads as a green status.
 export type SweepReviewResult = { tokens: number; blocking: number } | 'limit' | 'clean' | 'fixed' | 'open' | null
@@ -47,8 +48,18 @@ export async function reviewPr(
   openThreadIds: string[],
   dismissed: string[],
 ): Promise<SweepReviewResult> {
-  log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)}`)
-  const r = await runReview(cfg, pr, priorThread, diff, dismissed)
+  log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)} (base ${pr.baseRefName})`)
+  const workDir = prepareHeadWorktree(cfg.repoDir, pr)
+  if (workDir === null) {
+    log(`  review FAILED for #${pr.number} — couldn't checkout head for file context`)
+    return null
+  }
+  let r
+  try {
+    r = await runReview(cfg, pr, priorThread, diff, dismissed, workDir)
+  } finally {
+    removeHeadWorktree(cfg.repoDir, pr)
+  }
   if (r.kind === 'limit' || r.kind === 'fail') {
     log(`  review FAILED for #${pr.number} — ${r.reason}`)
     if (r.kind === 'limit') {

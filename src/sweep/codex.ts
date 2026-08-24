@@ -79,7 +79,9 @@ export async function runReview(
   priorThread: string,
   diff: string,
   dismissed: string[] = [],
+  workDir?: string,
 ): Promise<ReviewOutcome> {
+  const cwd = workDir ?? cfg.repoDir
   const outPath = reviewOutPath(cfg, pr)
   rmSync(outPath, { force: true }) // clear any stale file so we never read a previous run's review
   const schemaPath = join(cfg.stateDir, 'review-schema.json')
@@ -87,7 +89,7 @@ export async function runReview(
   const codexArgs = [
     'exec',
     '--cd',
-    cfg.repoDir,
+    cwd,
     '--output-schema',
     schemaPath, // the provider enforces ReviewOutput on the final message...
     '--output-last-message',
@@ -110,7 +112,7 @@ export async function runReview(
   codexArgs.push('-') // read the prompt from STDIN, not argv — the inlined corpus + diff would blow ARG_MAX (E2BIG)
 
   const cx = await execAsync('codex', codexArgs, {
-    cwd: cfg.repoDir,
+    cwd,
     timeoutMs: 1_200_000,
     input: reviewPrompt(cfg, pr, priorThread, diff, dismissed),
   })
