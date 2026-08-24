@@ -120,7 +120,7 @@ const tasteLabel = (packs: string[]): string =>
 
 // Returns the chosen pack ids. `--pack a,b` (or 'own'/'' = your own codebase) skips the prompt; with --yes and
 // no flag it defaults to sindre-sorhus (the broadly-applicable TS/JS taste) so a fresh repo reviews immediately.
-async function pickPacks(opts: { yes: boolean; packArg?: string }): Promise<string[]> {
+async function pickPacks(opts: { yes: boolean; packArg?: string | undefined }): Promise<string[]> {
   if (opts.packArg !== undefined) {
     const requested = opts.packArg
       .split(',')
@@ -170,7 +170,7 @@ function assembleReview(packs: string[]): void {
 // `stupify taste [--pack a,b]` — assemble your GLOBAL taste at ~/.stupify/.review from packs, and nothing else.
 // This is the shared core both the reviewer and `stupify prime` read when a repo has no .review/ of its own —
 // so you can set taste once without installing the cron reviewer.
-async function taste(argv: { pack?: string; yes: boolean }): Promise<void> {
+async function taste(argv: { pack?: string | undefined; yes: boolean }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · pick the code yours should look like'))
   const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
@@ -345,11 +345,11 @@ function init(argv: { files: string[]; force: boolean }): void {
 }
 
 async function setup(argv: {
-  repo?: string
-  host?: string
-  codexHost?: string
+  repo?: string | undefined
+  host?: string | undefined
+  codexHost?: string | undefined
   yes: boolean
-  pack?: string
+  pack?: string | undefined
 }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · sounds dumb, reviews sharp'))
@@ -455,7 +455,10 @@ async function setup(argv: {
     .join('\n')
   writeFileSync(join(HOME, 'config.env'), `${cfg}\n`)
   if (host) {
-    writeCodexGatewayConfig({ gatewayHost: argv.codexHost, trustDir: join(HOME, 'repo') })
+    writeCodexGatewayConfig({
+      ...(argv.codexHost === undefined ? {} : { gatewayHost: argv.codexHost }),
+      trustDir: join(HOME, 'repo'),
+    })
   } // exe.dev VM: route Codex through the no-key exe-llm gateway
   try {
     installCron({
@@ -644,7 +647,7 @@ function removeHook(file: string): { removed: boolean } {
 
 const hasTaste = (d: string): boolean => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md'))
 
-async function installPrimeHook(argv: { pack?: string; agent?: string }): Promise<void> {
+async function installPrimeHook(argv: { pack?: string | undefined; agent?: string | undefined }): Promise<void> {
   console.clear()
   const targets = selectTargets(argv.agent)
   intro(
@@ -834,7 +837,7 @@ function cmdReview(ref: string | undefined, post: boolean): void {
 
 // --- provision: spin up an exe.dev VM that runs stupify, from your laptop ---
 
-async function provision(argv: { repo?: string; yes: boolean; pack?: string }): Promise<void> {
+async function provision(argv: { repo?: string | undefined; yes: boolean; pack?: string | undefined }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · provision a reviewer on exe.dev'))
 
