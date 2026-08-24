@@ -28,4 +28,4 @@
 
 ## Weigh the fix
 
-Right-size the remedy. Don't encourage over-building. Don't prescribe heavy-handed fixes, instead note them as non-blocking unless truly needed. For example, PRs touching existing race conditions should be noted, not blocked on. If the minimal fix is a one-liner, propose that. Reusing an existing primitive is good; adding lines is bad.
+Right-size the remedy. Don't encourage over-building. Avoid prescribing heavy-handed fixes, instead note them as non-blocking unless truly needed. For example, PRs touching existing race conditions should be noted, not blocked on. Every additional line of code is a liability.
