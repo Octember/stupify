@@ -78,8 +78,7 @@ const pr = (number: number, sha: string): Pr => ({
 
 const sha256 = (s: string) => new Bun.CryptoHasher('sha256').update(s).digest('hex')
 const prefixOf = (prompt: string) => prompt.slice(0, prompt.indexOf(THIS_PR))
-const reviewStepsOf = (prompt: string) =>
-  prompt.split('# Review spec')[1]?.split('## Prior reviews')[0] ?? ''
+const reviewStepsOf = (prompt: string) => prompt.split('# Review spec')[1]?.split('## Prior reviews')[0] ?? ''
 
 // Three different PRs: different numbers, different head SHAs, and (crucially) one mid-thread with memory —
 // the hardest case, since "continuing a review" must STILL not perturb the prefix.

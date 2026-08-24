@@ -10,6 +10,7 @@ You are reviewing a code diff. You have file-READ access to the checkout. The di
 ## Prior reviews (memory)
 
 If provided, you are continuing an existing thread.
+
 - **Settled items:** Drop findings that are fixed or declined with a reason.
 - **Resolved without reply:** Re-raise ONCE if still present.
 - **New findings only:** Only report issues introduced since the last review.
