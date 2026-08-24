@@ -2,8 +2,8 @@
 // threads when its findings are fixed, post the convergence notes, or stay silent while findings stand.
 import { maybeRotateGateway } from '@bevyl-ai/agent-tools'
 
-import { type CommitStatusState } from './commit-status'
 import { runReview } from './codex'
+import { type CommitStatusState } from './commit-status'
 import { type Config, log } from './config'
 import { postNote, postReview, resolveThreads } from './github'
 import { type Pr } from './prs'
