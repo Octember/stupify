@@ -3,7 +3,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { exec } from '@bevyl-ai/agent-tools'
+import { detectRepo, exec } from '@bevyl-ai/agent-tools'
 
 import { runReview } from './codex'
 import { type Config } from './config'
@@ -31,10 +31,18 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
     console.error('stupify review: no taste found. Run `stupify taste` (or add a .review/ to this repo) first.')
     process.exit(1)
   }
-  // No checkout for an ad-hoc review — codex reviews from the inlined diff. Run it in the current directory (codex
-  // needs a real workspace to operate in); if you're standing in the target repo it gets useful file context for free.
+  // Ad-hoc review runs in cwd. When cwd is the target repo we spin a head worktree for file context; otherwise codex
+  // reviews from the inlined diff alone (cross-repo refs can't fetch into a foreign checkout).
   cfg.repoDir = process.cwd()
-  const head = exec('gh', ['pr', 'view', String(number), '--repo', slug, '--json', 'headRefOid,title,body'])
+  const head = exec('gh', [
+    'pr',
+    'view',
+    String(number),
+    '--repo',
+    slug,
+    '--json',
+    'headRefOid,baseRefOid,baseRefName,title,body',
+  ])
   if (!head.ok) {
     console.error(`stupify review: couldn't read ${slug}#${number} via gh (auth? does it exist?).`)
     process.exit(1)
@@ -59,18 +67,25 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
     process.exit(1)
   }
   const { diff } = read
-  const gitRoot = existsSync(join(cfg.repoDir, '.git')) ? cfg.repoDir : process.cwd()
+  const localRepo = detectRepo()
+  const canWorktree =
+    localRepo !== null && localRepo.toLowerCase() === slug.toLowerCase() && existsSync(join(cfg.repoDir, '.git'))
   console.error(`reviewing ${slug}#${number} (base ${pr.baseRefName}) …`) // progress on stderr; stdout stays just the review
-  const workDir = prepareHeadWorktree(gitRoot, pr)
-  if (workDir === null) {
-    console.error(`stupify review: couldn't checkout head for ${slug}#${number} (git fetch/worktree failed).`)
-    process.exit(1)
+  let workDir: string | undefined
+  if (canWorktree) {
+    workDir = prepareHeadWorktree(cfg.repoDir, pr) ?? undefined
+    if (workDir === undefined) {
+      console.error(`stupify review: couldn't checkout head for ${slug}#${number} (git fetch/worktree failed).`)
+      process.exit(1)
+    }
   }
   let r
   try {
     r = await runReview(cfg, pr, '', diff, [], workDir)
   } finally {
-    removeHeadWorktree(gitRoot, pr)
+    if (canWorktree && workDir !== undefined) {
+      removeHeadWorktree(cfg.repoDir, pr)
+    }
   }
   if (r.kind === 'limit' || r.kind === 'fail') {
     console.error(
