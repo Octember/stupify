@@ -106,7 +106,7 @@ export function codexFinalMessage(out: string): string {
 }
 
 export const SECOND_PASS_PROMPT =
-  'Second pass: are you sure this does not reinvent an existing owner? Search unchanged code, then return the final JSON verdict while retaining valid findings.'
+  "Second pass: are you sure this does not reinvent an existing owner? Search unchanged code, make sure this solution is minimal, elegant, and doesn't reinvent something that already exists."
 
 function failureReason(out: string): string {
   const signal = /payment required|credits|quota|rate.?limit|429|5\d\d |timeout|killed|enoent|spawn|error/i

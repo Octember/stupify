@@ -16,8 +16,9 @@ test('reads the resumed thread contract from codex JSON events', () => {
   expect(codexTokens(events)).toBe(150)
 })
 
-test('the second turn challenges reinvention and preserves valid findings', () => {
+test('the second turn challenges reinvention and unnecessary complexity', () => {
   expect(SECOND_PASS_PROMPT).toContain('reinvent an existing owner')
   expect(SECOND_PASS_PROMPT).toContain('unchanged code')
-  expect(SECOND_PASS_PROMPT).toContain('retaining valid findings')
+  expect(SECOND_PASS_PROMPT).toContain('minimal, elegant')
+  expect(SECOND_PASS_PROMPT).toContain("doesn't reinvent something that already exists")
 })
