@@ -5,11 +5,12 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { isRateLimited } from '@bevyl-ai/agent-tools'
+import { z } from 'zod'
 
 import { type Config, logRaw } from './config'
 import { reviewOutPath, reviewPrompt } from './prompt'
 import { type Pr } from './prs'
-import { finalCodexMessage, type ParsedFinding, parseReview, REVIEW_SCHEMA } from './verdict'
+import { type ParsedFinding, parseReview, REVIEW_SCHEMA } from './verdict'
 
 /** The outcome of running codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
  *  the ad-hoc `stupify review` prints it or `--post`s it. */
@@ -50,16 +51,62 @@ async function execAsync(
   }
 }
 
-/** codex prints `tokens used` then the count on the next line — read the last such pair. */
-function parseTokens(out: string): number | null {
-  const lines = out.split('\n')
-  const i = lines.findLastIndex((line) => line !== undefined && /tokens used/i.test(line))
-  if (i === -1) {
-    return null
-  }
-  const digits = (lines[i + 1] ?? '').replaceAll(/\D/g, '')
-  return digits ? Number(digits) : null
+const ThreadStartedEvent = z.object({ type: z.literal('thread.started'), thread_id: z.string().min(1) }).passthrough()
+const TurnCompletedEvent = z
+  .object({
+    type: z.literal('turn.completed'),
+    usage: z.object({ input_tokens: z.number(), output_tokens: z.number() }),
+  })
+  .passthrough()
+const AgentMessageEvent = z
+  .object({
+    type: z.literal('item.completed'),
+    item: z.object({ type: z.literal('agent_message'), text: z.string() }),
+  })
+  .passthrough()
+
+function jsonEvents(out: string): unknown[] {
+  return out.split('\n').flatMap((line) => {
+    try {
+      return [JSON.parse(line)]
+    } catch {
+      return []
+    }
+  })
 }
+
+export function codexThreadId(out: string): string | null {
+  for (const event of jsonEvents(out)) {
+    const parsed = ThreadStartedEvent.safeParse(event)
+    if (parsed.success) {
+      return parsed.data.thread_id
+    }
+  }
+  return null
+}
+
+export function codexTokens(out: string): number | null {
+  for (const event of jsonEvents(out).toReversed()) {
+    const parsed = TurnCompletedEvent.safeParse(event)
+    if (parsed.success) {
+      return parsed.data.usage.input_tokens + parsed.data.usage.output_tokens
+    }
+  }
+  return null
+}
+
+export function codexFinalMessage(out: string): string {
+  for (const event of jsonEvents(out).toReversed()) {
+    const parsed = AgentMessageEvent.safeParse(event)
+    if (parsed.success) {
+      return parsed.data.item.text.trim()
+    }
+  }
+  return ''
+}
+
+export const SECOND_PASS_PROMPT =
+  'Second pass: are you sure this does not reinvent an existing owner? Search unchanged code, then return the final JSON verdict while retaining valid findings.'
 
 function failureReason(out: string): string {
   const signal = /payment required|credits|quota|rate.?limit|429|5\d\d |timeout|killed|enoent|spawn|error/i
@@ -88,6 +135,7 @@ export async function runReview(
   writeFileSync(schemaPath, JSON.stringify(REVIEW_SCHEMA))
   const codexArgs = [
     'exec',
+    '--json',
     '--cd',
     cwd,
     '--output-schema',
@@ -117,21 +165,58 @@ export async function runReview(
     input: reviewPrompt(cfg, pr, priorThread, diff, dismissed),
   })
   logRaw(`${cx.combined}\n`)
-  const fromFile = cx.ok && existsSync(outPath) ? readFileSync(outPath, 'utf8').trim() : ''
-  // Belt: if the CLI didn't write the last-message file, recover the final message from the transcript. It still
-  // has to parse as ReviewOutput, so anything looser fails visibly.
-  const review = fromFile || (cx.ok ? finalCodexMessage(cx.combined) : '')
-  if (review.length === 0) {
+  if (!cx.ok) {
     const reason = failureReason(cx.combined)
     return isRateLimited(cx.combined) ? { kind: 'limit', reason, raw: cx.combined } : { kind: 'fail', reason }
+  }
+  const threadId = codexThreadId(cx.stdout)
+  if (threadId === null) {
+    return { kind: 'fail', reason: 'codex did not report a thread id for the second review pass' }
+  }
+
+  rmSync(outPath, { force: true })
+  const resumeArgs = [
+    'exec',
+    'resume',
+    '--json',
+    '--output-schema',
+    schemaPath,
+    '--output-last-message',
+    outPath,
+    '-c',
+    `model_reasoning_effort=${cfg.codexEffort}`,
+  ]
+  if (cfg.codexProvider) {
+    resumeArgs.push('-c', `model_provider=${cfg.codexProvider}`)
+  }
+  if (cfg.codexModel) {
+    resumeArgs.push('-c', `model=${cfg.codexModel}`)
+  }
+  resumeArgs.push(threadId, '-')
+
+  const second = await execAsync('codex', resumeArgs, {
+    cwd,
+    timeoutMs: 1_200_000,
+    input: SECOND_PASS_PROMPT,
+  })
+  logRaw(`${second.combined}\n`)
+  const fromFile = second.ok && existsSync(outPath) ? readFileSync(outPath, 'utf8').trim() : ''
+  // Belt: if the CLI didn't write the last-message file, recover the final message from the transcript. It still
+  // has to parse as ReviewOutput, so anything looser fails visibly.
+  const review = fromFile || (second.ok ? codexFinalMessage(second.stdout) : '')
+  if (review.length === 0) {
+    const reason = failureReason(second.combined)
+    return isRateLimited(second.combined) ? { kind: 'limit', reason, raw: second.combined } : { kind: 'fail', reason }
   }
   const verdict = parseReview(review)
   if (verdict === null) {
     logRaw(`  unparseable review output for #${pr.number}:\n${review.slice(0, 2000)}\n`)
     const reason = 'codex output was not a valid review JSON (raw output is in the sweep log)'
-    return isRateLimited(cx.combined) ? { kind: 'limit', reason, raw: cx.combined } : { kind: 'fail', reason }
+    return isRateLimited(second.combined) ? { kind: 'limit', reason, raw: second.combined } : { kind: 'fail', reason }
   }
-  const tokens = parseTokens(cx.combined)
+  const firstTokens = codexTokens(cx.stdout)
+  const secondTokens = codexTokens(second.stdout)
+  const tokens = firstTokens === null && secondTokens === null ? null : (firstTokens ?? 0) + (secondTokens ?? 0)
   if (verdict.kind === 'fixed') {
     return { kind: 'fixed', tokens }
   }
