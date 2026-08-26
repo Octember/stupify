@@ -57,10 +57,9 @@ A cron job runs the sweep every minute (`*/1 * * * *`); the sweep self-locks so 
    whose base is another feature branch diff against that base, not `main`. It spins a detached worktree at the PR
    head SHA (`$STUPIFY_HOME/worktrees/<n>-<sha>`) so codex reads the same tree the diff describes, then feeds the
    diff to `codex exec` over **stdin**, in a `workspace-write` sandbox restricted to `/tmp` with **network off and
-   no `gh`**. Codex reads the rubric + corpus + the inlined diff and writes the review to a temp file ending in the
-   marker; the _runner_, not Codex, posts it with `gh pr comment`.
+   no `gh`**. The runner resumes that thread once to challenge duplicate ownership, then posts the final verdict.
    Candidates are collected serially (all the cheap gh gates), then reviewed by a pool of up to `CODEX_JOBS`
-   (default 3) concurrent codex runs — a busy sweep's wall-clock is the slowest review, not the sum of them. A
+   (default 3) concurrent review sessions — a busy sweep's wall-clock is the slowest review, not the sum of them. A
    quota wall from any run stops new launches while in-flight runs drain.
 6. **Cap.** `MAX_PRS` limits PRs _actually reviewed_ per sweep, counted only after the cheap dedup skips, so a
    backlog of already-reviewed PRs at the front of the list can't starve later ones.
@@ -127,11 +126,12 @@ a big diff can't blow `ARG_MAX`:
 
 ```
 gh pr diff <N> --repo <slug>                              # the RUNNER fetches the diff
-codex exec --cd <STUPIFY_HOME>/repo --sandbox workspace-write \
+codex exec --json --cd <STUPIFY_HOME>/repo --sandbox workspace-write \
   -c model_reasoning_effort=<CODEX_EFFORT> \
   -c sandbox_workspace_write.network_access=false \
   -c 'sandbox_workspace_write.writable_roots=["/tmp"]' \
   -                                                        # prompt (diff inlined) on stdin
+codex exec resume --json <thread-id> -                     # ownership challenge on stdin
 gh pr comment <N> --repo <slug> --body-file <review>      # the RUNNER posts
 ```
 

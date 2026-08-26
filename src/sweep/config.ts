@@ -133,7 +133,7 @@ export function loadConfig(): Config {
     statusAppKeyPath: pick('GITHUB_STATUS_APP_KEY', '').trim(),
     gatewayPool: pick('CODEX_GATEWAY_POOL', ''),
     rotateCooldownMs: int('CODEX_ROTATE_COOLDOWN_MIN', 10, 0) * 60_000,
-    codexJobs: int('CODEX_JOBS', 3, 1), // a single codex run takes minutes; a small pool keeps a busy sweep from serializing them
+    codexJobs: int('CODEX_JOBS', 3, 1), // a review session takes minutes; a small pool keeps a busy sweep from serializing them
   })
 }
 

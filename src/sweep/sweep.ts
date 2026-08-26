@@ -46,7 +46,7 @@ export function loadSweepState(cfg: Config): SweepState {
 
 // Count PRs we do real (costly) work on, and cap THAT at MAX_PRS — so a backlog of already-reviewed PRs at
 // the front of the list can't consume the budget and starve later ones. Candidates are collected here (all the
-// cheap serial gates) and reviewed by pool.ts's CODEX_JOBS concurrent codex runs — the sweep's wall-clock
+// cheap serial gates) and reviewed by pool.ts's CODEX_JOBS concurrent codex sessions — the sweep's wall-clock
 // was dominated by running those multi-minute reviews strictly one after another.
 export function collectCandidates(
   cfg: Config,
@@ -56,7 +56,7 @@ export function collectCandidates(
   state: SweepState,
 ): { candidates: Candidate[]; handled: number } {
   let handled = 0
-  // Each candidate is one codex run, so the daily ceiling gates collection up front.
+  // Each candidate is one review session, so the daily ceiling gates collection up front.
   const dailyBudget =
     cfg.maxReviewsPerDay > 0 && !cfg.dryRun ? cfg.maxReviewsPerDay - state.daily.count : Number.POSITIVE_INFINITY
   const candidates: Candidate[] = []
