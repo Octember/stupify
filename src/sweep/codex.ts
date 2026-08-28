@@ -105,8 +105,27 @@ export function codexFinalMessage(out: string): string {
   return ''
 }
 
-export const SECOND_PASS_PROMPT =
-  "Second pass: are you sure this does not reinvent an existing owner? Search unchanged code, make sure this solution is minimal, elegant, and doesn't reinvent something that already exists."
+export const SECOND_PASS_PROMPT = `Look at unchanged code. Drop findings whose job already lives elsewhere; name that path. Keep what still stands. Same JSON schema.
+
+Write bodies like this (no em dash, no emoji, no confidence scores; GitHub already has the file):
+- you're adding a second source of truth: reuse the existing one at \`....\`
+- this already has an owner at \`....\`. drop the extra state.
+- this is bigger than the problem. keep \`....\` and delete the rest.
+- this isn't used. delete it.
+- this error message isn't honest. it says "speech" and that's not what's happening.
+
+Praise is:
+clean!
+
+then one of:
+![](https://media.giphy.com/media/ftYpwfV6ZcerEa8poV/giphy.gif)
+![](https://media.giphy.com/media/3oFzlX9khlRIev1E2Y/giphy.gif)
+![](https://media.giphy.com/media/RrVzUOXldFe8M/giphy.gif)
+![](https://media.giphy.com/media/a0h7sAqON67nO/giphy.gif)
+![](https://media.giphy.com/media/eM0U5NQtVHu30VM5sS/giphy.gif)
+![](https://i.fluffy.cc/BPgxZkmsrgmfcDFDCNWC3m4CW0gCJF7w.gif)
+![](https://media.giphy.com/media/3ohzAu2U1tOafteBa0/giphy.gif)
+Pick one. Don't stack.`
 
 function failureReason(out: string): string {
   const signal = /payment required|credits|quota|rate.?limit|429|5\d\d |timeout|killed|enoent|spawn|error/i
