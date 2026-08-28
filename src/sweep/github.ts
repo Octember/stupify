@@ -49,14 +49,14 @@ export function postReview(cfg: Config, pr: Pr, opener: string, findings: Parsed
       demoted.push(f.body)
     }
   }
-  const head = opener || '👀 a couple things'
+  const head = opener.trim()
   if (inline.length === 0) {
-    return submitReview(cfg, pr, [head, ...demoted, markFor(pr)].join('\n\n'), []).ok
+    return submitReview(cfg, pr, [head, ...demoted, markFor(pr)].filter(Boolean).join('\n\n'), []).ok
   }
   const body =
     demoted.length > 0
-      ? [head, `couldn't anchor these to a changed line:\n\n${demoted.join('\n\n')}`, markFor(pr)]
-      : [head, markFor(pr)]
+      ? [head, `couldn't anchor these to a changed line:\n\n${demoted.join('\n\n')}`, markFor(pr)].filter(Boolean)
+      : [head, markFor(pr)].filter(Boolean)
   const r = submitReview(cfg, pr, body.join('\n\n'), inline)
   if (r.ok) {
     return true
@@ -65,7 +65,7 @@ export function postReview(cfg: Config, pr: Pr, opener: string, findings: Parsed
   // diffRightLines didn't catch). Don't lose the findings to one bad line: retry body-only so they still land
   // (visible, just not inline) instead of failing — and re-failing — every sweep.
   logRaw(`  postReview #${pr.number} inline rejected, body-only fallback: ${r.combined.slice(0, 200)}\n`)
-  return submitReview(cfg, pr, [head, ...findings.map((f) => f.body), markFor(pr)].join('\n\n'), []).ok
+  return submitReview(cfg, pr, [head, ...findings.map((f) => f.body), markFor(pr)].filter(Boolean).join('\n\n'), []).ok
 }
 
 // A bodied-only COMMENT review (no inline comments) — for the one-time `LGTM ✅` on a clean first pass, or to carry

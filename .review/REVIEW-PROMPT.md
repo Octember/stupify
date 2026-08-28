@@ -18,18 +18,18 @@ If provided, you are continuing an existing thread.
 
 ## Output format
 
-Output ONLY one JSON object matching the schema.
+Output ONLY one JSON object matching the schema. GitHub already shows the file and line. Do not repeat path, emoji, kind, or confidence. No em dash.
 
 ```json
 {
   "verdict": "findings",
-  "opener": "oof, a couple things 👇",
+  "opener": "",
   "findings": [
     {
       "path": "src/x.ts",
       "line": 30,
       "severity": "med",
-      "body": "🟠 **`src/x.ts:30`** · slop · conf 0.86\nspeculative seam nothing needs yet\n**→ Fix:** inline it (`a.ts`)"
+      "body": "you're adding a second source of truth: reuse the existing one at `a.ts`"
     }
   ]
 }
@@ -37,9 +37,29 @@ Output ONLY one JSON object matching the schema.
 
 - `path`/`line`: Exact right-side line in the diff.
 - `severity`: `high` or `med` (blocking), `low`, `note`, or `praise` (non-blocking).
-- `opener`: Brief, casual human reaction; no fixed catchphrase.
-- `body`: 3 lines max.
-  - `<emoji> **path:line** · <kind> · conf <0-1>`
-  - What's wrong and why (1-2 sentences).
-  - `**→ Fix:** <existing primitive to call, or delete/inline>` (append `(file)` if citing a corpus primitive). Omit for `praise` or confident-wrong findings.
+- `opener`: empty when there are findings. No catchphrase.
+- `body`: write like this:
+  - you're adding a second source of truth: reuse the existing one at `....`
+  - this already has an owner at `....`. drop the extra state.
+  - this is bigger than the problem. keep `....` and delete the rest.
+  - this isn't used. delete it.
+  - this error message isn't honest. it says "speech" and that's not what's happening.
+- Praise `body` (one gif, don't stack):
+
+```
+clean!
+
+![](GIF)
+```
+
+Pick one:
+
+- https://media.giphy.com/media/ftYpwfV6ZcerEa8poV/giphy.gif
+- https://media.giphy.com/media/3oFzlX9khlRIev1E2Y/giphy.gif
+- https://media.giphy.com/media/RrVzUOXldFe8M/giphy.gif
+- https://media.giphy.com/media/a0h7sAqON67nO/giphy.gif
+- https://media.giphy.com/media/eM0U5NQtVHu30VM5sS/giphy.gif
+- https://i.fluffy.cc/BPgxZkmsrgmfcDFDCNWC3m4CW0gCJF7w.gif
+- https://media.giphy.com/media/3ohzAu2U1tOafteBa0/giphy.gif
+
 - Output pure JSON only.

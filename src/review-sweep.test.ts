@@ -111,8 +111,16 @@ test('the prefix equals stablePrefix(cfg) and carries the real taste, not generi
 
 test('the opener guidance gives direction, not copy-paste lines', () => {
   const openerSection = prefixes[0]?.split('`opener`')[1]?.split('`body`')[0] ?? ''
-  expect(openerSection).toContain('no fixed catchphrase')
+  expect(openerSection).toContain('No catchphrase')
   expect(openerSection).not.toMatch(/\bok so\b/i) // no literal opener the model could parrot verbatim
+})
+
+test('comment bodies are accusations with a pointer, not emoji scorecards', () => {
+  expect(prefixes[0]).toContain("you're adding a second source of truth")
+  expect(prefixes[0]).toContain('clean!')
+  expect(prefixes[0]).toContain('ftYpwfV6ZcerEa8poV') // joey nioce
+  expect(prefixes[0]).not.toContain('→ Fix:')
+  expect(prefixes[0]).not.toContain('conf 0.86')
 })
 
 test('NO per-PR token leaks into the cached prefix', () => {
