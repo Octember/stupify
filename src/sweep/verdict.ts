@@ -38,8 +38,12 @@ export type ReviewVerdict =
 
 const stripMarkers = (s: string): string => s.replaceAll(/<!--[\s\S]*?-->/g, '').trim() // drop any marker codex tacked on
 
-const heading = (f: { severity: z.infer<typeof Severity>; conf: number; path: string; line: number }): string =>
-  `${EMOJI[f.severity]} · conf ${Number(f.conf.toFixed(2))} · **\`${f.path}:${f.line}\`**`
+const heading = (severity: z.infer<typeof Severity>, conf: number, path: string, line: number): string =>
+  `${EMOJI[severity]} · conf ${Number(conf.toFixed(2))} · **\`${path}:${line}\`**`
+
+const postedBody = (head: string, body: string): string => `${head}
+
+${body}`
 
 /** Boundary guard behind the enforced schema: a provider that ignores response_format degrades to a loud,
  *  retryable null — never a guessed or partially-posted review. */
@@ -74,9 +78,7 @@ export function parseReview(raw: string): ReviewVerdict | null {
       path,
       line: f.line,
       blocking: BLOCKING.has(f.severity),
-      body: `${heading({ ...f, path })}
-
-${body}`,
+      body: postedBody(heading(f.severity, f.conf, path, f.line), body),
     })
   }
   return { kind: 'findings', opener: stripMarkers(data.opener), findings }
