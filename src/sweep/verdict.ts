@@ -35,7 +35,7 @@ export type ReviewVerdict =
 
 const stripMarkers = (s: string): string => s.replaceAll(/<!--[\s\S]*?-->/g, '').trim() // drop any marker codex tacked on
 
-const noteBody = (body: string): string => `fyi!
+const noteBody = (body: string): string => `info!
 
 ${body}`
 
