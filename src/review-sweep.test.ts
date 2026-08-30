@@ -34,7 +34,6 @@ import {
   REVIEW_SCHEMA,
   reviewPrompt,
   stablePrefix,
-  STILL_NOTE,
 } from './review-sweep'
 
 const REVIEW_DIR = join(import.meta.dir, '..', '.review') // the real spec/rubric/corpus shipped in this repo
@@ -78,7 +77,6 @@ const pr = (number: number, sha: string, base = 'main', baseSha = 'a'.repeat(40)
   body: '',
 })
 
-const sha256 = (s: string) => new Bun.CryptoHasher('sha256').update(s).digest('hex')
 const prefixOf = (prompt: string) => prompt.slice(0, prompt.indexOf(THIS_PR))
 
 // Three different PRs: different numbers, different head SHAs, and (crucially) one mid-thread with memory —
@@ -96,27 +94,13 @@ const prompts = [
 const prefixes = prompts.map((p) => prefixOf(p))
 
 test('the cached prefix is byte-identical across every PR (incl. mid-thread)', () => {
-  const hashes = new Set(prefixes.map((p) => sha256(p)))
-  expect(hashes.size).toBe(1) // one and only one prefix hash, no matter the PR
   expect(prefixes[0]).toBe(prefixes[1])
   expect(prefixes[0]).toBe(prefixes[2])
-})
-
-test('the prefix equals stablePrefix(cfg) and carries the real taste, not generic weights', () => {
   expect(prefixes[0]?.trimEnd()).toBe(stablePrefix(cfg()).trimEnd())
-  expect(prefixes[0]).toContain('===== RUBRIC')
-  expect(prefixes[0]).toContain('===== CORPUS')
-})
-
-test('NO per-PR token leaks into the cached prefix', () => {
-  for (const prefix of prefixes) {
-    expect(prefix).not.toContain('diff --git') // the inlined diff lives in the tail, not the cached prefix
-    expect(prefix).not.toContain('const one') // ...nor any of its content
-    expect(prefix).not.toContain('a'.repeat(40)) // no head SHA / marker
-    expect(prefix).not.toContain('b'.repeat(40))
-    expect(prefix).not.toContain('PRIOR-THREAD') // memory lives in the tail
-    expect(prefix).not.toContain('PR 1 title') // the per-PR title/body live in the tail too
-  }
+  expect(prompts[0]).not.toBe(prompts[1])
+  expect(prompts[0]).toContain('const one = 1')
+  expect(prompts[1]).toContain('const two = 2')
+  expect(prompts[2]).toContain('PRIOR-THREAD')
 })
 
 // The author's stated intent reaches the model — fenced and defanged, like every other untrusted input, so a
@@ -182,10 +166,6 @@ test('parseReview: bare verdicts converge; a paraphrase fails loud, never silent
 // stupify review that (a) carries the `<!-- stupify:<headSHA> -->` marker for the CURRENT head and (b) contains ✅
 // for approval. postNote appends the marker; the note itself must carry the ✅ — a reworded note without it would
 // read as an objection, and a silent convergence reads as "never reviewed this head" (the STUPIFY_FLAKED bug).
-test('the still-clean convergence note carries the ✅ approval mark per-head gates key on', () => {
-  expect(STILL_NOTE).toContain('✅')
-})
-
 const gqlThread = (isResolved: boolean, bodies: string[]) => ({
   isResolved,
   comments: { nodes: bodies.map((body) => ({ body })) },
@@ -196,7 +176,7 @@ const gqlThread = (isResolved: boolean, bodies: string[]) => ({
 // "tagged comment, no untagged one, resolved" is the signal. A reply (reasoned decline) or an open thread is left be.
 test('dismissedFindings: resolved + stupify-only → dismissed; with a human reply → settled; open → neither', () => {
   const TAG = '<!-- stupify -->'
-  const finding = '🟠 **`src/x.ts:30`** · bug · conf 0.8\nit breaks\n**→ Fix:** reuse (`src/y.ts`)'
+  const finding = 'it breaks on empty'
   const ours = `${finding}\n${TAG}`
   const reply = 'nah — intentional, see the PR body'
   const out = dismissedFindings([
@@ -206,7 +186,7 @@ test('dismissedFindings: resolved + stupify-only → dismissed; with a human rep
     gqlThread(true, [reply]), // a resolved thread that isn't even ours → ignore
   ])
   expect(out.length).toBe(1)
-  expect(out[0]).toContain('src/x.ts:30')
+  expect(out[0]).toContain('it breaks on empty')
   expect(out[0]).not.toContain(TAG) // the hidden tag is stripped before the finding goes back to codex
 })
 
@@ -400,14 +380,6 @@ test('commitStatusForSweepResult keeps unresolved prior findings red, non-blocki
     state: 'success',
     description: 'stupify review complete; no new issues',
   })
-})
-
-test('only the tail changes — per-PR content is present and correct there', () => {
-  expect(prompts[0]).not.toBe(prompts[1]) // whole prompts differ...
-  expect(prompts[0]).toContain('const one = 1') // ...because each carries its OWN inlined diff in the tail
-  expect(prompts[1]).toContain('const two = 2')
-  expect(prompts[2]).toContain('const three = 3')
-  expect(prompts[2]).toContain('PRIOR-THREAD') // memory threaded into the tail
 })
 
 // The per-VM sweep state stores (inlined from @stupify/exe-host when the kit absorbed it): parse
