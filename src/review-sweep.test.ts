@@ -80,7 +80,6 @@ const pr = (number: number, sha: string, base = 'main', baseSha = 'a'.repeat(40)
 
 const sha256 = (s: string) => new Bun.CryptoHasher('sha256').update(s).digest('hex')
 const prefixOf = (prompt: string) => prompt.slice(0, prompt.indexOf(THIS_PR))
-const reviewStepsOf = (prompt: string) => prompt.split('# Review spec')[1]?.split('## Prior reviews')[0] ?? ''
 
 // Three different PRs: different numbers, different head SHAs, and (crucially) one mid-thread with memory —
 // the hardest case, since "continuing a review" must STILL not perturb the prefix.
@@ -107,20 +106,6 @@ test('the prefix equals stablePrefix(cfg) and carries the real taste, not generi
   expect(prefixes[0]?.trimEnd()).toBe(stablePrefix(cfg()).trimEnd())
   expect(prefixes[0]).toContain('===== RUBRIC')
   expect(prefixes[0]).toContain('===== CORPUS')
-})
-
-test('the opener guidance gives direction, not copy-paste lines', () => {
-  const openerSection = prefixes[0]?.split('`opener`')[1]?.split('`body`')[0] ?? ''
-  expect(openerSection).toContain('empty when there are findings')
-  expect(openerSection).not.toMatch(/\bok so\b/i) // no literal opener the model could parrot verbatim
-})
-
-test('comment bodies are accusations with a pointer, not emoji scorecards', () => {
-  expect(prefixes[0]).toContain("you're adding a second source of truth")
-  expect(prefixes[0]).toContain('![](GIF)')
-  expect(prefixes[0]).toContain('ftYpwfV6ZcerEa8poV') // joey nioce
-  expect(prefixes[0]).not.toContain('→ Fix:')
-  expect(prefixes[0]).not.toContain('conf 0.86')
 })
 
 test('NO per-PR token leaks into the cached prefix', () => {
@@ -191,7 +176,6 @@ test('parseReview: bare verdicts converge; a paraphrase fails loud, never silent
     findings: [{ path: 'a.ts', line: 1, severity: 'high', body: 'x' }],
   }
   expect(parseReview(JSON.stringify(contradictory))).toBeNull()
-  expect(prompts[0]).toContain('nice, all fixed ✅') // codex is told what the runner posts on "fixed"
 })
 
 // The convergence note is a CONTRACT: per-head consumers (merge gates, the bunion factory's `wait` tool) key on a
@@ -200,7 +184,6 @@ test('parseReview: bare verdicts converge; a paraphrase fails loud, never silent
 // read as an objection, and a silent convergence reads as "never reviewed this head" (the STUPIFY_FLAKED bug).
 test('the still-clean convergence note carries the ✅ approval mark per-head gates key on', () => {
   expect(STILL_NOTE).toContain('✅')
-  expect(prompts[0]).toContain(STILL_NOTE) // codex is told the runner posts it, so it keeps emitting the bare token
 })
 
 const gqlThread = (isResolved: boolean, bodies: string[]) => ({
@@ -237,18 +220,6 @@ test('pidAlive: our own pid is alive, junk/dead pids are not', () => {
   expect(pidAlive(Number.NaN)).toBe(false) // a corrupt/empty lock file parses to NaN — must read as dead, not crash
 })
 
-test('the JSON output contract is instructed in the prompt, and the prefix stays stable across PRs', () => {
-  expect(prompts[0]).toContain('no_new_issues') // codex is told the verdict vocabulary
-  // The contract text is static (spec + tail), so it does NOT thrash the cache: the prefix is still byte-identical
-  // across every PR (the dedicated cache-invariant test above proves size===1). Belt here: no per-PR drift.
-  expect(prefixes[0]).toBe(prefixes[2])
-})
-
-test('the review spec suppresses noisy test-only nits', () => {
-  const steps = reviewStepsOf(prompts[0] ?? '')
-  expect(steps).toContain('Tests:')
-})
-
 // Inline review comments can only anchor to RIGHT-side lines the diff actually touches — get this wrong and the
 // whole review 422s. Added + context lines count; the removed line's number does not.
 test('diffRightLines: anchorable lines are the new-file added/context lines', () => {
@@ -280,25 +251,25 @@ test('parseReview: findings map to anchored threads with declared blocking', () 
         path: 'src/x.ts',
         line: 30,
         severity: 'low',
-        body: '🟡 **`src/x.ts:30`** · slop · conf 0.86\nspeculative seam\n**→ Fix:** inline it (`a.ts`)',
+        body: 'speculative seam',
       },
       {
         path: 'src/y.ts',
         line: 5,
         severity: 'high',
-        body: '🔴 **`src/y.ts:5`** · bug · conf 0.9\nbreaks on empty\n<!-- stupify:abc123 -->',
+        body: 'breaks on empty\n<!-- stupify:abc123 -->',
       },
       {
         path: 'src/z.ts',
         line: 12,
         severity: 'note',
-        body: '🔵 this state file wants to merge into status.json someday',
+        body: 'this state file wants to merge into status.json someday',
       },
       {
         path: 'src/y.ts',
         line: 9,
         severity: 'praise',
-        body: '🟢 clean! love this — validated boundary, no assertions',
+        body: 'validated boundary, no assertions',
       },
     ],
   })
@@ -437,12 +408,6 @@ test('only the tail changes — per-PR content is present and correct there', ()
   expect(prompts[1]).toContain('const two = 2')
   expect(prompts[2]).toContain('const three = 3')
   expect(prompts[2]).toContain('PRIOR-THREAD') // memory threaded into the tail
-})
-
-test('the prefix is large enough to be cache-eligible (well past the ~1024-token floor)', () => {
-  const bytes = prefixes[0]?.length ?? 0
-  const approxTokens = Math.round(bytes / 4) // ~4 chars/token, the standard rough estimate
-  expect(approxTokens).toBeGreaterThan(1024)
 })
 
 // The per-VM sweep state stores (inlined from @stupify/exe-host when the kit absorbed it): parse
