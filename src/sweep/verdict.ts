@@ -38,10 +38,6 @@ export type ReviewVerdict =
 
 const stripMarkers = (s: string): string => s.replaceAll(/<!--[\s\S]*?-->/g, '').trim() // drop any marker codex tacked on
 
-const noteBody = (body: string): string => `info!
-
-${body}`
-
 const heading = (f: { severity: z.infer<typeof Severity>; conf: number; path: string; line: number }): string =>
   `${EMOJI[f.severity]} · conf ${Number(f.conf.toFixed(2))} · **\`${f.path}:${f.line}\`**`
 
@@ -74,14 +70,13 @@ export function parseReview(raw: string): ReviewVerdict | null {
     if (!path || !body) {
       return null
     }
-    const rest = f.severity === 'note' ? noteBody(body) : body
     findings.push({
       path,
       line: f.line,
       blocking: BLOCKING.has(f.severity),
       body: `${heading({ ...f, path })}
 
-${rest}`,
+${body}`,
     })
   }
   return { kind: 'findings', opener: stripMarkers(data.opener), findings }
