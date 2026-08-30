@@ -114,10 +114,7 @@ Write bodies like this (no em dash, no emoji, no confidence scores; GitHub alrea
 - this isn't used. delete it.
 - this error message isn't honest. it says "speech" and that's not what's happening.
 
-Praise is:
-clean!
-
-then one of:
+Praise is one of:
 ![](https://media.giphy.com/media/ftYpwfV6ZcerEa8poV/giphy.gif)
 ![](https://media.giphy.com/media/3oFzlX9khlRIev1E2Y/giphy.gif)
 ![](https://media.giphy.com/media/RrVzUOXldFe8M/giphy.gif)

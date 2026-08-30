@@ -117,7 +117,7 @@ test('the opener guidance gives direction, not copy-paste lines', () => {
 
 test('comment bodies are accusations with a pointer, not emoji scorecards', () => {
   expect(prefixes[0]).toContain("you're adding a second source of truth")
-  expect(prefixes[0]).toContain('clean!')
+  expect(prefixes[0]).toContain('![](GIF)')
   expect(prefixes[0]).toContain('ftYpwfV6ZcerEa8poV') // joey nioce
   expect(prefixes[0]).not.toContain('→ Fix:')
   expect(prefixes[0]).not.toContain('conf 0.86')

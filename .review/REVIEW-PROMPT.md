@@ -48,8 +48,6 @@ Output ONLY one JSON object matching the schema. GitHub already shows the file a
 - Praise `body` (one gif, don't stack):
 
 ```
-clean!
-
 ![](GIF)
 ```
 
