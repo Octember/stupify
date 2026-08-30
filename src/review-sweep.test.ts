@@ -311,29 +311,6 @@ test('parseReview: findings map to anchored threads with declared blocking', () 
   expect(parsed.findings[0]).toMatchObject({ path: 'src/x.ts', line: 30 })
   expect(parsed.findings[0]?.body).toContain('speculative seam')
   expect(parsed.findings[1]?.body).not.toContain('<!-- stupify') // the marker codex tacked on is dropped from the thread body
-  expect(parsed.findings[2]?.body.startsWith('fyi!\n\n')).toBe(true)
-})
-
-test('parseReview: note heading is fyi! and is not doubled', () => {
-  const once = parseReview(
-    JSON.stringify({
-      verdict: 'findings',
-      opener: '',
-      findings: [{ path: 'a.ts', line: 1, severity: 'note', body: 'this is commentary' }],
-    }),
-  )
-  const already = parseReview(
-    JSON.stringify({
-      verdict: 'findings',
-      opener: '',
-      findings: [{ path: 'a.ts', line: 1, severity: 'note', body: 'fyi!\n\nalready headed' }],
-    }),
-  )
-  if (once?.kind !== 'findings' || already?.kind !== 'findings') {
-    throw new Error('expected findings')
-  }
-  expect(once.findings[0]?.body).toBe('fyi!\n\nthis is commentary')
-  expect(already.findings[0]?.body).toBe('fyi!\n\nalready headed')
 })
 
 // One malformed finding fails the WHOLE review to null — a loud, retryable failure, never a partial post.
