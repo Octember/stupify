@@ -18,8 +18,6 @@ If provided, you are continuing an existing thread.
 
 ## Output format
 
-Output ONLY one JSON object matching the schema. GitHub already shows the file and line. Do not repeat path, emoji, kind, or confidence. No em dash.
-
 ```json
 {
   "verdict": "findings",
@@ -37,7 +35,7 @@ Output ONLY one JSON object matching the schema. GitHub already shows the file a
 
 - `path`/`line`: Exact right-side line in the diff.
 - `severity`: matches the severity definitions from the rubric.
-- `opener`: empty when there are findings. No catchphrase.
+- `opener`: empty when there are findings.
 - `body`: write like this:
   - you're adding a second source of truth: reuse the existing one at `....`
   - this already has an owner at `....`. drop the extra state.
@@ -45,7 +43,7 @@ Output ONLY one JSON object matching the schema. GitHub already shows the file a
   - this isn't used. delete it.
   - this error message isn't honest. it says "speech" and that's not what's happening.
 - Don't be overly prescriptive in your fix.
-- Praise `body` (one gif, don't stack):
+- Praise `body` (one gif):
 
 ```
 ![](GIF)
@@ -61,4 +59,3 @@ Pick one:
 - https://i.fluffy.cc/BPgxZkmsrgmfcDFDCNWC3m4CW0gCJF7w.gif
 - https://media.giphy.com/media/3ohzAu2U1tOafteBa0/giphy.gif
 
-- Output pure JSON only.

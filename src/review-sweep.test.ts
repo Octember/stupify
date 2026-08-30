@@ -111,7 +111,7 @@ test('the prefix equals stablePrefix(cfg) and carries the real taste, not generi
 
 test('the opener guidance gives direction, not copy-paste lines', () => {
   const openerSection = prefixes[0]?.split('`opener`')[1]?.split('`body`')[0] ?? ''
-  expect(openerSection).toContain('No catchphrase')
+  expect(openerSection).toContain('empty when there are findings')
   expect(openerSection).not.toMatch(/\bok so\b/i) // no literal opener the model could parrot verbatim
 })
 

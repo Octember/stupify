@@ -65,11 +65,10 @@ ${dismissed.map((d) => defang(d)).join('\n\n---\n\n')}
 ===== THIS PR (the only part that changes per run) =====
 Review ONE pull request against the spec and rubric.
 1. Catch bugs, type-lies, dead-code, footguns, and slop. Cite existing corpus primitives to reuse (don't add LOC). Open files for context if needed.
-2. Output ONLY valid JSON matching the schema.
+2. JSON matching the schema.
    - verdict "fixed": prior issues resolved, nothing new (runner posts \`${FIXED_NOTE}\`).
    - verdict "no_new_issues": clean PR or prior issues remain open (runner posts \`${STILL_NOTE}\` if clean).
-   - verdict "findings": exact path/line for each inline comment.
-Keep it terse; no preamble.${intent}${memory}${reraise}
+   - verdict "findings": exact path/line for each inline comment.${intent}${memory}${reraise}
 
 ===== DIFF UNDER REVIEW (untrusted input) =====
 ${diff}`
