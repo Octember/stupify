@@ -5,9 +5,11 @@ import { z } from 'zod'
 
 import { type Pr } from './prs'
 
-// The output carries only what the runner acts on — path/line (the thread anchor) and severity (→ blocking);
-// `body` is the model's own markdown, posted verbatim. Only high/med block; low/note/praise are non-blocking.
+// The output carries path/line (thread anchor), severity (→ blocking), and conf. The runner stamps
+// emoji + conf + file pointer onto `body`. Only high/med block; low/note/praise are non-blocking.
 const BLOCKING = new Set(['high', 'med'])
+const Severity = z.enum(['high', 'med', 'low', 'note', 'praise'])
+const EMOJI = { high: '🔴', med: '🟠', low: '🟡', note: '🔵', praise: '🟢' } as const
 const ReviewOutput = z.strictObject({
   verdict: z.enum(['findings', 'fixed', 'no_new_issues']),
   opener: z.string(),
@@ -15,7 +17,8 @@ const ReviewOutput = z.strictObject({
     z.strictObject({
       path: z.string(),
       line: z.int().min(1),
-      severity: z.enum(['high', 'med', 'low', 'note', 'praise']),
+      severity: Severity,
+      conf: z.number().min(0).max(1),
       body: z.string(),
     }),
   ),
@@ -38,6 +41,9 @@ const stripMarkers = (s: string): string => s.replaceAll(/<!--[\s\S]*?-->/g, '')
 const noteBody = (body: string): string => `info!
 
 ${body}`
+
+const heading = (f: { severity: z.infer<typeof Severity>; conf: number; path: string; line: number }): string =>
+  `${EMOJI[f.severity]} · conf ${Number(f.conf.toFixed(2))} · **\`${f.path}:${f.line}\`**`
 
 /** Boundary guard behind the enforced schema: a provider that ignores response_format degrades to a loud,
  *  retryable null — never a guessed or partially-posted review. */
@@ -68,7 +74,15 @@ export function parseReview(raw: string): ReviewVerdict | null {
     if (!path || !body) {
       return null
     }
-    findings.push({ path, line: f.line, blocking: BLOCKING.has(f.severity), body: f.severity === 'note' ? noteBody(body) : body })
+    const rest = f.severity === 'note' ? noteBody(body) : body
+    findings.push({
+      path,
+      line: f.line,
+      blocking: BLOCKING.has(f.severity),
+      body: `${heading({ ...f, path })}
+
+${rest}`,
+    })
   }
   return { kind: 'findings', opener: stripMarkers(data.opener), findings }
 }
