@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 
-import { codexFinalMessage, codexThreadId, codexTokens, SECOND_PASS_PROMPT } from './codex'
+import { codexFinalMessage, codexThreadId, codexTokens } from './codex'
 
 const events = [
   JSON.stringify({ type: 'thread.started', thread_id: 'thread-123' }),
@@ -14,11 +14,4 @@ test('reads the resumed thread contract from codex JSON events', () => {
   expect(codexThreadId(events)).toBe('thread-123')
   expect(codexFinalMessage(events)).toBe('final')
   expect(codexTokens(events)).toBe(150)
-})
-
-test('the resume turn restates comment voice without naming the extra turn', () => {
-  expect(SECOND_PASS_PROMPT).toContain('unchanged code')
-  expect(SECOND_PASS_PROMPT).toContain("you're adding a second source of truth")
-  expect(SECOND_PASS_PROMPT).toContain('clean!')
-  expect(SECOND_PASS_PROMPT).not.toMatch(/second pass/i)
 })
