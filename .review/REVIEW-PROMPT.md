@@ -45,7 +45,6 @@ Output ONLY one JSON object matching the schema. GitHub already shows the file a
   - this isn't used. delete it.
   - this error message isn't honest. it says "speech" and that's not what's happening.
 - Don't be overly prescriptive in your fix.
-- Note / info `body` starts with `fyi!` then the commentary.
 - Praise `body` (one gif, don't stack):
 
 ```

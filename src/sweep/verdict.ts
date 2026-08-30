@@ -64,8 +64,7 @@ export function parseReview(raw: string): ReviewVerdict | null {
     if (!path || !body) {
       return null
     }
-    const headed = f.severity === 'note' && !/^fyi!/i.test(body) ? `fyi!\n\n${body}` : body
-    findings.push({ path, line: f.line, blocking: BLOCKING.has(f.severity), body: headed })
+    findings.push({ path, line: f.line, blocking: BLOCKING.has(f.severity), body: f.severity === 'note' ? `fyi!\n\n${body}` : body })
   }
   return { kind: 'findings', opener: stripMarkers(data.opener), findings }
 }
