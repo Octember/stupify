@@ -10,7 +10,7 @@ import { type Pr } from './prs'
 const BLOCKING = new Set(['high', 'med'])
 const Severity = z.enum(['high', 'med', 'low', 'note', 'praise'])
 const EMOJI = { high: '🔴', med: '🟠', low: '🟡', note: '🔵', praise: '🟢' } as const
-const ReviewOutput = z.strictObject({
+export const ReviewOutput = z.strictObject({
   verdict: z.enum(['findings', 'fixed', 'no_new_issues']),
   opener: z.string(),
   findings: z.array(
@@ -23,6 +23,7 @@ const ReviewOutput = z.strictObject({
     }),
   ),
 })
+export type ReviewOutput = z.infer<typeof ReviewOutput>
 export const REVIEW_SCHEMA = z.toJSONSchema(ReviewOutput)
 
 export interface ParsedFinding {
@@ -43,20 +44,8 @@ const postedBody = (head: string, body: string): string => `${head}
 
 ${body}`
 
-/** Boundary guard behind the enforced schema: a provider that ignores response_format degrades to a loud,
- *  retryable null — never a guessed or partially-posted review. */
-export function parseReview(raw: string): ReviewVerdict | null {
-  let rawJson: unknown
-  try {
-    rawJson = JSON.parse(raw)
-  } catch {
-    return null
-  }
-  const parsed = ReviewOutput.safeParse(rawJson)
-  if (!parsed.success) {
-    return null
-  }
-  const { data } = parsed
+/** Stamp headings and split verdicts. Caller already `ReviewOutput.parse`d the model JSON. */
+export function parseReview(data: ReviewOutput): ReviewVerdict | null {
   if (data.verdict !== 'findings') {
     // A convergence verdict that ALSO carries findings is contradictory — fail loud rather than resolve threads
     // and post a ✅ while silently dropping what the model found.

@@ -10,7 +10,7 @@ import { z } from 'zod'
 import { type Config, logRaw } from './config'
 import { reviewOutPath, reviewPrompt } from './prompt'
 import { type Pr } from './prs'
-import { type ParsedFinding, parseReview, REVIEW_SCHEMA } from './verdict'
+import { type ParsedFinding, parseReview, ReviewOutput, REVIEW_SCHEMA } from './verdict'
 
 /** The outcome of running codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
  *  the ad-hoc `stupify review` prints it or `--post`s it. */
@@ -224,11 +224,18 @@ export async function runReview(
     const reason = failureReason(second.combined)
     return isRateLimited(second.combined) ? { kind: 'limit', reason, raw: second.combined } : { kind: 'fail', reason }
   }
-  const verdict = parseReview(review)
-  if (verdict === null) {
+  let data: ReviewOutput
+  try {
+    data = ReviewOutput.parse(JSON.parse(review))
+  } catch {
     logRaw(`  unparseable review output for #${pr.number}:\n${review.slice(0, 2000)}\n`)
     const reason = 'codex output was not a valid review JSON (raw output is in the sweep log)'
     return isRateLimited(second.combined) ? { kind: 'limit', reason, raw: second.combined } : { kind: 'fail', reason }
+  }
+  const verdict = parseReview(data)
+  if (verdict === null) {
+    logRaw(`  empty findings for #${pr.number}\n`)
+    return { kind: 'fail', reason: 'review parsed but had no usable findings' }
   }
   const firstTokens = codexTokens(cx.stdout)
   const secondTokens = codexTokens(second.stdout)
