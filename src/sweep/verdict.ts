@@ -62,26 +62,25 @@ export function parseReview(raw: string): ReviewVerdict | null {
     // and post a ✅ while silently dropping what the model found.
     return data.findings.length === 0 ? { kind: data.verdict } : null
   }
-  if (data.findings.length === 0) {
+  const findings = data.findings
+    .map((f): ParsedFinding | null => {
+      const path = f.path.trim()
+      const body = f.body.trim()
+      if (!path || !body) {
+        return null
+      }
+      return {
+        path,
+        line: f.line,
+        blocking: BLOCKING.has(f.severity),
+        body: postedBody(heading(f.severity, f.conf, path, f.line), body),
+      }
+    })
+    .filter((f) => f !== null)
+  if (findings.length === 0) {
     return null
   }
-  const findings = data.findings.map((f): ParsedFinding | null => {
-    const path = f.path.trim()
-    const body = f.body.trim()
-    if (!path || !body) {
-      return null
-    }
-    return {
-      path,
-      line: f.line,
-      blocking: BLOCKING.has(f.severity),
-      body: postedBody(heading(f.severity, f.conf, path, f.line), body),
-    }
-  })
-  if (findings.some((f) => f === null)) {
-    return null
-  }
-  return { kind: 'findings', opener: data.opener, findings: findings.filter((f) => f !== null) }
+  return { kind: 'findings', opener: data.opener, findings }
 }
 
 // The hidden marker stupify ends every posted review with, keyed to the head SHA — how a later sweep recognizes a
