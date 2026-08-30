@@ -65,12 +65,16 @@ ${rubric}
   return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: head + corpus } })
 }
 
+function writePrimePayload(payload: string): void {
+  process.stdout.write(payload)
+}
+
 /** Write the payload to stdout, or nothing. Swallows every error: a hook must never disrupt session start. */
 export function emitPrime(): void {
   try {
     const payload = primePayload()
     if (payload !== null) {
-      process.stdout.write(payload)
+      writePrimePayload(payload)
     }
   } catch {
     /* never break session start */
