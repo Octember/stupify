@@ -315,14 +315,20 @@ test('parseReview: findings map to anchored threads with declared blocking', () 
 })
 
 test('parseReview: note heading is fyi! and is not doubled', () => {
-  const wrap = (body: string) =>
+  const once = parseReview(
     JSON.stringify({
       verdict: 'findings',
       opener: '',
-      findings: [{ path: 'a.ts', line: 1, severity: 'note', body }],
-    })
-  const once = parseReview(wrap('this is commentary'))
-  const already = parseReview(wrap('fyi!\n\nalready headed'))
+      findings: [{ path: 'a.ts', line: 1, severity: 'note', body: 'this is commentary' }],
+    }),
+  )
+  const already = parseReview(
+    JSON.stringify({
+      verdict: 'findings',
+      opener: '',
+      findings: [{ path: 'a.ts', line: 1, severity: 'note', body: 'fyi!\n\nalready headed' }],
+    }),
+  )
   if (once?.kind !== 'findings' || already?.kind !== 'findings') {
     throw new Error('expected findings')
   }
