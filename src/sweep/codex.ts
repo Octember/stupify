@@ -114,6 +114,11 @@ Write bodies like this (no em dash, no emoji, no confidence scores; GitHub alrea
 - this isn't used. delete it.
 - this error message isn't honest. it says "speech" and that's not what's happening.
 
+Note / info is:
+fyi!
+
+then the commentary.
+
 Praise is:
 clean!
 
