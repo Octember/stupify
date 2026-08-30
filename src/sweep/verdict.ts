@@ -36,8 +36,6 @@ export type ReviewVerdict =
   | { kind: 'fixed' }
   | { kind: 'findings'; opener: string; findings: ParsedFinding[] }
 
-const stripMarkers = (s: string): string => s.replaceAll(/<!--[\s\S]*?-->/g, '').trim() // drop any marker codex tacked on
-
 const heading = (severity: z.infer<typeof Severity>, conf: number, path: string, line: number): string =>
   `${EMOJI[severity]} · conf ${Number(conf.toFixed(2))} · **\`${path}:${line}\`**`
 
@@ -69,7 +67,7 @@ export function parseReview(raw: string): ReviewVerdict | null {
   }
   const findings = data.findings.map((f): ParsedFinding | null => {
     const path = f.path.trim()
-    const body = stripMarkers(f.body)
+    const body = f.body.trim()
     if (!path || !body) {
       return null
     }
@@ -83,7 +81,7 @@ export function parseReview(raw: string): ReviewVerdict | null {
   if (findings.some((f) => f === null)) {
     return null
   }
-  return { kind: 'findings', opener: stripMarkers(data.opener), findings: findings.filter((f) => f !== null) }
+  return { kind: 'findings', opener: data.opener, findings: findings.filter((f) => f !== null) }
 }
 
 // The hidden marker stupify ends every posted review with, keyed to the head SHA — how a later sweep recognizes a
