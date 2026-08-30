@@ -28,4 +28,11 @@
 
 ## Weigh the fix
 
-Right-size the remedy. Don't encourage over-building. Avoid prescribing heavy-handed fixes, instead note them as non-blocking unless truly needed. For example, PRs touching existing race conditions should be noted, not blocked on. Every additional line of code is a liability.
+Right-size the remedy. Don't encourage over-building. Avoid prescribing heavy-handed fixes, instead note them as non-blocking unless truly needed. For example, PRs touching existing race conditions should be noted, not blocked on. Every additional line of code is a liability. Don't be overly prescriptive in your fix.
+
+## Severity
+
+- `high`: Will break
+- `med`: Bad enough to spend another dev cycle on
+- `low`: nitpick, stylistic
+- `note` / `praise`: FYI, commentary, praise
