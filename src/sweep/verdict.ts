@@ -35,6 +35,10 @@ export type ReviewVerdict =
 
 const stripMarkers = (s: string): string => s.replaceAll(/<!--[\s\S]*?-->/g, '').trim() // drop any marker codex tacked on
 
+const noteBody = (body: string): string => `fyi!
+
+${body}`
+
 /** Boundary guard behind the enforced schema: a provider that ignores response_format degrades to a loud,
  *  retryable null — never a guessed or partially-posted review. */
 export function parseReview(raw: string): ReviewVerdict | null {
@@ -64,7 +68,7 @@ export function parseReview(raw: string): ReviewVerdict | null {
     if (!path || !body) {
       return null
     }
-    findings.push({ path, line: f.line, blocking: BLOCKING.has(f.severity), body: f.severity === 'note' ? `fyi!\n\n${body}` : body })
+    findings.push({ path, line: f.line, blocking: BLOCKING.has(f.severity), body: f.severity === 'note' ? noteBody(body) : body })
   }
   return { kind: 'findings', opener: stripMarkers(data.opener), findings }
 }
