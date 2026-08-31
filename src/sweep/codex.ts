@@ -4,8 +4,8 @@ import { Codex } from '@openai/codex-sdk'
 
 import { type Config, logRaw } from './config'
 import { reviewPrompt } from './prompt'
-import { SECOND_PASS_PROMPT } from './second-pass'
 import { type Pr } from './prs'
+import { SECOND_PASS_PROMPT } from './second-pass'
 import { parseReviewJson, REVIEW_SCHEMA, type ReviewVerdict } from './verdict'
 
 /** The outcome of running Codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
