@@ -17,24 +17,6 @@ export type ReviewOutcome =
 
 const MODEL_TIMEOUT_MS = 1_200_000
 
-function failureReason(out: string): string {
-  const signal = /payment required|credits|quota|rate.?limit|429|5\d\d |timeout|killed|enoent|spawn|error/i
-  const noise = /no error|0 error/i
-  const hit = out
-    .split('\n')
-    .map((l) => l.trim())
-    .findLast((l) => signal.test(l) && !noise.test(l))
-  const cleaned = (hit ?? '').replaceAll('`', ' ').slice(0, 220).trim()
-  if (cleaned.length > 0) {
-    return cleaned
-  }
-  const short = out.replaceAll('`', ' ').trim()
-  if (short.length > 0 && short.length <= 220 && !short.includes('\n')) {
-    return short
-  }
-  return 'codex run failed (no output captured — check the sweep log)'
-}
-
 /** Run Codex over one PR's diff and classify the result. Does NO gh I/O and NO posting — the caller owns those. */
 export async function runReview(
   cfg: Config,
@@ -59,10 +41,9 @@ export async function runReview(
   } catch (error) {
     const raw = error instanceof Error ? error.message : String(error)
     logRaw(`${raw}\n`)
-    const reason = failureReason(raw)
     if (isRateLimited(raw)) {
-      return { kind: 'limit', reason, raw }
+      return { kind: 'limit', reason: raw, raw }
     }
-    return { kind: 'fail', reason }
+    return { kind: 'fail', reason: raw }
   }
 }
