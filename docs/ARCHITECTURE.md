@@ -47,12 +47,9 @@ A cron job runs the sweep every minute (`*/1 * * * *`); the sweep self-locks so 
    `is_bot` flag) — unless the PR carries `REVIEW_LABEL`, which force-includes a bot-authored PR you deliberately
    opted in. The JSON is `Pr.parse`'d at the boundary — a malformed list or entry throws rather than
    skipping mid-loop.
-3. **Dedup.** For each candidate it reads the PR's comments and skips if one already contains the hidden marker
-   `<!-- stupify:<headSHA> -->` for the _current_ head. A new push moves the SHA, the marker no longer matches, and
-   it re-reviews. **One review per head.** (Failures aren't posted, see _Safety_, so there's no fail marker;
-   failed heads are throttled in local state instead.) The marker check falls back to "any comment" when
-   `gh api user` is unavailable (a GitHub-App integration 403s on it), so dedup never silently re-reviews forever.
-4. **Build memory** from the remaining comments (see below).
+3. **Dedup.** Skip if a review body already has `<!-- stupify:<headSHA> -->`, or local `reviewed-heads.json`
+   already recorded this head (covers silent no-ops). Failures never post; they're throttled in local state.
+4. **Build memory** from GraphQL reviews + inline threads (see below).
 5. **Review.** The runner fetches the diff via GitHub's compare API (`baseRefOid...headRefOid`), spins a
    worktree at the head SHA, and runs Codex via `@openai/codex-sdk`: `startThread` then two `thread.run`s.
    The first prompt is three taste file paths + PR body + prior thread + diff. The second is the locked
@@ -86,8 +83,7 @@ Head marker `<!-- stupify:<sha> -->` is how a later sweep knows this commit was 
 - **Failures stay off the PR.** If `codex` can't run (provider down, usage limit, timeout, ENOENT), the sweep
   LOGS the captured cause (operator-facing) and records the failed head in local state so it doesn't re-hammer
   the dead provider every minute. It does _not_ post a "couldn't review" comment, because that's noise the PR
-  author can't act on. **Only real reviews ever reach the PR.** `spawnSync`'s `signal`/`error` are folded into
-  the captured output so a timeout surfaces as "killed by SIGTERM", not "no output".
+  author can't act on. **Only real reviews ever reach the PR.** SDK timeouts land in the catch as the abort reason.
 - **Config fails toward safe.** Knobs validate and warn on garbage (`MAX_PRS=15lol` → logged, default used).
   `DRY_RUN` is the exception that fails _safe_: a set-but-invalid value (`DRY_RUN=ture`) falls back to preview,
   never live. A typo'd safety switch must not start posting.
