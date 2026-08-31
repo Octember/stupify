@@ -46,7 +46,6 @@ export async function reviewPr(
   diff: string,
   firstReview: boolean,
   openThreadIds: string[],
-  dismissed: string[],
 ): Promise<SweepReviewResult> {
   log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)} (base ${pr.baseRefName})`)
   const workDir = prepareHeadWorktree(cfg.repoDir, pr)
@@ -56,7 +55,7 @@ export async function reviewPr(
   }
   let r
   try {
-    r = await runReview(cfg, pr, priorThread, diff, dismissed, workDir)
+    r = await runReview(cfg, pr, priorThread, diff, workDir)
   } finally {
     removeHeadWorktree(cfg.repoDir, pr)
   }

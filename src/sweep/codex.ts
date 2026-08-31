@@ -2,8 +2,9 @@ import { isRateLimited } from '@bevyl-ai/agent-tools'
 // Running Codex over one PR's diff and classifying the result. The SDK talks to the local `codex` CLI.
 import { Codex } from '@openai/codex-sdk'
 
+import { SECOND_PASS_PROMPT } from '../hand-written-prompts'
 import { type Config, logRaw } from './config'
-import { reviewPrompt, SECOND_PASS_PROMPT } from './prompt'
+import { reviewPrompt } from './prompt'
 import { type Pr } from './prs'
 import { parseReviewJson, REVIEW_SCHEMA, type ReviewVerdict } from './verdict'
 
@@ -48,7 +49,6 @@ export async function runReview(
   pr: Pr,
   priorThread: string,
   diff: string,
-  dismissed: string[] = [],
   workDir?: string,
 ): Promise<ReviewOutcome> {
   const cwd = workDir ?? cfg.repoDir
@@ -56,7 +56,7 @@ export async function runReview(
     const thread = new Codex({ codexPathOverride: Bun.which('codex') ?? 'codex' }).startThread({
       workingDirectory: cwd,
     })
-    await thread.run(reviewPrompt(cfg, pr, priorThread, diff, dismissed), {
+    await thread.run(reviewPrompt(cfg, pr, priorThread, diff), {
       signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
     })
     const second = await thread.run(SECOND_PASS_PROMPT, {

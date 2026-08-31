@@ -11,9 +11,9 @@
  * `.review/`), so it's version-controlled with the code it judges and edited via a normal PR.
  * Idempotent: skips a PR already reviewed — or already reported as failed — at its current head SHA, via a
  * hidden marker comment. A new push moves the SHA, clears the markers, and re-arms the review.
- * Per-PR memory: each review is fed the PR's existing review thread, so it won't re-raise resolved/declined
- * items and converges — a one-line `still ✅` when nothing is outstanding (so every reviewed head carries a
- * marker-bearing verdict), silence while its own findings remain open — instead of nagging forever.
+ * Per-PR memory: each review is fed the PR's existing review thread. The runner posts a one-line `still ✅`
+ * when nothing is outstanding (so every reviewed head carries a marker-bearing verdict), and stays silent
+ * while its own findings remain open.
  *
  * Single-flight: the sweep takes its own lockfile (state/sweep.lock) so two cron ticks never overlap — no
  * `flock` dependency. Every knob lives in config.env next to this file (read fresh each run). Run: `bun review-sweep.ts`.
@@ -41,7 +41,6 @@ export { isRateLimited, pidAlive } from '@bevyl-ai/agent-tools'
 export { appJwt, commitStatusDescription } from './sweep/commit-status'
 export type { Config } from './sweep/config'
 export { diffRightLines, isDiffTooLarge } from './sweep/diff'
-export { dismissedFindings } from './sweep/github'
 export { reviewPrompt } from './sweep/prompt'
 export { type Pr, priorReviewThread } from './sweep/prs'
 export { commitStatusForSweepResult } from './sweep/review-pr'
