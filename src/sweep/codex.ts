@@ -35,14 +35,6 @@ function failureReason(out: string): string {
   return 'codex run failed (no output captured — check the sweep log)'
 }
 
-function callFailed(out: string): ReviewOutcome {
-  const reason = failureReason(out)
-  if (isRateLimited(out)) {
-    return { kind: 'limit', reason, raw: out }
-  }
-  return { kind: 'fail', reason }
-}
-
 /** Run Codex over one PR's diff and classify the result. Does NO gh I/O and NO posting — the caller owns those. */
 export async function runReview(
   cfg: Config,
@@ -67,6 +59,10 @@ export async function runReview(
   } catch (error) {
     const raw = error instanceof Error ? error.message : String(error)
     logRaw(`${raw}\n`)
-    return callFailed(raw)
+    const reason = failureReason(raw)
+    if (isRateLimited(raw)) {
+      return { kind: 'limit', reason, raw }
+    }
+    return { kind: 'fail', reason }
   }
 }
