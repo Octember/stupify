@@ -54,7 +54,7 @@ export {
   recordHeadAttempt,
   recordReviewedHead,
 } from './sweep/state'
-export { finalCodexMessage, parseReview, REVIEW_SCHEMA, STILL_NOTE } from './sweep/verdict'
+export { parseReview, REVIEW_SCHEMA, STILL_NOTE } from './sweep/verdict'
 
 async function main(): Promise<void> {
   const cfg = loadConfig() // also mkdirs stateDir and sets LOG, so config warnings are already captured

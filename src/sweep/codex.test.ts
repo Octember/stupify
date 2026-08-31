@@ -15,3 +15,7 @@ test('reads the resumed thread contract from codex JSON events', () => {
   expect(codexFinalMessage(events)).toBe('final')
   expect(codexTokens(events)).toBe(150)
 })
+
+test('codexThreadId throws when the transcript has no thread.started', () => {
+  expect(() => codexThreadId('not a thread\n')).toThrow('thread id')
+})

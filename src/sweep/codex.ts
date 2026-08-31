@@ -7,10 +7,11 @@ import { join } from 'node:path'
 import { isRateLimited } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
 
+import { type ModelOpts, modelArgs } from './codex-args'
 import { type Config, logRaw } from './config'
-import { reviewOutPath, reviewPrompt } from './prompt'
+import { reviewOutPath, reviewPrompt, SECOND_PASS_PROMPT } from './prompt'
 import { type Pr } from './prs'
-import { type ParsedFinding, parseReview, ReviewOutput, REVIEW_SCHEMA } from './verdict'
+import { type ParsedFinding, parseReviewJson, REVIEW_SCHEMA } from './verdict'
 
 /** The outcome of running codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
  *  the ad-hoc `stupify review` prints it or `--post`s it. */
@@ -27,28 +28,35 @@ async function execAsync(
   cmd: string,
   args: string[],
   opts: { cwd: string; input: string; timeoutMs: number },
-): Promise<{ ok: boolean; stdout: string; combined: string }> {
+): Promise<string> {
+  let child
   try {
-    const child = Bun.spawn([cmd, ...args], {
+    child = Bun.spawn([cmd, ...args], {
       cwd: opts.cwd,
       stdin: new TextEncoder().encode(opts.input),
       stdout: 'pipe',
       stderr: 'pipe',
     })
-    const timer = setTimeout(() => child.kill(), opts.timeoutMs)
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ])
-    clearTimeout(timer)
-    const combined = child.signalCode
-      ? `${stdout}${stderr}\n${cmd}: process killed by ${child.signalCode} (timeout ${opts.timeoutMs}ms)`
-      : stdout + stderr
-    return { ok: code === 0 && child.signalCode === null, stdout, combined }
   } catch (error) {
-    return { ok: false, stdout: '', combined: `${cmd}: ${error instanceof Error ? error.message : String(error)}` } // spawn failure (ENOENT etc.)
+    const combined = `${cmd}: ${error instanceof Error ? error.message : String(error)}`
+    logRaw(`${combined}\n`)
+    throw new Error(combined, { cause: error })
   }
+  const timer = setTimeout(() => child.kill(), opts.timeoutMs)
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ])
+  clearTimeout(timer)
+  const combined = child.signalCode
+    ? `${stdout}${stderr}\n${cmd}: process killed by ${child.signalCode} (timeout ${opts.timeoutMs}ms)`
+    : stdout + stderr
+  logRaw(`${combined}\n`)
+  if (code !== 0 || child.signalCode !== null) {
+    throw new Error(combined)
+  }
+  return stdout
 }
 
 const ThreadStartedEvent = z.object({ type: z.literal('thread.started'), thread_id: z.string().min(1) }).passthrough()
@@ -75,54 +83,51 @@ function jsonEvents(out: string): unknown[] {
   })
 }
 
-export function codexThreadId(out: string): string | null {
-  for (const event of jsonEvents(out)) {
-    const parsed = ThreadStartedEvent.safeParse(event)
+function firstMatch<T>(out: string, schema: z.ZodType<T>, fromEnd: boolean): T | undefined {
+  const events = fromEnd ? jsonEvents(out).toReversed() : jsonEvents(out)
+  for (const event of events) {
+    const parsed = schema.safeParse(event)
     if (parsed.success) {
-      return parsed.data.thread_id
+      return parsed.data
     }
   }
-  return null
+  return undefined
+}
+
+export function codexThreadId(out: string): string {
+  const event = firstMatch(out, ThreadStartedEvent, false)
+  if (event === undefined) {
+    throw new Error('codex did not report a thread id for the second review pass')
+  }
+  return event.thread_id
 }
 
 export function codexTokens(out: string): number | null {
-  for (const event of jsonEvents(out).toReversed()) {
-    const parsed = TurnCompletedEvent.safeParse(event)
-    if (parsed.success) {
-      return parsed.data.usage.input_tokens + parsed.data.usage.output_tokens
-    }
+  const event = firstMatch(out, TurnCompletedEvent, true)
+  if (event === undefined) {
+    return null
   }
-  return null
+  return event.usage.input_tokens + event.usage.output_tokens
 }
 
 export function codexFinalMessage(out: string): string {
-  for (const event of jsonEvents(out).toReversed()) {
-    const parsed = AgentMessageEvent.safeParse(event)
-    if (parsed.success) {
-      return parsed.data.item.text.trim()
-    }
+  const event = firstMatch(out, AgentMessageEvent, true)
+  if (event === undefined) {
+    return ''
   }
-  return ''
+  return event.item.text.trim()
 }
 
-export const SECOND_PASS_PROMPT = `Look at unchanged code. Drop findings whose job already lives elsewhere; name that path. Keep what still stands. Same JSON schema.
+function addedTokens(first: string, second: string): number | null {
+  const a = codexTokens(first)
+  const b = codexTokens(second)
+  if (a === null && b === null) {
+    return null
+  }
+  return (a ?? 0) + (b ?? 0)
+}
 
-Write bodies like this:
-- you're adding a second source of truth: reuse the existing one at \`....\`
-- this already has an owner at \`....\`. drop the extra state.
-- this is bigger than the problem. keep \`....\` and delete the rest.
-- this isn't used. delete it.
-- this error message isn't honest. it says "speech" and that's not what's happening.
-
-Praise is one of:
-![](https://media.giphy.com/media/ftYpwfV6ZcerEa8poV/giphy.gif)
-![](https://media.giphy.com/media/3oFzlX9khlRIev1E2Y/giphy.gif)
-![](https://media.giphy.com/media/RrVzUOXldFe8M/giphy.gif)
-![](https://media.giphy.com/media/a0h7sAqON67nO/giphy.gif)
-![](https://media.giphy.com/media/eM0U5NQtVHu30VM5sS/giphy.gif)
-![](https://i.fluffy.cc/BPgxZkmsrgmfcDFDCNWC3m4CW0gCJF7w.gif)
-![](https://media.giphy.com/media/3ohzAu2U1tOafteBa0/giphy.gif)
-Pick one.`
+const MODEL_TIMEOUT_MS = 1_200_000
 
 function failureReason(out: string): string {
   const signal = /payment required|credits|quota|rate.?limit|429|5\d\d |timeout|killed|enoent|spawn|error/i
@@ -132,7 +137,43 @@ function failureReason(out: string): string {
     .map((l) => l.trim())
     .findLast((l) => signal.test(l) && !noise.test(l))
   const cleaned = (hit ?? '').replaceAll('`', ' ').slice(0, 220).trim()
-  return cleaned || 'codex run failed (no output captured — check the sweep log)'
+  if (cleaned.length > 0) {
+    return cleaned
+  }
+  const short = out.replaceAll('`', ' ').trim()
+  if (short.length > 0 && short.length <= 220 && !short.includes('\n')) {
+    return short
+  }
+  return 'codex run failed (no output captured — check the sweep log)'
+}
+
+function callFailed(out: string): ReviewOutcome {
+  const reason = failureReason(out)
+  if (isRateLimited(out)) {
+    return { kind: 'limit', reason, raw: out }
+  }
+  return { kind: 'fail', reason }
+}
+
+async function modelCall(
+  cfg: Config,
+  cwd: string,
+  input: string,
+  opts: ModelOpts = {},
+): Promise<{ stdout: string; message: string; threadId: string }> {
+  const args = modelArgs(cfg, cwd, opts)
+  if (opts.outPath !== undefined) {
+    rmSync(opts.outPath, { force: true })
+  }
+  const stdout = await execAsync('codex', args, { cwd, timeoutMs: MODEL_TIMEOUT_MS, input })
+  let message = ''
+  if (opts.outPath !== undefined && existsSync(opts.outPath)) {
+    message = readFileSync(opts.outPath, 'utf8').trim()
+  }
+  if (message.length === 0) {
+    message = codexFinalMessage(stdout)
+  }
+  return { stdout, message, threadId: opts.threadId ?? codexThreadId(stdout) }
 }
 
 /** Run codex over one PR's diff and classify the result. Does NO gh I/O and NO posting — the caller owns those. */
@@ -146,105 +187,23 @@ export async function runReview(
 ): Promise<ReviewOutcome> {
   const cwd = workDir ?? cfg.repoDir
   const outPath = reviewOutPath(cfg, pr)
-  rmSync(outPath, { force: true }) // clear any stale file so we never read a previous run's review
   const schemaPath = join(cfg.stateDir, 'review-schema.json')
   writeFileSync(schemaPath, JSON.stringify(REVIEW_SCHEMA))
-  const codexArgs = [
-    'exec',
-    '--json',
-    '--cd',
-    cwd,
-    '--output-schema',
-    schemaPath, // the provider enforces ReviewOutput on the final message...
-    '--output-last-message',
-    outPath, // ...and the CLI writes that message here — the model never writes the file itself
-    '--sandbox',
-    'workspace-write',
-    '-c',
-    `model_reasoning_effort=${cfg.codexEffort}`,
-    '-c',
-    'sandbox_workspace_write.network_access=false', // locked down: the diff is in the prompt; the caller owns all gh I/O
-    '-c',
-    'sandbox_workspace_write.writable_roots=["/tmp"]',
-  ]
-  if (cfg.codexProvider) {
-    codexArgs.push('-c', `model_provider=${cfg.codexProvider}`)
-  }
-  if (cfg.codexModel) {
-    codexArgs.push('-c', `model=${cfg.codexModel}`)
-  }
-  codexArgs.push('-') // read the prompt from STDIN, not argv — the inlined corpus + diff would blow ARG_MAX (E2BIG)
+  const paths = { schemaPath, outPath }
 
-  const cx = await execAsync('codex', codexArgs, {
-    cwd,
-    timeoutMs: 1_200_000,
-    input: reviewPrompt(cfg, pr, priorThread, diff, dismissed),
-  })
-  logRaw(`${cx.combined}\n`)
-  if (!cx.ok) {
-    const reason = failureReason(cx.combined)
-    return isRateLimited(cx.combined) ? { kind: 'limit', reason, raw: cx.combined } : { kind: 'fail', reason }
-  }
-  const threadId = codexThreadId(cx.stdout)
-  if (threadId === null) {
-    return { kind: 'fail', reason: 'codex did not report a thread id for the second review pass' }
-  }
-
-  rmSync(outPath, { force: true })
-  const resumeArgs = [
-    'exec',
-    'resume',
-    '--json',
-    '--output-schema',
-    schemaPath,
-    '--output-last-message',
-    outPath,
-    '-c',
-    `model_reasoning_effort=${cfg.codexEffort}`,
-  ]
-  if (cfg.codexProvider) {
-    resumeArgs.push('-c', `model_provider=${cfg.codexProvider}`)
-  }
-  if (cfg.codexModel) {
-    resumeArgs.push('-c', `model=${cfg.codexModel}`)
-  }
-  resumeArgs.push(threadId, '-')
-
-  const second = await execAsync('codex', resumeArgs, {
-    cwd,
-    timeoutMs: 1_200_000,
-    input: SECOND_PASS_PROMPT,
-  })
-  logRaw(`${second.combined}\n`)
-  const fromFile = second.ok && existsSync(outPath) ? readFileSync(outPath, 'utf8').trim() : ''
-  // Belt: if the CLI didn't write the last-message file, recover the final message from the transcript. It still
-  // has to parse as ReviewOutput, so anything looser fails visibly.
-  const review = fromFile || (second.ok ? codexFinalMessage(second.stdout) : '')
-  if (review.length === 0) {
-    const reason = failureReason(second.combined)
-    return isRateLimited(second.combined) ? { kind: 'limit', reason, raw: second.combined } : { kind: 'fail', reason }
-  }
-  let data: ReviewOutput
   try {
-    data = ReviewOutput.parse(JSON.parse(review))
-  } catch {
-    logRaw(`  unparseable review output for #${pr.number}:\n${review.slice(0, 2000)}\n`)
-    const reason = 'codex output was not a valid review JSON (raw output is in the sweep log)'
-    return isRateLimited(second.combined) ? { kind: 'limit', reason, raw: second.combined } : { kind: 'fail', reason }
+    const first = await modelCall(cfg, cwd, reviewPrompt(cfg, pr, priorThread, diff, dismissed))
+    const second = await modelCall(cfg, cwd, SECOND_PASS_PROMPT, { ...paths, threadId: first.threadId })
+    const verdict = parseReviewJson(second.message)
+    const tokens = addedTokens(first.stdout, second.stdout)
+    if (verdict.kind === 'fixed') {
+      return { kind: 'fixed', tokens }
+    }
+    if (verdict.kind === 'no_new_issues') {
+      return { kind: 'noop', tokens }
+    }
+    return { kind: 'review', opener: verdict.opener, findings: verdict.findings, tokens }
+  } catch (error) {
+    return callFailed(error instanceof Error ? error.message : String(error))
   }
-  const verdict = parseReview(data)
-  if (verdict === null) {
-    logRaw(`  empty findings for #${pr.number}\n`)
-    return { kind: 'fail', reason: 'review parsed but had no usable findings' }
-  }
-  const firstTokens = codexTokens(cx.stdout)
-  const secondTokens = codexTokens(second.stdout)
-  const tokens = firstTokens === null && secondTokens === null ? null : (firstTokens ?? 0) + (secondTokens ?? 0)
-  if (verdict.kind === 'fixed') {
-    return { kind: 'fixed', tokens }
-  }
-  if (verdict.kind === 'no_new_issues') {
-    return { kind: 'noop', tokens }
-  }
-  return { kind: 'review', opener: verdict.opener, findings: verdict.findings, tokens }
 }

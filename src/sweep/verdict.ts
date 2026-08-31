@@ -45,11 +45,14 @@ const postedBody = (head: string, body: string): string => `${head}
 ${body}`
 
 /** Stamp headings and split verdicts. Caller already `ReviewOutput.parse`d the model JSON. */
-export function parseReview(data: ReviewOutput): ReviewVerdict | null {
+export function parseReview(data: ReviewOutput): ReviewVerdict {
   if (data.verdict !== 'findings') {
     // A convergence verdict that ALSO carries findings is contradictory — fail loud rather than resolve threads
     // and post a ✅ while silently dropping what the model found.
-    return data.findings.length === 0 ? { kind: data.verdict } : null
+    if (data.findings.length > 0) {
+      throw new Error('review parsed but had no usable findings')
+    }
+    return { kind: data.verdict }
   }
   const findings = data.findings
     .map((f): ParsedFinding | null => {
@@ -67,9 +70,13 @@ export function parseReview(data: ReviewOutput): ReviewVerdict | null {
     })
     .filter((f) => f !== null)
   if (findings.length === 0) {
-    return null
+    throw new Error('review parsed but had no usable findings')
   }
   return { kind: 'findings', opener: data.opener, findings }
+}
+
+export function parseReviewJson(raw: string): ReviewVerdict {
+  return parseReview(ReviewOutput.parse(JSON.parse(raw)))
 }
 
 // The hidden marker stupify ends every posted review with, keyed to the head SHA — how a later sweep recognizes a
@@ -87,20 +94,3 @@ export const FIXED_NOTE = 'nice, all fixed ✅'
 // factory's `wait` tool — which timed out and shipped with STUPIFY_FLAKED), and to a sweep whose local
 // reviewed-state was lost (VM recreation → codex re-runs on an already-clean head).
 export const STILL_NOTE = 'still ✅'
-
-// codex sometimes SAYS its output as the final message instead of writing it to the review file (observed on
-// #7528/#7537/#7627 — the run then read as FAILED and the head got throttled for an hour). Recover the final
-// message from the transcript: it's the text between the last bare `codex` line and its `tokens used` footer.
-// Only that message — never the whole transcript, which inlines the untrusted diff — may stand in for the file.
-export const finalCodexMessage = (out: string): string => {
-  const lines = out.split('\n')
-  const end = lines.findLastIndex((l) => /^tokens used\b/i.test(l.trim()))
-  const start = lines.slice(0, end === -1 ? lines.length : end).findLastIndex((l) => l.trim() === 'codex')
-  if (start === -1 || end === -1) {
-    return ''
-  }
-  return lines
-    .slice(start + 1, end)
-    .join('\n')
-    .trim()
-}
