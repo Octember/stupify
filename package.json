@@ -27,6 +27,7 @@
     "src/cli.ts",
     "src/prime.ts",
     "src/review-sweep.ts",
+    "src/hand-written-prompts.ts",
     "src/sweep",
     ".review",
     "packs",
