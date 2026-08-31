@@ -1,9 +1,11 @@
 import { expect, test } from 'bun:test'
 
-import { parseReview, parseReviewJson } from './verdict'
+import { parseReview } from './verdict'
+
+const review = (data: unknown) => parseReview(JSON.stringify(data))
 
 test('parseReview stamps emoji, conf, and file pointer', () => {
-  const parsed = parseReview({
+  const parsed = review({
     verdict: 'findings',
     opener: '',
     findings: [{ path: 'src/x.ts', line: 30, severity: 'high', blocking: true, conf: 0.9, body: 'breaks on empty' }],
@@ -17,14 +19,14 @@ breaks on empty`)
 })
 
 test('parseReview keeps fixed and no_new_issues when findings are empty', () => {
-  expect(parseReview({ verdict: 'fixed', opener: '', findings: [] })).toEqual({ kind: 'fixed' })
-  expect(parseReview({ verdict: 'no_new_issues', opener: '', findings: [] })).toEqual({ kind: 'no_new_issues' })
+  expect(review({ verdict: 'fixed', opener: '', findings: [] })).toEqual({ kind: 'fixed' })
+  expect(review({ verdict: 'no_new_issues', opener: '', findings: [] })).toEqual({ kind: 'no_new_issues' })
 })
 
 test('parseReview rejects empty or contradictory findings', () => {
-  expect(() => parseReview({ verdict: 'findings', opener: '', findings: [] })).toThrow()
+  expect(() => review({ verdict: 'findings', opener: '', findings: [] })).toThrow()
   expect(() =>
-    parseReview({
+    review({
       verdict: 'fixed',
       opener: '',
       findings: [{ path: 'src/x.ts', line: 1, severity: 'low', blocking: false, conf: 0.1, body: 'leftover' }],
@@ -32,14 +34,12 @@ test('parseReview rejects empty or contradictory findings', () => {
   ).toThrow()
 })
 
-test('parseReviewJson reads the second-pass message', () => {
-  const verdict = parseReviewJson(
-    JSON.stringify({
-      verdict: 'findings',
-      opener: 'ok',
-      findings: [{ path: 'a.ts', line: 2, severity: 'med', blocking: true, conf: 1, body: 'dup' }],
-    }),
-  )
+test('parseReview reads the second-pass message', () => {
+  const verdict = review({
+    verdict: 'findings',
+    opener: 'ok',
+    findings: [{ path: 'a.ts', line: 2, severity: 'med', blocking: true, conf: 1, body: 'dup' }],
+  })
   if (verdict.kind !== 'findings') {
     throw new Error('expected findings')
   }

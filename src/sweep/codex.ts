@@ -6,7 +6,7 @@ import { SECOND_PASS_PROMPT } from '../hand-written-prompts'
 import { type Config, logRaw } from './config'
 import { reviewPrompt } from './prompt'
 import { type Pr } from './prs'
-import { parseReviewJson, REVIEW_SCHEMA, type ReviewVerdict } from './verdict'
+import { parseReview, REVIEW_SCHEMA, type ReviewVerdict } from './verdict'
 
 /** The outcome of running Codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
  *  the ad-hoc `stupify review` prints it or `--post`s it. */
@@ -63,7 +63,7 @@ export async function runReview(
       signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
       outputSchema: REVIEW_SCHEMA,
     })
-    return parseReviewJson(second.finalResponse)
+    return parseReview(second.finalResponse)
   } catch (error) {
     const raw = error instanceof Error ? error.message : String(error)
     logRaw(`${raw}\n`)

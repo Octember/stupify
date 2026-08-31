@@ -50,8 +50,9 @@ const postedBody = (head: string, body: string): string => `${head}
 
 ${body}`
 
-/** Stamp headings and split verdicts. Caller already `ReviewOutput.parse`d the model JSON. */
-export function parseReview(data: ReviewOutput): ReviewVerdict {
+/** Stamp headings and split verdicts. Schema-parse at the JSON boundary. */
+export function parseReview(raw: string): ReviewVerdict {
+  const data = ReviewOutput.parse(JSON.parse(raw))
   if (data.verdict !== 'findings') {
     // A convergence verdict that ALSO carries findings is contradictory — fail loud rather than resolve threads
     // and post a ✅ while silently dropping what the model found.
@@ -79,10 +80,6 @@ export function parseReview(data: ReviewOutput): ReviewVerdict {
     throw new Error('review parsed but had no usable findings')
   }
   return { kind: 'findings', opener: data.opener, findings }
-}
-
-export function parseReviewJson(raw: string): ReviewVerdict {
-  return parseReview(ReviewOutput.parse(JSON.parse(raw)))
 }
 
 // The hidden marker stupify ends every posted review with, keyed to the head SHA — how a later sweep recognizes a
