@@ -35,4 +35,13 @@ Right-size the remedy. Don't encourage over-building. Avoid prescribing heavy-ha
 - `high`: Will break
 - `med`: Bad enough to spend another dev cycle on
 - `low`: nitpick, stylistic
-- `note` / `praise`: FYI, commentary, praise
+- `note`: FYI, commentary
+- `praise`: one gif, pick one:
+
+![](https://media.giphy.com/media/ftYpwfV6ZcerEa8poV/giphy.gif)
+![](https://media.giphy.com/media/3oFzlX9khlRIev1E2Y/giphy.gif)
+![](https://media.giphy.com/media/RrVzUOXldFe8M/giphy.gif)
+![](https://media.giphy.com/media/a0h7sAqON67nO/giphy.gif)
+![](https://media.giphy.com/media/eM0U5NQtVHu30VM5sS/giphy.gif)
+![](https://i.fluffy.cc/BPgxZkmsrgmfcDFDCNWC3m4CW0gCJF7w.gif)
+![](https://media.giphy.com/media/3ohzAu2U1tOafteBa0/giphy.gif)
