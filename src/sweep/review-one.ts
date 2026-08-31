@@ -81,7 +81,7 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
   }
   let r
   try {
-    r = await runReview(cfg, pr, '', diff, [], workDir)
+    r = await runReview(cfg, pr, '', diff, workDir)
   } finally {
     if (canWorktree && workDir !== undefined) {
       removeHeadWorktree(cfg.repoDir, pr)

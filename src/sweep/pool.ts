@@ -29,7 +29,7 @@ export async function runCandidatePool(
       setStatusPr(cfg, status, pr, 'reviewing', `running codex over ${lines} diff lines`, lines)
       setCommitStatus(cfg, state.commitStatuses, pr, 'pending', `stupify is reviewing ${lines} diff lines`)
       // oxlint-disable-next-line no-await-in-loop -- each worker awaits serially BY DESIGN; the parallelism is across workers
-      const used = await reviewPr(cfg, pr, prior.memory, diff, c.firstReview, prior.openThreadIds, prior.dismissed)
+      const used = await reviewPr(cfg, pr, prior.memory, diff, c.firstReview, prior.openThreadIds)
       if (used === 'limit') {
         limitHit = true
         log(

@@ -48,7 +48,6 @@ export async function runReview(
   pr: Pr,
   priorThread: string,
   diff: string,
-  dismissed: string[] = [],
   workDir?: string,
 ): Promise<ReviewOutcome> {
   const cwd = workDir ?? cfg.repoDir
@@ -56,7 +55,7 @@ export async function runReview(
     const thread = new Codex({ codexPathOverride: Bun.which('codex') ?? 'codex' }).startThread({
       workingDirectory: cwd,
     })
-    await thread.run(reviewPrompt(cfg, pr, priorThread, diff, dismissed), {
+    await thread.run(reviewPrompt(cfg, pr, priorThread, diff), {
       signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
     })
     const second = await thread.run(SECOND_PASS_PROMPT, {

@@ -13,8 +13,8 @@ import { markFor, type ParsedFinding } from './verdict'
 // our content by marker, not author (same trick as the head marker).
 const STUPIFY_TAG = '<!-- stupify -->'
 
-// Non-blocking findings carry a tag that does NOT contain STUPIFY_TAG as a substring, so prReviews/
-// dismissedFindings never match them: they don't hold the ✅ and are never re-raised on a silent resolve.
+// Non-blocking findings carry a tag that does NOT contain STUPIFY_TAG as a substring, so they never
+// land in openThreadIds and don't hold the ✅.
 const STUPIFY_NOTE_TAG = '<!-- stupify:note -->'
 
 // One non-blocking COMMENT review: `comments` are inline, each anchored to a diff line (a resolvable thread).
@@ -98,7 +98,6 @@ export interface PriorState {
   reviewedHead: boolean // a stupify review for THIS head exists — durable dedup, survives VM recreation
   everReviewed: boolean // stupify has reviewed this PR at all → firstReview = !everReviewed
   openThreadIds: string[] // stupify's UNRESOLVED threads — resolve these when the findings are fixed
-  dismissed: string[] // findings the author RESOLVED without a reply — re-raise if still present (see dismissedFindings)
 }
 const GqlAuthor = z.object({ login: z.string().optional() }).nullable()
 const GqlComment = z.object({
@@ -124,29 +123,6 @@ const GqlPull = z.object({
     }),
   }),
 })
-
-// A RESOLVED stupify thread with no human reply = a finding the author dismissed without saying why. Every stupify
-// finding carries STUPIFY_TAG and a human reply doesn't, so "has a tagged comment, has no untagged one" is the
-// signal — no author-login lookup needed. Returns each such finding's body (tag stripped) so the next review can
-// re-raise it IF the issue is still in the diff. A resolve WITH a reply is a reasoned decline and is left alone.
-export function dismissedFindings(threads: GqlThread[]): string[] {
-  const out: string[] = []
-  for (const t of threads) {
-    if (t.isResolved !== true) {
-      continue
-    }
-    const tc = (t.comments?.nodes ?? []).filter((c) => (c.body ?? '').trim())
-    const ours = tc.filter((c) => (c.body ?? '').includes(STUPIFY_TAG))
-    const human = tc.filter((c) => !(c.body ?? '').includes(STUPIFY_TAG))
-    if (ours.length > 0 && human.length === 0) {
-      const body = (ours[0]?.body ?? '').replaceAll(STUPIFY_TAG, '').trim()
-      if (body) {
-        out.push(body)
-      }
-    }
-  }
-  return out
-}
 
 export function prReviews(cfg: Config, pr: Pr): PriorState | null {
   const [owner, name] = cfg.slug.split('/')
@@ -190,6 +166,5 @@ export function prReviews(cfg: Config, pr: Pr): PriorState | null {
     reviewedHead,
     everReviewed,
     openThreadIds,
-    dismissed: dismissedFindings(threads),
   }
 }
