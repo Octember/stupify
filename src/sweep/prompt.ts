@@ -48,6 +48,3 @@ ${diff}`
 // gate on it; a partial dir (e.g. CORPUS without the spec) reads as absent so the caller falls back cleanly.
 export const hasMachinery = (dir: string): boolean =>
   existsSync(join(dir, 'CORPUS.md')) && existsSync(join(dir, 'REVIEW-PROMPT.md')) && existsSync(join(dir, 'RUBRIC.md'))
-
-export const SECOND_PASS_PROMPT =
-  "Second pass: are you sure this does not reinvent an existing owner? Search unchanged code, make sure this solution is minimal, elegant, and doesn't reinvent something that already exists."

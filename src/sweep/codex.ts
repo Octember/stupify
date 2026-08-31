@@ -3,7 +3,8 @@ import { isRateLimited } from '@bevyl-ai/agent-tools'
 import { Codex } from '@openai/codex-sdk'
 
 import { type Config, logRaw } from './config'
-import { reviewPrompt, SECOND_PASS_PROMPT } from './prompt'
+import { reviewPrompt } from './prompt'
+import { SECOND_PASS_PROMPT } from './second-pass'
 import { type Pr } from './prs'
 import { parseReviewJson, REVIEW_SCHEMA, type ReviewVerdict } from './verdict'
 
