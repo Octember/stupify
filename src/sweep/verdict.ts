@@ -1,5 +1,5 @@
-// The review VERDICT contract: codex returns ONE JSON object matching ReviewOutput (enforced at the provider via
-// `codex exec --output-schema`), and parseReview is the boundary guard behind that enforcement. Also the marker /
+// The review VERDICT contract: Codex returns ONE JSON object matching ReviewOutput (SDK `outputSchema` on the
+// second turn), and parseReview is the boundary guard behind that enforcement. Also the marker /
 // convergence-note vocabulary every posted review carries.
 import { z } from 'zod'
 
@@ -24,7 +24,8 @@ export const ReviewOutput = z.strictObject({
   ),
 })
 export type ReviewOutput = z.infer<typeof ReviewOutput>
-export const REVIEW_SCHEMA = z.toJSONSchema(ReviewOutput)
+const { $schema: _schema, ...reviewSchema } = z.toJSONSchema(ReviewOutput)
+export const REVIEW_SCHEMA = reviewSchema
 
 export interface ParsedFinding {
   path: string

@@ -1,133 +1,37 @@
-// Running codex over one PR's diff and classifying the result. codex runs sandboxed with no network of its own
-// and /tmp-only writes, so a prompt-injected diff can at worst make it write a junk review file: it cannot
-// exfiltrate, touch the gh token, or run commands. Callers decide what to do with the outcome.
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
-
 import { isRateLimited } from '@bevyl-ai/agent-tools'
-import { z } from 'zod'
+// Running Codex over one PR's diff and classifying the result. The SDK talks to the local `codex` CLI; we pin
+// workspace-write + no network + /tmp-only extra writes so a prompt-injected diff cannot exfiltrate or touch gh.
+import { Codex, type CodexOptions, type Usage } from '@openai/codex-sdk'
 
-import { type ModelOpts, modelArgs } from './codex-args'
 import { type Config, logRaw } from './config'
-import { reviewOutPath, reviewPrompt, SECOND_PASS_PROMPT } from './prompt'
+import { reviewPrompt, SECOND_PASS_PROMPT } from './prompt'
 import { type Pr } from './prs'
 import { type ParsedFinding, parseReviewJson, REVIEW_SCHEMA } from './verdict'
 
-/** The outcome of running codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
+/** The outcome of running Codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
  *  the ad-hoc `stupify review` prints it or `--post`s it. */
 export type ReviewOutcome =
-  | { kind: 'limit'; reason: string; raw: string } // plan/credit exhaustion — caller STOPS; raw = full codex output for the rotation matcher (reason is a truncated excerpt that can miss the quota signature)
-  | { kind: 'fail'; reason: string } // codex couldn't produce a review (down, timeout, wrote nothing)
+  | { kind: 'limit'; reason: string; raw: string } // plan/credit exhaustion — caller STOPS; raw = full error for the rotation matcher
+  | { kind: 'fail'; reason: string } // Codex couldn't produce a review (down, timeout, wrote nothing)
   | { kind: 'noop'; tokens: number | null } // verdict no_new_issues → stay silent / re-approve
   | { kind: 'fixed'; tokens: number | null } // verdict fixed → prior findings resolved
   | { kind: 'review'; opener: string; findings: ParsedFinding[]; tokens: number | null } // parsed + validated findings (no marker yet)
 
-// Async twin of the kit's `exec`, same result shape — ONLY for the codex child, so several multi-minute reviews
-// can run at once while every gh call around them stays the kit's sync exec.
-async function execAsync(
-  cmd: string,
-  args: string[],
-  opts: { cwd: string; input: string; timeoutMs: number },
-): Promise<string> {
-  let child
-  try {
-    child = Bun.spawn([cmd, ...args], {
-      cwd: opts.cwd,
-      stdin: new TextEncoder().encode(opts.input),
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-  } catch (error) {
-    const combined = `${cmd}: ${error instanceof Error ? error.message : String(error)}`
-    logRaw(`${combined}\n`)
-    throw new Error(combined, { cause: error })
-  }
-  const timer = setTimeout(() => child.kill(), opts.timeoutMs)
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ])
-  clearTimeout(timer)
-  const combined = child.signalCode
-    ? `${stdout}${stderr}\n${cmd}: process killed by ${child.signalCode} (timeout ${opts.timeoutMs}ms)`
-    : stdout + stderr
-  logRaw(`${combined}\n`)
-  if (code !== 0 || child.signalCode !== null) {
-    throw new Error(combined)
-  }
-  return stdout
-}
-
-const ThreadStartedEvent = z.object({ type: z.literal('thread.started'), thread_id: z.string().min(1) }).passthrough()
-const TurnCompletedEvent = z
-  .object({
-    type: z.literal('turn.completed'),
-    usage: z.object({ input_tokens: z.number(), output_tokens: z.number() }),
-  })
-  .passthrough()
-const AgentMessageEvent = z
-  .object({
-    type: z.literal('item.completed'),
-    item: z.object({ type: z.literal('agent_message'), text: z.string() }),
-  })
-  .passthrough()
-
-function jsonEvents(out: string): unknown[] {
-  return out.split('\n').flatMap((line) => {
-    try {
-      return [JSON.parse(line)]
-    } catch {
-      return []
-    }
-  })
-}
-
-function firstMatch<T>(out: string, schema: z.ZodType<T>, fromEnd: boolean): T | undefined {
-  const events = fromEnd ? jsonEvents(out).toReversed() : jsonEvents(out)
-  for (const event of events) {
-    const parsed = schema.safeParse(event)
-    if (parsed.success) {
-      return parsed.data
-    }
-  }
-  return undefined
-}
-
-export function codexThreadId(out: string): string {
-  const event = firstMatch(out, ThreadStartedEvent, false)
-  if (event === undefined) {
-    throw new Error('codex did not report a thread id for the second review pass')
-  }
-  return event.thread_id
-}
-
-export function codexTokens(out: string): number | null {
-  const event = firstMatch(out, TurnCompletedEvent, true)
-  if (event === undefined) {
-    return null
-  }
-  return event.usage.input_tokens + event.usage.output_tokens
-}
-
-export function codexFinalMessage(out: string): string {
-  const event = firstMatch(out, AgentMessageEvent, true)
-  if (event === undefined) {
-    return ''
-  }
-  return event.item.text.trim()
-}
-
-function addedTokens(first: string, second: string): number | null {
-  const a = codexTokens(first)
-  const b = codexTokens(second)
-  if (a === null && b === null) {
-    return null
-  }
-  return (a ?? 0) + (b ?? 0)
-}
-
 const MODEL_TIMEOUT_MS = 1_200_000
+
+function usageTokens(usage: Usage | null): number | null {
+  if (usage === null) {
+    return null
+  }
+  return usage.input_tokens + usage.output_tokens
+}
+
+function addedTokens(first: number | null, second: number | null): number | null {
+  if (first === null && second === null) {
+    return null
+  }
+  return (first ?? 0) + (second ?? 0)
+}
 
 function failureReason(out: string): string {
   const signal = /payment required|credits|quota|rate.?limit|429|5\d\d |timeout|killed|enoent|spawn|error/i
@@ -155,28 +59,41 @@ function callFailed(out: string): ReviewOutcome {
   return { kind: 'fail', reason }
 }
 
-async function modelCall(
-  cfg: Config,
-  cwd: string,
-  input: string,
-  opts: ModelOpts = {},
-): Promise<{ stdout: string; message: string; threadId: string }> {
-  const args = modelArgs(cfg, cwd, opts)
-  if (opts.outPath !== undefined) {
-    rmSync(opts.outPath, { force: true })
+function startThread(cfg: Config, cwd: string) {
+  const config: NonNullable<CodexOptions['config']> = {
+    model_reasoning_effort: cfg.codexEffort,
+    sandbox_workspace_write: {
+      network_access: false,
+      writable_roots: ['/tmp'],
+    },
   }
-  const stdout = await execAsync('codex', args, { cwd, timeoutMs: MODEL_TIMEOUT_MS, input })
-  let message = ''
-  if (opts.outPath !== undefined && existsSync(opts.outPath)) {
-    message = readFileSync(opts.outPath, 'utf8').trim()
+  if (cfg.codexProvider) {
+    config.model_provider = cfg.codexProvider
   }
-  if (message.length === 0) {
-    message = codexFinalMessage(stdout)
-  }
-  return { stdout, message, threadId: opts.threadId ?? codexThreadId(stdout) }
+  const client = new Codex({
+    codexPathOverride: Bun.which('codex') ?? 'codex',
+    config,
+  })
+  return client.startThread({
+    workingDirectory: cwd,
+    sandboxMode: 'workspace-write',
+    networkAccessEnabled: false,
+    additionalDirectories: ['/tmp'],
+    approvalPolicy: 'never',
+    ...(cfg.codexModel ? { model: cfg.codexModel } : {}),
+  })
 }
 
-/** Run codex over one PR's diff and classify the result. Does NO gh I/O and NO posting — the caller owns those. */
+async function modelTurn(thread: ReturnType<typeof startThread>, input: string, schema?: unknown) {
+  const turn = await thread.run(input, {
+    signal: AbortSignal.timeout(MODEL_TIMEOUT_MS),
+    ...(schema === undefined ? {} : { outputSchema: schema }),
+  })
+  logRaw(`${turn.finalResponse}\n`)
+  return { message: turn.finalResponse.trim(), tokens: usageTokens(turn.usage) }
+}
+
+/** Run Codex over one PR's diff and classify the result. Does NO gh I/O and NO posting — the caller owns those. */
 export async function runReview(
   cfg: Config,
   pr: Pr,
@@ -186,16 +103,12 @@ export async function runReview(
   workDir?: string,
 ): Promise<ReviewOutcome> {
   const cwd = workDir ?? cfg.repoDir
-  const outPath = reviewOutPath(cfg, pr)
-  const schemaPath = join(cfg.stateDir, 'review-schema.json')
-  writeFileSync(schemaPath, JSON.stringify(REVIEW_SCHEMA))
-  const paths = { schemaPath, outPath }
-
   try {
-    const first = await modelCall(cfg, cwd, reviewPrompt(cfg, pr, priorThread, diff, dismissed))
-    const second = await modelCall(cfg, cwd, SECOND_PASS_PROMPT, { ...paths, threadId: first.threadId })
+    const thread = startThread(cfg, cwd)
+    const first = await modelTurn(thread, reviewPrompt(cfg, pr, priorThread, diff, dismissed))
+    const second = await modelTurn(thread, SECOND_PASS_PROMPT, REVIEW_SCHEMA)
     const verdict = parseReviewJson(second.message)
-    const tokens = addedTokens(first.stdout, second.stdout)
+    const tokens = addedTokens(first.tokens, second.tokens)
     if (verdict.kind === 'fixed') {
       return { kind: 'fixed', tokens }
     }
@@ -204,6 +117,8 @@ export async function runReview(
     }
     return { kind: 'review', opener: verdict.opener, findings: verdict.findings, tokens }
   } catch (error) {
-    return callFailed(error instanceof Error ? error.message : String(error))
+    const raw = error instanceof Error ? error.message : String(error)
+    logRaw(`${raw}\n`)
+    return callFailed(raw)
   }
 }

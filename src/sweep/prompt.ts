@@ -7,12 +7,6 @@ import { type Config } from './config'
 import { defang, type Pr } from './prs'
 import { FIXED_NOTE, STILL_NOTE } from './verdict'
 
-// Where the codex CLI writes the final message (--output-last-message) — keyed by a HASH of the repo slug, not
-// the slug itself, so two repos with the same PR number never clobber.
-const slugKey = (slug: string): string =>
-  [...slug].reduce((h, ch) => ((h << 5) + h + (ch.codePointAt(0) ?? 0)) >>> 0, 5381).toString(36)
-export const reviewOutPath = (cfg: Config, pr: Pr): string => `/tmp/stupify-review-${pr.number}-${slugKey(cfg.slug)}.md`
-
 /** The taste prefix: instructions + the spec, rubric, and the FULL corpus (code inlined verbatim). It's
  *  byte-identical for every PR in a repo, so it forms a stable prompt PREFIX the provider caches across diff
  *  threads — you pay full price for it once, then cache-read rates on every later PR. (If codex `Read` these files
