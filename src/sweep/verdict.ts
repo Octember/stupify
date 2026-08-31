@@ -15,7 +15,7 @@ export const ReviewOutput = z.strictObject({
   opener: z
     .string()
     .describe(
-      'Optional. Recommended for more detailed reviews. Tbe main message, prefix of any inline messages. Oit to be terse.'
+      'Optional. Recommended for more detailed reviews. The main message, prefix of any inline messages. Ought to be terse.'
     ),
   findings: z.array(
     z.strictObject({
