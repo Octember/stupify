@@ -23,7 +23,7 @@ export async function runReview(
 ): Promise<ReviewOutcome> {
   const cwd = workDir ?? cfg.repoDir
   try {
-    const thread = new Codex({ codexPathOverride: Bun.which('codex') ?? 'codex' }).startThread({
+    const thread = new Codex().startThread({
       workingDirectory: cwd,
     })
     await thread.run(reviewPrompt(cfg, pr, priorThread, diff), {
