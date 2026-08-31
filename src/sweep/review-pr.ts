@@ -10,8 +10,8 @@ import { type Pr } from './prs'
 import { FIXED_NOTE, STILL_NOTE } from './verdict'
 import { prepareHeadWorktree, removeHeadWorktree } from './worktree'
 
-// A posted review carries its token spend and its blocking-finding count — zero blocking reads as a green status.
-export type SweepReviewResult = { tokens: number; blocking: number } | 'limit' | 'clean' | 'fixed' | 'open' | null
+// A posted review carries its blocking-finding count — zero blocking reads as a green status.
+export type SweepReviewResult = { blocking: number } | 'limit' | 'clean' | 'fixed' | 'open' | null
 
 export function commitStatusForSweepResult(result: number | 'clean' | 'fixed' | 'open'): {
   state: CommitStatusState
@@ -82,7 +82,7 @@ export async function reviewPr(
     }
     return null
   }
-  if (r.kind === 'noop') {
+  if (r.kind === 'no_new_issues') {
     // Clean. A one-time LGTM on a PR stupify has never flagged (so "reviewed + good" is visible). On a PR it HAS
     // reviewed: while its own findings are still open, a clean head stays silent (the open threads already say it
     // all, and a fresh non-✅ note would fight a reasoned inline pushback) — but with NOTHING outstanding it posts
@@ -141,6 +141,6 @@ export async function reviewPr(
     return null
   }
   const blocking = r.findings.filter((f) => f.blocking).length
-  log(`  #${pr.number} done (${r.tokens ?? '?'} tokens, ${r.findings.length} inline, ${blocking} blocking)`)
-  return { tokens: r.tokens ?? 0, blocking }
+  log(`  #${pr.number} done (${r.findings.length} inline, ${blocking} blocking)`)
+  return { blocking }
 }

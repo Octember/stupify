@@ -16,7 +16,7 @@ export async function runCandidatePool(
   state: SweepState,
 ): Promise<{ reviewed: number; tokens: number }> {
   let reviewed = 0
-  let tokens = 0
+  const tokens = 0
   let next = 0
   let limitHit = false
   const worker = async (): Promise<void> => {
@@ -54,13 +54,12 @@ export async function runCandidatePool(
       bumpDailyCounter(dailyPath(cfg), state.daily)
       if (typeof used === 'object') {
         reviewed += 1
-        tokens += used.tokens
         setStatusPr(
           cfg,
           status,
           pr,
           'posted',
-          `posted review (${used.tokens} tokens${used.blocking === 0 ? ', non-blocking only' : ''})`,
+          `posted review${used.blocking === 0 ? ' (non-blocking only)' : ''}`,
           lines,
         )
       } else if (used === 'open') {

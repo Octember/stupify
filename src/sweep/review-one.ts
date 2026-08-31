@@ -93,7 +93,7 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
     )
     process.exit(1)
   }
-  if (r.kind === 'noop' || r.kind === 'fixed') {
+  if (r.kind === 'no_new_issues' || r.kind === 'fixed') {
     console.log('LGTM ✅  (no blocking issues)') // a one-shot manual review has no prior findings to "fix" — both read as clean
     return
   }

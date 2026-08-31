@@ -42,7 +42,7 @@ export { appJwt, commitStatusDescription } from './sweep/commit-status'
 export type { Config } from './sweep/config'
 export { diffRightLines, isDiffTooLarge } from './sweep/diff'
 export { dismissedFindings } from './sweep/github'
-export { reviewPrompt, stablePrefix } from './sweep/prompt'
+export { reviewPrompt } from './sweep/prompt'
 export { type Pr, priorReviewThread } from './sweep/prs'
 export { commitStatusForSweepResult } from './sweep/review-pr'
 export {
