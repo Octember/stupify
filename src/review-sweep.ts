@@ -42,7 +42,7 @@ export { appJwt, commitStatusDescription } from './sweep/commit-status'
 export type { Config } from './sweep/config'
 export { diffRightLines, isDiffTooLarge } from './sweep/diff'
 export { dismissedFindings } from './sweep/github'
-export { reviewPrompt, stablePrefix } from './sweep/prompt'
+export { reviewPrompt } from './sweep/prompt'
 export { type Pr, priorReviewThread } from './sweep/prs'
 export { commitStatusForSweepResult } from './sweep/review-pr'
 export {
@@ -54,7 +54,7 @@ export {
   recordHeadAttempt,
   recordReviewedHead,
 } from './sweep/state'
-export { finalCodexMessage, parseReview, REVIEW_SCHEMA, STILL_NOTE } from './sweep/verdict'
+export { parseReview, REVIEW_SCHEMA, STILL_NOTE } from './sweep/verdict'
 
 async function main(): Promise<void> {
   const cfg = loadConfig() // also mkdirs stateDir and sets LOG, so config warnings are already captured

@@ -27,6 +27,7 @@ If provided, you are continuing an existing thread.
       "path": "src/x.ts",
       "line": 30,
       "severity": "med",
+      "conf": 0.86,
       "body": "you're adding a second source of truth: reuse the existing one at `a.ts`"
     }
   ]
@@ -35,6 +36,7 @@ If provided, you are continuing an existing thread.
 
 - `path`/`line`: Exact right-side line in the diff.
 - `severity`: matches the severity definitions from the rubric.
+- `conf`: 0–1.
 - `opener`: empty when there are findings.
 - `body`: write like this:
   - you're adding a second source of truth: reuse the existing one at `....`
@@ -58,4 +60,3 @@ Pick one:
 - https://media.giphy.com/media/eM0U5NQtVHu30VM5sS/giphy.gif
 - https://i.fluffy.cc/BPgxZkmsrgmfcDFDCNWC3m4CW0gCJF7w.gif
 - https://media.giphy.com/media/3ohzAu2U1tOafteBa0/giphy.gif
-
