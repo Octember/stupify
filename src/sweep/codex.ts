@@ -2,10 +2,10 @@ import { isRateLimited } from '@bevyl-ai/agent-tools'
 // Running Codex over one PR's diff and classifying the result. The SDK talks to the local `codex` CLI.
 import { Codex } from '@openai/codex-sdk'
 
+import { SECOND_PASS_PROMPT } from '../hand-written-prompts'
 import { type Config, logRaw } from './config'
 import { reviewPrompt } from './prompt'
 import { type Pr } from './prs'
-import { SECOND_PASS_PROMPT } from './second-pass'
 import { parseReviewJson, REVIEW_SCHEMA, type ReviewVerdict } from './verdict'
 
 /** The outcome of running Codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
