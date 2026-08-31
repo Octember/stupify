@@ -87,7 +87,7 @@ const MEMORY_BYTE_CAP = 16_000 // hard backstop: even 20 essays can't blow the p
 export function defang(body: string): string {
   return body
     .replaceAll(/<!--[\s\S]*?-->/g, '') // hidden markers (incl. our own stupify: markers)
-    .replaceAll(/<(?<slash>\/?)\s*(?<tag>prior_reviews|pr_description|dismissed)\s*>/gi, '‹$<slash>$<tag>›') // can't break out of any untrusted fence
+    .replaceAll(/<(?<slash>\/?)\s*(?<tag>prior_reviews|pr_description)\s*>/gi, '‹$<slash>$<tag>›')
     .trim()
 }
 

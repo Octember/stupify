@@ -136,16 +136,15 @@ async function main(): Promise<void> {
   }
 
   const { candidates, handled } = collectCandidates(cfg, status, queue, priorByPr, state)
-  const { reviewed, tokens } = await runCandidatePool(cfg, status, candidates, state)
+  const { reviewed } = await runCandidatePool(cfg, status, candidates, state)
 
-  log(`sweep done — scope=${cfg.scope} reviewed=${reviewed} tokens~${tokens}`)
+  log(`sweep done — scope=${cfg.scope} reviewed=${reviewed}`)
   if (status.stage !== 'blocked') {
     status.stage = 'done'
-    status.message = `sweep done — scope=${cfg.scope} reviewed=${reviewed} tokens~${tokens}`
+    status.message = `sweep done — scope=${cfg.scope} reviewed=${reviewed}`
   }
   status.totals.handled = handled
   status.totals.reviewed = reviewed
-  status.totals.tokens = tokens
   status.finishedAt = isoNow()
   writeStatus(cfg, status)
 }

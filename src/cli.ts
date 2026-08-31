@@ -799,7 +799,7 @@ function renderStatus(status: SweepStatus): string {
     `${pc.dim('stage  ')} ${status.stage} ${pc.dim(`- ${status.message}`)}`,
     `${pc.dim('scope  ')} ${status.scope} ${pc.dim(`· ${mode}`)}`,
     `${pc.dim('time   ')} started ${formatWhen(status.startedAt)} · updated ${formatWhen(status.updatedAt)}`,
-    `${pc.dim('totals ')} open ${status.totals.openPrs} · in scope ${status.totals.inScope} · handled ${status.totals.handled}/${status.totals.maxPrs} · posted ${status.totals.reviewed} · skipped ${status.totals.skipped} · tokens~${status.totals.tokens}`,
+    `${pc.dim('totals ')} open ${status.totals.openPrs} · in scope ${status.totals.inScope} · handled ${status.totals.handled}/${status.totals.maxPrs} · posted ${status.totals.reviewed} · skipped ${status.totals.skipped}`,
   ]
   if (status.prs.length === 0) {
     return [...header, '', pc.dim('no PRs in scope')].join('\n')

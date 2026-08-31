@@ -170,7 +170,7 @@ test('status renders the latest sweep workflow from state/status.json', () => {
       startedAt: '2026-06-22T10:00:00Z',
       updatedAt: '2026-06-22T10:00:30Z',
       message: 'reviewing 2 PR(s) in scope',
-      totals: { openPrs: 3, inScope: 2, handled: 1, reviewed: 0, skipped: 1, tokens: 0, maxPrs: 15 },
+      totals: { openPrs: 3, inScope: 2, handled: 1, reviewed: 0, skipped: 1, maxPrs: 15 },
       prs: [
         {
           number: 7,
