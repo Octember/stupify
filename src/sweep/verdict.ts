@@ -21,10 +21,10 @@ export const ReviewOutput = z.strictObject({
     z.strictObject({
       path: z.string('repo-relative path to the file'),
       line: z.int().min(1).describe('line number'),
-      severity: Severity.required().describe('severity: blocking or non-blocking'),
+      severity: Severity.describe('severity: blocking or non-blocking'),
       blocking: z.boolean().describe('whether the finding should block merge'),
       conf: z.number().min(0).max(100).describe('confidence score: bias low'),
-      body: z.string().describe(),
+      body: z.string().describe('inline finding'),
     }),
   ),
 })

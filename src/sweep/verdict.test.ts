@@ -6,7 +6,7 @@ test('parseReview stamps emoji, conf, and file pointer', () => {
   const parsed = parseReview({
     verdict: 'findings',
     opener: '',
-    findings: [{ path: 'src/x.ts', line: 30, severity: 'high', conf: 0.9, body: 'breaks on empty' }],
+    findings: [{ path: 'src/x.ts', line: 30, severity: 'high', blocking: true, conf: 0.9, body: 'breaks on empty' }],
   })
   if (parsed.kind !== 'findings') {
     throw new Error('expected findings')
@@ -27,7 +27,7 @@ test('parseReview rejects empty or contradictory findings', () => {
     parseReview({
       verdict: 'fixed',
       opener: '',
-      findings: [{ path: 'src/x.ts', line: 1, severity: 'low', conf: 0.1, body: 'leftover' }],
+      findings: [{ path: 'src/x.ts', line: 1, severity: 'low', blocking: false, conf: 0.1, body: 'leftover' }],
     }),
   ).toThrow()
 })
@@ -37,7 +37,7 @@ test('parseReviewJson reads the second-pass message', () => {
     JSON.stringify({
       verdict: 'findings',
       opener: 'ok',
-      findings: [{ path: 'a.ts', line: 2, severity: 'med', conf: 1, body: 'dup' }],
+      findings: [{ path: 'a.ts', line: 2, severity: 'med', blocking: true, conf: 1, body: 'dup' }],
     }),
   )
   if (verdict.kind !== 'findings') {
