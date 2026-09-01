@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { detectRepo, exec } from '@bevyl-ai/agent-tools'
+import { z } from 'zod'
 
 import { runReview } from './codex'
 import { type Config } from './config'
@@ -34,22 +35,27 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
   // Ad-hoc review runs in cwd. When cwd is the target repo we spin a head worktree for file context; otherwise codex
   // reviews from the inlined diff alone (cross-repo refs can't fetch into a foreign checkout).
   cfg.repoDir = process.cwd()
-  const head = exec('gh', [
-    'pr',
-    'view',
-    String(number),
-    '--repo',
-    slug,
-    '--json',
-    'headRefOid,baseRefOid,baseRefName,title,body',
-  ])
+  // REST — `gh pr view --json baseRefOid` is missing on Ubuntu 2.45 gh.
+  const head = exec('gh', ['api', `repos/${slug}/pulls/${number}`])
   if (!head.ok) {
     console.error(`stupify review: couldn't read ${slug}#${number} via gh (auth? does it exist?).`)
     process.exit(1)
   }
-  const meta = Pr.pick({ headRefOid: true, baseRefOid: true, baseRefName: true, title: true, body: true }).parse(
-    JSON.parse(head.stdout),
-  )
+  const raw = z
+    .object({
+      head: z.object({ sha: z.string() }),
+      base: z.object({ sha: z.string(), ref: z.string() }),
+      title: z.string(),
+      body: z.string().nullable(),
+    })
+    .parse(JSON.parse(head.stdout))
+  const meta = Pr.pick({ headRefOid: true, baseRefOid: true, baseRefName: true, title: true, body: true }).parse({
+    headRefOid: raw.head.sha,
+    baseRefOid: raw.base.sha,
+    baseRefName: raw.base.ref,
+    title: raw.title,
+    body: raw.body ?? '',
+  })
   const pr = {
     number,
     ...meta,
