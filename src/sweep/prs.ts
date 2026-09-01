@@ -26,9 +26,23 @@ export type Pr = z.infer<typeof Pr>
 // exhaustive on any realistically-sized backlog; per-head dedup keeps the extra listings cheap.
 const PR_LIST_LIMIT = 500
 
+const ListedPr = Pr.omit({ baseRefOid: true })
+const RestPull = z.object({ number: z.number(), base: z.object({ sha: z.string() }) })
+
+// `gh pr list --json` on Ubuntu's 2.45 gh has headRefOid but not baseRefOid — unknown field → empty
+// stdout, which the sweep used to log as "auth/network down". Pull base SHAs from REST instead.
+function pullBaseOids(slug: string): Map<number, string> | null {
+  const r = exec('gh', ['api', `repos/${slug}/pulls?state=open&per_page=100`, '--paginate'])
+  if (!r.ok) {
+    return null
+  }
+  const pulls = z.array(RestPull).parse(JSON.parse(r.stdout))
+  return new Map(pulls.map((p) => [p.number, p.base.sha]))
+}
+
 export function listPrs(cfg: Config): Pr[] | null {
   // Filter the PR list directly rather than `gh pr list --label` — that search index lags behind labelling.
-  const fields = 'number,headRefOid,baseRefOid,baseRefName,isDraft,author,labels,title,body'
+  const fields = 'number,headRefOid,baseRefName,isDraft,author,labels,title,body'
   const r = exec('gh', [
     'pr',
     'list',
@@ -42,10 +56,24 @@ export function listPrs(cfg: Config): Pr[] | null {
     fields,
   ])
   if (!r.ok) {
-    log('gh pr list failed (auth/network down?) — aborting sweep')
+    log(`gh pr list failed — aborting sweep: ${r.combined.trim().split('\n')[0] ?? 'unknown error'}`)
     return null
   }
-  return z.array(Pr).parse(JSON.parse(r.stdout))
+  const listed = z.array(ListedPr).parse(JSON.parse(r.stdout))
+  const bases = pullBaseOids(cfg.slug)
+  if (bases === null) {
+    log('gh api pulls failed (auth/network down?) — aborting sweep')
+    return null
+  }
+  const out: Pr[] = []
+  for (const pr of listed) {
+    const baseRefOid = bases.get(pr.number)
+    if (!baseRefOid) {
+      throw new Error(`open PR #${pr.number} missing from REST pulls list`)
+    }
+    out.push({ ...pr, baseRefOid })
+  }
+  return out
 }
 
 export function hasReviewLabel(pr: Pr, cfg: Config): boolean {
