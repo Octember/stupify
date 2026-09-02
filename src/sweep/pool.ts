@@ -14,9 +14,8 @@ export async function runCandidatePool(
   status: SweepStatus,
   candidates: Candidate[],
   state: SweepState,
-): Promise<{ reviewed: number; tokens: number }> {
+): Promise<{ reviewed: number }> {
   let reviewed = 0
-  const tokens = 0
   let next = 0
   let limitHit = false
   const worker = async (): Promise<void> => {
@@ -48,8 +47,7 @@ export async function runCandidatePool(
         continue
       }
       // codex ran and reached a verdict (findings posted, or a no-op). Record this head so the next sweep doesn't
-      // re-run codex on it — without this a SUPPRESSED no-op (no thread marker) would re-run every minute and drain
-      // the plan. Count the run toward the daily spend ceiling either way: a no-op still spent the tokens.
+      // re-run codex on it — without this a SUPPRESSED no-op (no thread marker) would re-run every minute.
       recordReviewedHead(reviewedPath(cfg), state.reviewedLocal, String(pr.number), pr.headRefOid)
       bumpDailyCounter(dailyPath(cfg), state.daily)
       if (typeof used === 'object') {
@@ -79,7 +77,6 @@ export async function runCandidatePool(
       const finalStatus = commitStatusForSweepResult(result)
       setCommitStatus(cfg, state.commitStatuses, pr, finalStatus.state, finalStatus.description)
       status.totals.reviewed = reviewed
-      status.totals.tokens = tokens
     }
   }
   await Promise.all(Array.from({ length: Math.min(cfg.codexJobs, candidates.length) }, () => worker()))
@@ -89,5 +86,5 @@ export async function runCandidatePool(
       setCommitStatus(cfg, state.commitStatuses, c.pr, 'error', 'codex plan is rate-limited; retrying later')
     }
   }
-  return { reviewed, tokens }
+  return { reviewed }
 }

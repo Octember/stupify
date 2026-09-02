@@ -47,20 +47,14 @@ A cron job runs the sweep every minute (`*/1 * * * *`); the sweep self-locks so 
    `is_bot` flag) — unless the PR carries `REVIEW_LABEL`, which force-includes a bot-authored PR you deliberately
    opted in. The JSON is `Pr.parse`'d at the boundary — a malformed list or entry throws rather than
    skipping mid-loop.
-3. **Dedup.** For each candidate it reads the PR's comments and skips if one already contains the hidden marker
-   `<!-- stupify:<headSHA> -->` for the _current_ head. A new push moves the SHA, the marker no longer matches, and
-   it re-reviews. **One review per head.** (Failures aren't posted, see _Safety_, so there's no fail marker;
-   failed heads are throttled in local state instead.) The marker check falls back to "any comment" when
-   `gh api user` is unavailable (a GitHub-App integration 403s on it), so dedup never silently re-reviews forever.
-4. **Build memory** from the remaining comments (see below).
-5. **Review.** The _runner_ fetches the diff via GitHub's compare API (`baseRefOid...headRefOid`), so stacked PRs
-   whose base is another feature branch diff against that base, not `main`. It spins a detached worktree at the PR
-   head SHA (`$STUPIFY_HOME/worktrees/<n>-<sha>`) so codex reads the same tree the diff describes, then feeds the
-   diff to `codex exec` over **stdin**, in a `workspace-write` sandbox restricted to `/tmp` with **network off and
-   no `gh`**. The runner resumes that thread once to challenge duplicate ownership, then posts the final verdict.
-   Candidates are collected serially (all the cheap gh gates), then reviewed by a pool of up to `CODEX_JOBS`
-   (default 3) concurrent review sessions — a busy sweep's wall-clock is the slowest review, not the sum of them. A
-   quota wall from any run stops new launches while in-flight runs drain.
+3. **Dedup.** Skip if a review body already has `<!-- stupify:<headSHA> -->`, or local `reviewed-heads.json`
+   already recorded this head (covers silent no-ops). Failures never post; they're throttled in local state.
+4. **Build memory** from GraphQL reviews + inline threads (see below).
+5. **Review.** The runner fetches the diff via GitHub's compare API (`baseRefOid...headRefOid`), spins a
+   worktree at the head SHA, and runs Codex via `@openai/codex-sdk`: `startThread` then two `thread.run`s.
+   The first prompt is three taste file paths + PR body + prior thread + diff. The second is the locked
+   hand-written adversarial line (`src/hand-written-prompts.ts`) with `outputSchema`. The runner posts or
+   converges from that JSON. Up to `CODEX_JOBS` (default 3) run at once. A quota wall stops new launches.
 6. **Cap.** `MAX_PRS` limits PRs _actually reviewed_ per sweep, counted only after the cheap dedup skips, so a
    backlog of already-reviewed PRs at the front of the list can't starve later ones.
 
@@ -73,43 +67,23 @@ append-only on GitHub's side, so stupify keeps `state/commit-statuses.json` as a
 when the state/description changes. Status posting is never required for review progress: if the API call fails,
 the sweep logs it and keeps reviewing/commenting. `DRY_RUN` never posts GitHub statuses.
 
-## Per-PR memory (and why it replaced debounce)
+## Per-PR memory
 
-The first version had a 5-minute **debounce**: a push started a clock, and a PR was only reviewed once its head
-had been stable for 5 minutes, so a burst of commits collapsed into one review instead of one per commit.
+The GitHub thread is the store. Before each review the engine dumps the recent thread (last 20, defanged)
+into the prompt. Codex returns `findings` | `fixed` | `no_new_issues`. The runner:
 
-It worked, but it made the reviewer feel _dead_: you'd push and wait. And it was solving the wrong problem. The
-real fix for "don't spam me" is **memory**, not delay:
+- posts inline threads on `findings`
+- resolves its open blocking threads + `nice, all fixed ✅` on `fixed` (only if threads were actually open)
+- `LGTM ✅` on a first-pass clean, `still ✅` on a later clean head, silence while its own findings remain open
 
-- Before each review, the engine collects the PR's existing comments, drops CI bots, strips the hidden markers,
-  and passes the recent thread (bounded to the last 20) into the prompt as _"your past reviews and the author's
-  replies."_
-- The prompt's **"Prior reviews on this PR"** rules tell the model: don't re-raise resolved or
-  reasoned-declined items, and report only what's genuinely new. When there's no new finding it emits one of two
-  tokens: `STUPIFY_FIXED` if the issues it raised earlier are now resolved by the diff (the runner posts a
-  one-time **"nice, all fixed ✅"**, gated on there having actually been open findings, so it can't repeat or fire
-  on a never-flagged PR), or `STUPIFY_NO_NEW_ISSUES` otherwise (clean, or prior items still open). On that second
-  token the runner posts a one-time **`LGTM ✅`** if it's a clean PR stupify has never flagged (so "reviewed and
-  good" is visible, not indistinguishable from "not run yet"), a one-line **`still ✅`** on a clean head with
-  nothing outstanding (so every reviewed head carries a marker-bearing verdict — pure silence made the newest
-  push look unreviewed to per-head merge gates), and stays silent only while its own findings remain open. Every
-  ✅ it posts is honest: it only fires when no stupify finding is open, and "all fixed" means actually fixed.
-
-The GitHub thread **is** the memory store. It survives restarts, and it already contains the author's replies
-(a separate state file wouldn't). With memory, a mid-burst re-review _sees its prior reviews and converges_
-instead of repeating, which is what debounce was really for. So debounce became pure latency and was deleted.
-A push now gets reviewed within ~60s, and the Nth review of a PR is short because it only covers the delta.
-
-The root cause was statelessness: it made the reviewer both re-litigate forever and never know when to stop.
-Feed the conversation back in and both problems go away.
+Head marker `<!-- stupify:<sha> -->` is how a later sweep knows this commit was already reviewed.
 
 ## Safety & failure handling
 
 - **Failures stay off the PR.** If `codex` can't run (provider down, usage limit, timeout, ENOENT), the sweep
   LOGS the captured cause (operator-facing) and records the failed head in local state so it doesn't re-hammer
   the dead provider every minute. It does _not_ post a "couldn't review" comment, because that's noise the PR
-  author can't act on. **Only real reviews ever reach the PR.** `spawnSync`'s `signal`/`error` are folded into
-  the captured output so a timeout surfaces as "killed by SIGTERM", not "no output".
+  author can't act on. **Only real reviews ever reach the PR.** SDK timeouts land in the catch as the abort reason.
 - **Config fails toward safe.** Knobs validate and warn on garbage (`MAX_PRS=15lol` → logged, default used).
   `DRY_RUN` is the exception that fails _safe_: a set-but-invalid value (`DRY_RUN=ture`) falls back to preview,
   never live. A typo'd safety switch must not start posting.
@@ -121,35 +95,9 @@ Feed the conversation back in and both problems go away.
 
 ## Codex specifics
 
-The engine calls, in full. The prompt (rubric + corpus + the **inlined diff**) arrives on **stdin**, not argv, so
-a big diff can't blow `ARG_MAX`:
-
-```
-gh pr diff <N> --repo <slug>                              # the RUNNER fetches the diff
-codex exec --json --cd <STUPIFY_HOME>/repo --sandbox workspace-write \
-  -c model_reasoning_effort=<CODEX_EFFORT> \
-  -c sandbox_workspace_write.network_access=false \
-  -c 'sandbox_workspace_write.writable_roots=["/tmp"]' \
-  -                                                        # prompt (diff inlined) on stdin
-codex exec resume --json <thread-id> -                     # ownership challenge on stdin
-gh pr comment <N> --repo <slug> --body-file <review>      # the RUNNER posts
-```
-
-Codex runs **locked down**: no network and no `gh` of its own. The runner does all GitHub I/O and hands Codex the
-diff in the prompt. The PR diff and the prior-review thread are _attacker-controlled_ (any contributor can push
-code or comment), so this matters: a prompt-injected diff or comment can at worst make Codex write a junk _review
-file_; it can't exfiltrate, reach the network, or touch the GitHub token. (`--cd` points it at the dedicated
-checkout for read-only context; only `/tmp` is writable.) It does _not_ pin a provider or model by default;
-Codex uses whatever auth you've configured. `CODEX_PROVIDER` (`-c model_provider=…`) and `CODEX_MODEL`
-(`-c model=…`) let you point it at a specific gateway or model. There's no API key in stupify itself;
-credentials are Codex's concern.
-
-If your Codex rides a pool of interchangeable gateway accounts (e.g. exe.dev `llm` integrations, each fronting
-a ChatGPT plan), `CODEX_GATEWAY_POOL` (ordered comma-separated hostnames) lets the sweep self-heal a quota
-wall: when a review dies rate-limited, it rewrites the gateway hostname in `~/.codex/config.toml` to the next
-pool entry — Codex re-reads the file each sweep, so the next sweep runs on the fresh account. No probing (the
-real failure is the signal) and at most one step per `CODEX_ROTATE_COOLDOWN_MIN` (default 10), so a fully
-drained pool cycles calmly until a weekly reset rescues it. Unset = off.
+The runner does all GitHub I/O. Codex sees taste paths, the diff, and the prior thread. Config is local
+`~/.codex`. `CODEX_GATEWAY_POOL` still rotates the gateway hostname in `config.toml` after a real rate-limit
+(cooldown `CODEX_ROTATE_COOLDOWN_MIN`, default 10). Unset = off.
 
 ## Why curated, not inferred
 

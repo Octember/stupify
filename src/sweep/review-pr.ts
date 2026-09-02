@@ -32,13 +32,6 @@ export function commitStatusForSweepResult(result: number | 'clean' | 'fixed' | 
   return { state: 'success', description: 'stupify review complete; no new issues' }
 }
 
-/** Run one SWEEP review and act on it: post findings as an inline-threaded COMMENT review, RESOLVE stupify's open
- *  threads when its findings are fixed, post a one-time `LGTM ✅` review on a genuine first-pass clean, post a
- *  one-line `still ✅` on a clean head with nothing outstanding, or stay SILENT while prior findings remain open.
- *  Returns {tokens, blocking} on a posted review, 'clean' on a clean outcome, 'open' when prior findings remain unresolved,
- *  'fixed' when it resolved prior findings, 'limit' on exhaustion, or null on a failure the caller throttles.
- *  Every ✅ that posts is honest: it only fires when no stupify finding is open — "nothing new while findings
- *  still stand" stays silent (those threads remain open); a fix resolves the threads and posts a visible note. */
 export async function reviewPr(
   cfg: Config,
   pr: Pr,

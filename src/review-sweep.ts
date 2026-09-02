@@ -10,7 +10,7 @@
  * The "taste" — REVIEW-PROMPT.md, RUBRIC.md, CORPUS.md — lives in the TARGET repo under REVIEW_DIR (default
  * `.review/`), so it's version-controlled with the code it judges and edited via a normal PR.
  * Idempotent: skips a PR already reviewed — or already reported as failed — at its current head SHA, via a
- * hidden marker comment. A new push moves the SHA, clears the markers, and re-arms the review.
+ * hidden marker on the review body. A new push moves the SHA, clears the markers, and re-arms the review.
  * Per-PR memory: each review is fed the PR's existing review thread. The runner posts a one-line `still ✅`
  * when nothing is outstanding (so every reviewed head carries a marker-bearing verdict), and stays silent
  * while its own findings remain open.
@@ -18,10 +18,7 @@
  * Single-flight: the sweep takes its own lockfile (state/sweep.lock) so two cron ticks never overlap — no
  * `flock` dependency. Every knob lives in config.env next to this file (read fresh each run). Run: `bun review-sweep.ts`.
  *
- * Layout: this file is the entry (main + the public surface tests import). The engine proper is split into
- * src/sweep/* — config, prs, diff, verdict, github, state, status, commit-status, prompt, codex, review-pr,
- * review-one, sweep (candidate collection), pool (the concurrent review workers). The CLI bundles this entry
- * into one file at install time, so the split costs the deployed artifact nothing.
+ * Layout: this file is the entry. Tests import `src/sweep/*` directly. The CLI bundles this file at install.
  */
 import { join } from 'node:path'
 
@@ -36,24 +33,6 @@ import { inScope, listPrs } from './sweep/prs'
 import { reviewOne } from './sweep/review-one'
 import { initialStatus, isoNow, seedStatusPrs, setStatusStage, writeStatus } from './sweep/status'
 import { collectCandidates, loadSweepState } from './sweep/sweep'
-
-export { isRateLimited, pidAlive } from '@bevyl-ai/agent-tools'
-export { appJwt, commitStatusDescription } from './sweep/commit-status'
-export type { Config } from './sweep/config'
-export { diffRightLines, isDiffTooLarge } from './sweep/diff'
-export { reviewPrompt } from './sweep/prompt'
-export { type Pr, priorReviewThread } from './sweep/prs'
-export { commitStatusForSweepResult } from './sweep/review-pr'
-export {
-  bumpDailyCounter,
-  DailyCounter,
-  loadDailyCounter,
-  loadHeadAttempts,
-  loadReviewedHeads,
-  recordHeadAttempt,
-  recordReviewedHead,
-} from './sweep/state'
-export { parseReview, REVIEW_SCHEMA, STILL_NOTE } from './sweep/verdict'
 
 async function main(): Promise<void> {
   const cfg = loadConfig() // also mkdirs stateDir and sets LOG, so config warnings are already captured
@@ -136,16 +115,15 @@ async function main(): Promise<void> {
   }
 
   const { candidates, handled } = collectCandidates(cfg, status, queue, priorByPr, state)
-  const { reviewed, tokens } = await runCandidatePool(cfg, status, candidates, state)
+  const { reviewed } = await runCandidatePool(cfg, status, candidates, state)
 
-  log(`sweep done — scope=${cfg.scope} reviewed=${reviewed} tokens~${tokens}`)
+  log(`sweep done — scope=${cfg.scope} reviewed=${reviewed}`)
   if (status.stage !== 'blocked') {
     status.stage = 'done'
-    status.message = `sweep done — scope=${cfg.scope} reviewed=${reviewed} tokens~${tokens}`
+    status.message = `sweep done — scope=${cfg.scope} reviewed=${reviewed}`
   }
   status.totals.handled = handled
   status.totals.reviewed = reviewed
-  status.totals.tokens = tokens
   status.finishedAt = isoNow()
   writeStatus(cfg, status)
 }
