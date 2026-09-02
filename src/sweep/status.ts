@@ -27,7 +27,6 @@ export const SweepStatus = z.object({
     handled: z.number(),
     reviewed: z.number(),
     skipped: z.number(),
-    tokens: z.number(),
     maxPrs: z.number(),
   }),
   prs: z.array(
@@ -57,7 +56,7 @@ export function initialStatus(cfg: Config): SweepStatus {
     startedAt: now,
     updatedAt: now,
     message: 'starting sweep',
-    totals: { openPrs: 0, inScope: 0, handled: 0, reviewed: 0, skipped: 0, tokens: 0, maxPrs: cfg.maxPrs },
+    totals: { openPrs: 0, inScope: 0, handled: 0, reviewed: 0, skipped: 0, maxPrs: cfg.maxPrs },
     prs: [],
   }
 }

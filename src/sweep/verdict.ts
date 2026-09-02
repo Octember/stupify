@@ -12,14 +12,19 @@ const Severity = z.enum(['high', 'med', 'low', 'note', 'praise'])
 const EMOJI = { high: '🔴', med: '🟠', low: '🟡', note: '🔵', praise: '🟢' } as const
 export const ReviewOutput = z.strictObject({
   verdict: z.enum(['findings', 'fixed', 'no_new_issues']),
-  opener: z.string(),
+  opener: z
+    .string()
+    .describe(
+      'Optional. Recommended for more detailed reviews. The main message, prefix of any inline messages. Ought to be terse.',
+    ),
   findings: z.array(
     z.strictObject({
-      path: z.string(),
-      line: z.int().min(1),
-      severity: Severity,
-      conf: z.number().min(0).max(1),
-      body: z.string(),
+      path: z.string('repo-relative path to the file'),
+      line: z.int().min(1).describe('line number'),
+      severity: Severity.describe('severity: blocking or non-blocking'),
+      blocking: z.boolean().describe('whether the finding should block merge'),
+      conf: z.number().min(0).max(100).describe('confidence score: bias low'),
+      body: z.string().describe('inline finding'),
     }),
   ),
 })
@@ -45,8 +50,9 @@ const postedBody = (head: string, body: string): string => `${head}
 
 ${body}`
 
-/** Stamp headings and split verdicts. Caller already `ReviewOutput.parse`d the model JSON. */
-export function parseReview(data: ReviewOutput): ReviewVerdict {
+/** Stamp headings and split verdicts. Schema-parse at the JSON boundary. */
+export function parseReview(raw: string): ReviewVerdict {
+  const data = ReviewOutput.parse(JSON.parse(raw))
   if (data.verdict !== 'findings') {
     // A convergence verdict that ALSO carries findings is contradictory — fail loud rather than resolve threads
     // and post a ✅ while silently dropping what the model found.
@@ -74,10 +80,6 @@ export function parseReview(data: ReviewOutput): ReviewVerdict {
     throw new Error('review parsed but had no usable findings')
   }
   return { kind: 'findings', opener: data.opener, findings }
-}
-
-export function parseReviewJson(raw: string): ReviewVerdict {
-  return parseReview(ReviewOutput.parse(JSON.parse(raw)))
 }
 
 // The hidden marker stupify ends every posted review with, keyed to the head SHA — how a later sweep recognizes a
