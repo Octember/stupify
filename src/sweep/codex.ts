@@ -1,4 +1,4 @@
-import { isRateLimited } from '@bevyl-ai/agent-tools'
+import { isQuotaWall, isRateLimited } from '@bevyl-ai/agent-tools'
 // Running Codex over one PR's diff and classifying the result. The SDK talks to the local `codex` CLI.
 import { Codex } from '@openai/codex-sdk'
 
@@ -37,7 +37,8 @@ function failureReason(out: string): string {
 
 function callFailed(out: string): ReviewOutcome {
   const reason = failureReason(out)
-  if (isRateLimited(out)) {
+  // isQuotaWall covers a 502 'ChatGPT account unavailable' (dead login) — the pool must walk past it too.
+  if (isRateLimited(out) || isQuotaWall(out)) {
     return { kind: 'limit', reason, raw: out }
   }
   return { kind: 'fail', reason }
