@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import { z } from 'zod'
 
-import { type Config, log } from './config'
+import { type Config } from './config'
 import { type Pr } from './prs'
 
 const HeadAttempts = z.record(z.string(), z.strictObject({ head: z.string(), at: z.number() }))
@@ -14,7 +14,7 @@ function save(path: string, value: unknown): void {
   try {
     writeFileSync(path, JSON.stringify(value))
   } catch (error) {
-    log(`couldn't write ${path} — ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`couldn't write ${path} — ${error instanceof Error ? error.message : String(error)}`)
   }
 }
 
