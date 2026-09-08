@@ -88,7 +88,10 @@ export async function runReview(
       title: `#${pr.number}`,
       model: cfg.codexModel || undefined,
       effort: cfg.codexEffort,
-      threadSandbox: 'read-only', // a reviewer reads; the prompt's "don't edit code" is enforced, not requested
+      // A reviewer reads. The per-TURN policy is what codex enforces; the kit's turn default is full access, so
+      // the thread-level string alone would leave both attacker-controlled turns able to write and reach the network.
+      threadSandbox: 'read-only',
+      turnSandboxPolicy: { type: 'readOnly' },
       turnTimeoutMs: TURN_TIMEOUT_MS,
     },
     [
