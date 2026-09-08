@@ -1,12 +1,8 @@
-// The review pool: up to CODEX_JOBS candidates in flight at once. Workers share a cursor; a quota `limit` from
-// any worker stops NEW launches (the rest would fail the same way) while in-flight runs drain. All the
-// shared-state mutation happens between awaits on the one JS thread, so it needs no locks.
 import { type Config, log } from './config'
 import { reviewPr } from './review-pr'
-import { bumpDailyCounter, dailyPath, failuresPath, recordHeadAttempt, recordReviewedHead, reviewedPath } from './state'
-import { type Candidate, type SweepState } from './sweep'
+import { type SweepState } from './state'
+import { type Candidate } from './sweep'
 
-/** Review the candidates; returns how many reviews were posted. */
 export async function runCandidatePool(cfg: Config, candidates: Candidate[], state: SweepState): Promise<number> {
   let reviewed = 0
   let next = 0
@@ -18,10 +14,9 @@ export async function runCandidatePool(cfg: Config, candidates: Candidate[], sta
         return
       }
       // oxlint-disable-next-line no-await-in-loop -- each worker awaits serially BY DESIGN; the parallelism is across workers
-      const used = await reviewPr(cfg, c.pr, c.prior.memory, c.diff, c.firstReview, c.prior.openThreadIds)
+      const used = await reviewPr(cfg, c.pr, c.prior, c.diff)
       if (used === 'limit' || used === null) {
-        // Logged, not posted — throttle this head until the window lapses or the head moves.
-        recordHeadAttempt(failuresPath(cfg), state.failures, String(c.pr.number), c.pr.headRefOid)
+        state.failed(c.pr)
         if (used === 'limit') {
           limitHit = true
           log(
@@ -30,11 +25,7 @@ export async function runCandidatePool(cfg: Config, candidates: Candidate[], sta
         }
         continue
       }
-      // codex reached a verdict (findings posted, or a no-op). Record this head so the next sweep doesn't re-run
-      // codex on it — a SUPPRESSED no-op posts no marker, so local state is what catches it. A no-op still spent
-      // the tokens, so it counts toward the daily ceiling either way.
-      recordReviewedHead(reviewedPath(cfg), state.reviewedLocal, String(c.pr.number), c.pr.headRefOid)
-      bumpDailyCounter(dailyPath(cfg), state.daily)
+      state.reviewedHead(c.pr)
       if (typeof used === 'object') {
         reviewed += 1
       }

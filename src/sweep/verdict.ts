@@ -1,12 +1,7 @@
-// The review VERDICT contract: Codex submits ONE ReviewOutput through the `review_verdict` tool (codex.ts), the
-// kit validates the shape mid-turn, and parseReview is the guard for what the shape can't say. Also the marker /
-// convergence-note vocabulary every posted review carries.
 import { z } from 'zod'
 
 import { type Pr } from './prs'
 
-// The output carries path/line (thread anchor), severity (→ blocking), and conf. The runner stamps
-// emoji + conf + file pointer onto `body`. Only high/med block; low/note/praise are non-blocking.
 const BLOCKING = new Set(['high', 'med'])
 const Severity = z.enum(['high', 'med', 'low', 'note', 'praise'])
 const EMOJI = { high: '🔴', med: '🟠', low: '🟡', note: '🔵', praise: '🟢' } as const
@@ -39,53 +34,29 @@ export type ReviewVerdict =
 const heading = (severity: z.infer<typeof Severity>, conf: number, path: string, line: number): string =>
   `${EMOJI[severity]} · conf ${Number(conf.toFixed(2))} · **\`${path}:${line}\`**`
 
-const postedBody = (head: string, body: string): string => `${head}
-
-${body}`
-
-/** Stamp headings and split verdicts. Caller already `ReviewOutput.parse`d the model JSON. */
 export function parseReview(data: ReviewOutput): ReviewVerdict {
   if (data.verdict !== 'findings') {
-    // A convergence verdict that ALSO carries findings is contradictory — fail loud rather than resolve threads
-    // and post a ✅ while silently dropping what the model found.
     if (data.findings.length > 0) {
       throw new Error('review parsed but had no usable findings')
     }
     return { kind: data.verdict }
   }
   const findings = data.findings
-    .map((f): ParsedFinding | null => {
-      const path = f.path.trim()
-      const body = f.body.trim()
-      if (!path || !body) {
-        return null
-      }
-      return {
-        path,
-        line: f.line,
-        blocking: BLOCKING.has(f.severity),
-        body: postedBody(heading(f.severity, f.conf, path, f.line), body),
-      }
-    })
-    .filter((f) => f !== null)
+    .filter((f) => f.path.trim() && f.body.trim())
+    .map((f) => ({
+      path: f.path.trim(),
+      line: f.line,
+      blocking: BLOCKING.has(f.severity),
+      body: `${heading(f.severity, f.conf, f.path.trim(), f.line)}\n\n${f.body.trim()}`,
+    }))
   if (findings.length === 0) {
     throw new Error('review parsed but had no usable findings')
   }
   return { kind: 'findings', opener: data.opener, findings }
 }
 
-// The hidden marker stupify ends every posted review with, keyed to the head SHA — how a later sweep recognizes a
-// PR it already reviewed AT THIS HEAD (durable dedup, survives VM recreation). Failures aren't posted, so there's
-// no fail marker; they're throttled via local state instead.
 export const markFor = (pr: Pr): string => `<!-- stupify:${pr.headRefOid} -->`
 
-// "fixed" is gated on there actually being open findings, so a stray fixed-signal on a never-flagged PR can't
-// manufacture approval. Detection is strict parse-or-fail — never infer "clean" from anything looser: a reviewer
-// fails toward SURFACING findings (loud, retryable), never toward hiding them behind a silent ✅.
 export const FIXED_NOTE = 'nice, all fixed ✅'
-// The one-line re-approval a clean re-reviewed head gets when nothing is outstanding. Every posted note carries
-// the `<!-- stupify:sha -->` marker, so every reviewed head keeps a durable on-PR verdict. Pure silence here made
-// the latest push look unreviewed to anything that asks "does a review cover HEAD?" (merge gates, the bunion
-// factory's `wait` tool — which timed out and shipped with STUPIFY_FLAKED), and to a sweep whose local
-// reviewed-state was lost (VM recreation → codex re-runs on an already-clean head).
+
 export const STILL_NOTE = 'still ✅'

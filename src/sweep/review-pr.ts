@@ -1,30 +1,13 @@
-// Acting on one sweep review: post findings as an inline-threaded COMMENT review, resolve stupify's open
-// threads when its findings are fixed, post the convergence notes, or stay silent while findings stand.
 import { runReview } from './codex'
 import { type Config, log } from './config'
-import { postNote, postReview, resolveThreads } from './github'
+import { postNote, postReview, type PriorState, resolveThreads } from './github'
 import { type Pr } from './prs'
 import { FIXED_NOTE, STILL_NOTE } from './verdict'
 import { prepareHeadWorktree, removeHeadWorktree } from './worktree'
 
-// A posted review carries its blocking-finding count — zero blocking reads as a green status.
 export type SweepReviewResult = { blocking: number } | 'limit' | 'clean' | 'fixed' | 'open' | null
 
-/** Run one SWEEP review and act on it: post findings as an inline-threaded COMMENT review, RESOLVE stupify's open
- *  threads when its findings are fixed, post a one-time `LGTM ✅` review on a genuine first-pass clean, post a
- *  one-line `still ✅` on a clean head with nothing outstanding, or stay SILENT while prior findings remain open.
- *  Returns {tokens, blocking} on a posted review, 'clean' on a clean outcome, 'open' when prior findings remain unresolved,
- *  'fixed' when it resolved prior findings, 'limit' on exhaustion, or null on a failure the caller throttles.
- *  Every ✅ that posts is honest: it only fires when no stupify finding is open — "nothing new while findings
- *  still stand" stays silent (those threads remain open); a fix resolves the threads and posts a visible note. */
-export async function reviewPr(
-  cfg: Config,
-  pr: Pr,
-  priorThread: string,
-  diff: string,
-  firstReview: boolean,
-  openThreadIds: string[],
-): Promise<SweepReviewResult> {
+export async function reviewPr(cfg: Config, pr: Pr, prior: PriorState, diff: string): Promise<SweepReviewResult> {
   log(`reviewing PR #${pr.number} @ ${pr.headRefOid.slice(0, 8)} (base ${pr.baseRefName})`)
   const workDir = prepareHeadWorktree(cfg.repoDir, pr)
   if (workDir === null) {
@@ -33,7 +16,7 @@ export async function reviewPr(
   }
   let r
   try {
-    r = await runReview(cfg, pr, priorThread, diff, workDir)
+    r = await runReview(cfg, pr, prior.memory, diff, workDir)
   } finally {
     removeHeadWorktree(cfg.repoDir, pr)
   }
@@ -41,49 +24,16 @@ export async function reviewPr(
     log(`  review FAILED for #${pr.number} — ${r.reason}`)
     return r.kind === 'limit' ? 'limit' : null
   }
-  if (r.kind === 'no_new_issues') {
-    // Clean. A one-time LGTM on a PR stupify has never flagged (so "reviewed + good" is visible). On a PR it HAS
-    // reviewed: while its own findings are still open, a clean head stays silent (the open threads already say it
-    // all, and a fresh non-✅ note would fight a reasoned inline pushback) — but with NOTHING outstanding it posts
-    // the one-line marker-bearing re-approval, so the new head never reads as "unreviewed" to per-head consumers.
-    if (!firstReview) {
-      if (openThreadIds.length > 0) {
-        log(`  #${pr.number} nothing new, prior findings still open — staying silent`)
-        return 'open'
-      }
-      if (!postNote(cfg, pr, STILL_NOTE)) {
-        log(`  couldn't post #${pr.number} ${STILL_NOTE} (gh down?) — will retry next sweep`)
-        return null
-      }
-      log(`  #${pr.number} nothing new — posted ${STILL_NOTE} for this head`)
-      return 'clean'
-    }
-    if (!postNote(cfg, pr, 'LGTM ✅')) {
-      log(`  couldn't post #${pr.number} LGTM (gh down?) — will retry next sweep`)
+  const note = (text: string, why: string): SweepReviewResult => {
+    if (!postNote(cfg, pr, text)) {
+      log(`  couldn't post #${pr.number} ${text} (gh down?) — will retry next sweep`)
       return null
     }
-    log(`  #${pr.number} clean first pass — posted LGTM ✅`)
+    log(`  #${pr.number} ${why} — posted ${text}`)
     return 'clean'
   }
-  // Prior findings resolved → resolve the open threads, then post the visible fixed note with the head marker.
-  // Keep that order: a marker before resolution could make a later sweep skip a still-open thread. Gated on
-  // actually having open stupify threads, so a stray fixed-signal can't manufacture approval.
-  if (r.kind === 'fixed') {
-    if (openThreadIds.length === 0) {
-      // Nothing left to resolve. On a PR stupify never flagged, a stray fixed-signal must stay silent — it can't
-      // manufacture an approval. On a PR it HAS reviewed (threads already resolved on an earlier pass), this is
-      // just "clean at a new head": post the marker-bearing re-approval, same as the no-op path above.
-      if (firstReview) {
-        log(`  #${pr.number} fixed-signal but never flagged — staying silent`)
-        return 'clean'
-      }
-      if (!postNote(cfg, pr, STILL_NOTE)) {
-        log(`  couldn't post #${pr.number} ${STILL_NOTE} (gh down?) — will retry next sweep`)
-        return null
-      }
-      log(`  #${pr.number} prior findings already resolved — posted ${STILL_NOTE} for this head`)
-      return 'clean'
-    }
+  const { openThreadIds } = prior
+  if (r.kind === 'fixed' && openThreadIds.length > 0) {
     if (!resolveThreads(openThreadIds)) {
       log(`  couldn't resolve #${pr.number} fixed thread(s) (gh down?) — will retry next sweep`)
       return null
@@ -94,7 +44,20 @@ export async function reviewPr(
     log(`  #${pr.number} prior findings resolved — posted ${FIXED_NOTE}; resolved ${openThreadIds.length} thread(s)`)
     return 'fixed'
   }
-  // A real review: post the validated findings as inline, resolvable threads. (parseReview guarantees ≥1 finding.)
+  if (r.kind !== 'findings') {
+    if (!prior.everReviewed) {
+      if (r.kind === 'fixed') {
+        log(`  #${pr.number} fixed-signal but never flagged — staying silent`)
+        return 'clean'
+      }
+      return note('LGTM ✅', 'clean first pass')
+    }
+    if (openThreadIds.length > 0) {
+      log(`  #${pr.number} nothing new, prior findings still open — staying silent`)
+      return 'open'
+    }
+    return note(STILL_NOTE, 'nothing new')
+  }
   if (!postReview(cfg, pr, r.opener, r.findings)) {
     log(`  couldn't post #${pr.number} review (gh down?) — next sweep retries`)
     return null

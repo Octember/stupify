@@ -1,6 +1,3 @@
-// Running Codex over one PR's diff through the kit's app-server session, and classifying the result. The verdict
-// is a `review_verdict` TOOL CALL the kit validates against ReviewOutput mid-turn (a bad shape goes back to the
-// model as the tool error); the model's text is never read.
 import {
   AppServerSession,
   isQuotaWall,
@@ -18,17 +15,13 @@ import { reviewPrompt } from './prompt'
 import { type Pr } from './prs'
 import { parseReview, ReviewOutput, type ReviewVerdict } from './verdict'
 
-/** The outcome of running Codex over one PR — classified but NOT acted on; review-pr.ts posts/converges from it. */
-export type ReviewOutcome =
-  | { kind: 'limit'; reason: string } // plan/credit exhaustion — the caller launches no more reviews this sweep
-  | { kind: 'fail'; reason: string } // Codex couldn't produce a review (down, timeout, stalled, never submitted)
-  | ReviewVerdict
+export type ReviewOutcome = { kind: 'limit'; reason: string } | { kind: 'fail'; reason: string } | ReviewVerdict
 
 const TURN_TIMEOUT_MS = 1_200_000
 
 function callFailed(raw: string): ReviewOutcome {
   const reason = raw.replaceAll('`', ' ').replaceAll(/\s+/g, ' ').trim().slice(0, 220) || 'codex turn failed'
-  // isQuotaWall covers a 502 'ChatGPT account unavailable' (dead login) — the pool must walk past it too.
+
   if (isRateLimited(raw) || isQuotaWall(raw)) {
     return { kind: 'limit', reason }
   }
@@ -42,9 +35,6 @@ const nearest = (lines: Set<number>, line: number): string =>
     .toSorted((a, b) => a - b)
     .join(', ')
 
-// What the schema can't say is thrown here so the MODEL corrects it, instead of the runner demoting the finding
-// after the fact: an anchor must be a right-side line this diff touches (the only lines GitHub threads on), and
-// a convergence verdict carries no findings (parseReview). The last accepted call wins.
 const verdictTool = (diff: string, submit: (verdict: ReviewVerdict) => void) => {
   const valid = diffRightLines(diff)
   return tool(
@@ -69,7 +59,6 @@ const verdictTool = (diff: string, submit: (verdict: ReviewVerdict) => void) => 
   )
 }
 
-/** Run Codex over one PR's diff and classify the result. Does NO gh I/O and NO posting — the caller owns those. */
 export async function runReview(
   cfg: Config,
   pr: Pr,
@@ -84,8 +73,7 @@ export async function runReview(
       title: `#${pr.number}`,
       model: cfg.codexModel || undefined,
       effort: cfg.codexEffort,
-      // A reviewer reads. The per-TURN policy is what codex enforces; the kit's turn default is full access, so
-      // the thread-level string alone would leave both attacker-controlled turns able to write and reach the network.
+
       threadSandbox: 'read-only',
       turnSandboxPolicy: { type: 'readOnly' },
       turnTimeoutMs: TURN_TIMEOUT_MS,
@@ -102,9 +90,7 @@ export async function runReview(
     },
     {
       scrubEnv: scrubSecrets,
-      // Self-heal a quota wall: advance ~/.codex/config.toml to the next CODEX_GATEWAY_POOL account (the ring
-      // bunion and earshot rotate on too). Codex re-reads the file per session, so the next review lands on it.
-      // The kit walks the ring only on a real wall, never a transient 429.
+
       onTurnError: (error) => {
         const rot = maybeRotateGateway({
           reason: String(error),
@@ -118,8 +104,6 @@ export async function runReview(
     },
   )
   try {
-    // Turn 1 reviews, turn 2 is always the hand-written second pass, and a turn that still ends without a
-    // verdict gets a continuation on the same thread, up to MAX_TURNS.
     let secondPass = false
     await session.runTurns(
       untilDone({
@@ -136,8 +120,6 @@ export async function runReview(
       }),
     )
   } catch (error) {
-    // The kit spawns codex in start() before runTurns' own try/finally, so a failed handshake would leave the
-    // child alive under a minute cron. Delete this once the kit's start() stops the process it spawned on failure.
     session.stop()
     const raw = error instanceof Error ? error.message : String(error)
     logRaw(`${raw}\n`)

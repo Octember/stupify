@@ -1,4 +1,3 @@
-// Prompt construction: point at taste files, then the per-PR tail (intent, prior thread, diff).
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -44,7 +43,5 @@ Review this pull request against the spec and rubric.
 ${diff}`
 }
 
-// Resolve a `.review/` that has the full taste set (spec + rubric + corpus). A partial dir (e.g. CORPUS without
-// the spec) reads as absent so the sweep falls back cleanly.
 export const hasMachinery = (dir: string): boolean =>
   existsSync(join(dir, 'CORPUS.md')) && existsSync(join(dir, 'REVIEW-PROMPT.md')) && existsSync(join(dir, 'RUBRIC.md'))
