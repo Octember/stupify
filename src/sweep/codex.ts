@@ -74,10 +74,11 @@ export async function runReview(
       for (const item of items) {
         if (item.type === 'mcp_tool_call') {
           logRaw(`  codex: ⚙ ${item.tool}${item.error ? ` — ${item.error.message}` : ''}\n`)
-          if (item.tool === 'review_verdict' && item.error) {
-            got.verdict = null
-          }
         }
+      }
+      const last = items.findLast((item) => item.type === 'mcp_tool_call' && item.tool === 'review_verdict')
+      if (last?.type === 'mcp_tool_call' && last.error) {
+        got.verdict = null
       }
       if (usage) {
         logRaw(`  codex: turn ${turn} — ${usage.input_tokens + usage.output_tokens} tokens\n`)
