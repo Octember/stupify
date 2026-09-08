@@ -128,6 +128,9 @@ export async function runReview(
   try {
     await session.runTurns(() => turns.shift() ?? null)
   } catch (error) {
+    // The kit spawns codex in start() before runTurns' own try/finally, so a failed handshake would leave the
+    // child alive under a minute cron. Delete this once the kit's start() stops the process it spawned on failure.
+    session.stop()
     const raw = error instanceof Error ? error.message : String(error)
     logRaw(`${raw}\n`)
     return callFailed(raw)
