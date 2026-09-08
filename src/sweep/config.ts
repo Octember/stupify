@@ -25,8 +25,9 @@ export const Config = z.object({
   maxReviewsPerDay: z.number(),
   failRetryMs: z.number(),
   stateDir: z.string(),
-  codexEffort: z.string(),
+  codexEffort: z.enum(['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'persistent']),
   codexModel: z.string(),
+  codexPath: z.string(),
   gatewayPool: z.array(z.string()),
   rotateCooldownMs: z.number(),
   codexJobs: z.number(),
@@ -114,6 +115,7 @@ export function loadConfig(): Config {
     stateDir,
     codexEffort: pick('CODEX_EFFORT', 'high'),
     codexModel: pick('CODEX_MODEL', ''),
+    codexPath: pick('CODEX_PATH', Bun.which('codex') ?? 'codex'),
     gatewayPool: pick('CODEX_GATEWAY_POOL', '')
       .split(',')
       .map((h) => h.trim())
