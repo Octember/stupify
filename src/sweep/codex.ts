@@ -27,41 +27,44 @@ export async function runReview(
 ): Promise<ReviewOutcome> {
   const valid = diffRightLines(diff)
   const got: { verdict: ReviewVerdict | null } = { verdict: null }
-  const { thread, close } = await codexThread({
-    workingDirectory: workDir ?? cfg.repoDir,
-    codexPath: cfg.codexPath,
-    ...(cfg.codexModel ? { model: cfg.codexModel } : {}),
-    modelReasoningEffort: cfg.codexEffort,
-    tools: (server) =>
-      server.registerTool(
-        'review_verdict',
-        {
-          description: 'Submit your verdict. You may call it again to revise; the last call wins.',
-          annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-          inputSchema: ReviewOutput.shape,
-        },
-        (data) => {
-          for (const f of data.findings) {
-            const lines = valid.get(f.path)
-            if (lines === undefined) {
-              throw new Error(`${f.path} is not in this diff`)
-            }
-            if (!lines.has(f.line)) {
-              throw new Error(
-                `${f.path}:${f.line} is not a line this diff touches; nearest touched lines: ${nearest(lines, f.line)}`,
-              )
-            }
-          }
-          got.verdict = parseReview(data)
-          return Promise.resolve(text('noted'))
-        },
-      ),
-  })
-  const prompts = [
-    reviewPrompt(cfg, pr, priorThread, diff),
-    `${SECOND_PASS_PROMPT}\n\nIf that changes your verdict, call review_verdict again. Otherwise you are done.`,
-  ]
+  let session: Awaited<ReturnType<typeof codexThread>> | null = null
   try {
+    session = await codexThread({
+      workingDirectory: workDir ?? cfg.repoDir,
+      codexPath: cfg.codexPath,
+      ...(cfg.codexModel ? { model: cfg.codexModel } : {}),
+      modelReasoningEffort: cfg.codexEffort,
+      tools: (server) =>
+        server.registerTool(
+          'review_verdict',
+          {
+            description: 'Submit your verdict. You may call it again to revise; the last call wins.',
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+            inputSchema: ReviewOutput.shape,
+          },
+          (data) => {
+            got.verdict = null
+            for (const f of data.findings) {
+              const lines = valid.get(f.path)
+              if (lines === undefined) {
+                throw new Error(`${f.path} is not in this diff`)
+              }
+              if (!lines.has(f.line)) {
+                throw new Error(
+                  `${f.path}:${f.line} is not a line this diff touches; nearest touched lines: ${nearest(lines, f.line)}`,
+                )
+              }
+            }
+            got.verdict = parseReview(data)
+            return Promise.resolve(text('noted'))
+          },
+        ),
+    })
+    const { thread } = session
+    const prompts = [
+      reviewPrompt(cfg, pr, priorThread, diff),
+      `${SECOND_PASS_PROMPT}\n\nIf that changes your verdict, call review_verdict again. Otherwise you are done.`,
+    ]
     for (let turn = 1; turn <= cfg.maxTurns; turn++) {
       const prompt =
         prompts[turn - 1] ??
@@ -90,7 +93,7 @@ export async function runReview(
     const reason = raw.replaceAll('`', ' ').replaceAll(/\s+/g, ' ').trim().slice(0, 220) || 'codex turn failed'
     return isRateLimited(raw) || isQuotaWall(raw) ? { kind: 'limit', reason } : { kind: 'fail', reason }
   } finally {
-    close()
+    session?.close()
   }
   return got.verdict ?? { kind: 'fail', reason: `no verdict after ${cfg.maxTurns} turns` }
 }
