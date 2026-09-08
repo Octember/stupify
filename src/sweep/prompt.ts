@@ -34,7 +34,7 @@ ${corpus}
 # This PR
 Review this pull request against the spec and rubric.
 - Catch bugs, type-lies, dead code, footguns, and slop. Reuse corpus primitives; don't add LOC.
-- Submit the verdict by calling \`review_verdict\`; a second pass follows, and you may call it again to revise. Your text is not read.
+- When your review is complete, call \`review_verdict\` once. Your text is not read.
   - \`fixed\`: prior issues resolved, nothing new (runner posts \`${FIXED_NOTE}\`).
   - \`no_new_issues\`: clean, or prior issues still open (runner posts \`${STILL_NOTE}\` if clean).
   - \`findings\`: exact path/line for each inline comment, on a line this diff touches.${intent}${memory}
