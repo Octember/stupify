@@ -16,7 +16,7 @@ generic engines, and the taste they read.
 
 A `.review/` _inside the repo being reviewed_ is version-controlled with the code it judges, visible in code
 review, and tuned through a normal PR, the same way you'd change a lint config. When a repo has none, both
-engines fall back to `~/.stupify/.review`, which the CLI assembles from [taste packs](../packs). The reviewer
+engines fall back to `~/.stupify/.review`, a global taste you place by hand. The reviewer
 reads it fresh from `origin/main` on every sweep, so a merged rubric change is live immediately.
 
 ## Two ends of the loop: prevent, then detect

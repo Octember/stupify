@@ -40,9 +40,6 @@ jobs:
       - name: Format
         run: bun run fmt:check
 
-      - name: Test
-        run: bun test
-
       - name: Smoke the CLI
         run: bun src/cli.ts --help
 

@@ -354,29 +354,6 @@ figure {
   line-height: 1.6;
 }
 
-/* ---- packs ---- */
-.packs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-}
-.pack {
-  font-family: var(--mono);
-  font-size: 0.86rem;
-  color: var(--ink-dim);
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 0.42rem 0.8rem;
-  transition:
-    color 0.15s,
-    border-color 0.15s;
-}
-.pack:hover {
-  color: var(--ink);
-  border-color: var(--accent);
-}
-
 /* ---- closing ---- */
 .closing h2 {
   font-family: var(--serif);

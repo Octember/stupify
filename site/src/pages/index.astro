@@ -34,18 +34,6 @@ const gallery = [
   },
 ];
 
-const packs = [
-  ['dtolnay', 'dtolnay.md'],
-  ['DHH', 'dhh.md'],
-  ['antirez', 'antirez.md'],
-  ['Sindre Sorhus', 'sindre-sorhus.md'],
-  ['Rich Harris', 'rich-harris.md'],
-  ['colinhacks', 'zod.md'],
-  ['Mitchell Hashimoto', 'mitchell-hashimoto.md'],
-  ['Tanner Linsley', 'tanner-linsley.md'],
-  ['Simon Willison', 'simon-willison.md'],
-  ['Jarred Sumner', 'jarred-sumner.md'],
-];
 ---
 
 <!doctype html>
@@ -80,7 +68,6 @@ const packs = [
         <a class="brand" href="/"><span class="mark">🧙</span> stupify</a>
         <div class="nav-links">
           <a class="hide-sm" href="#gallery">Examples</a>
-          <a class="hide-sm" href="#packs">Taste packs</a>
           <a href={NPM} target="_blank" rel="noopener">npm</a>
           <a href={GH} target="_blank" rel="noopener">GitHub ↗</a>
         </div>
@@ -96,10 +83,7 @@ const packs = [
             <strong><a class="ilink" href="https://github.com/openai/codex/issues/28224" target="_blank" rel="noopener">slop</a></strong>.
           </p>
           <p class="lede-sub">
-            stupify reviews every PR against a corpus of code
-            <a class="ilink" href={`${GH}/blob/main/packs/dtolnay.md`} target="_blank" rel="noopener">you</a>
-            <a class="ilink" href={`${GH}/blob/main/packs/antirez.md`} target="_blank" rel="noopener">actually</a>
-            <a class="ilink" href={`${GH}/blob/main/packs/dhh.md`} target="_blank" rel="noopener">respect</a>, names
+            stupify reviews every PR against a corpus of code you actually respect, names
             the slop, and tells you how to fix it.
           </p>
           <div class="install">
@@ -165,28 +149,6 @@ const packs = [
               </figure>
             ))
           }
-        </div>
-      </div>
-    </section>
-
-    <section id="packs">
-      <div class="wrap">
-        <div class="section-head reveal">
-          <h2>No corpus yet? Borrow one</h2>
-          <p>
-            Pick a programmer whose code you’d point a new hire at, or compose several. Each pack is
-            concrete principles plus commit-pinned exemplar files. Or bring your own best files.
-          </p>
-        </div>
-        <div class="packs">
-          {
-            packs.map(([name, file]) => (
-              <a class="pack" href={`${GH}/blob/main/packs/${file}`} target="_blank" rel="noopener">
-                {name}
-              </a>
-            ))
-          }
-          <a class="pack" href={`${GH}/tree/main/packs`} target="_blank" rel="noopener">browse all →</a>
         </div>
       </div>
     </section>

@@ -83,7 +83,7 @@ async function main(): Promise<void> {
     process.exit(1)
   }
   // Resolve the taste: the target repo's own .review/ wins (a repo can override); otherwise fall back to the
-  // home taste the CLI assembled from packs (~/.stupify/.review). Either way cfg.reviewDir becomes ABSOLUTE.
+  // global taste under ~/.stupify/.review. Either way cfg.reviewDir becomes ABSOLUTE.
   // Select on the FULL 3-file set, not just CORPUS.md — a partial repo .review/ (e.g. CORPUS without the spec)
   // then gracefully falls back to the home taste instead of being picked and dead-ending at "no machinery".
   setStatusStage(cfg, status, 'loading_taste', 'loading review taste')
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
   cfg.reviewDir = hasMachinery(repoReview) ? repoReview : cfg.homeReviewDir
   if (!hasMachinery(cfg.reviewDir)) {
     log(
-      `no review machinery at ${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Run \`stupify setup\` to assemble taste, or add a .review/ to ${cfg.slug}.`,
+      `no review machinery at ${cfg.reviewDir}/ (need REVIEW-PROMPT.md + RUBRIC.md + CORPUS.md) — no-op. Add a .review/ to ${cfg.slug} (\`stupify init\`).`,
     )
     status.stage = 'done'
     status.message = 'no review machinery found'

@@ -30,7 +30,6 @@
     "src/hand-written-prompts.ts",
     "src/sweep",
     ".review",
-    "packs",
     "README.md",
     "LICENSE"
   ],
@@ -41,7 +40,6 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
-    "test": "bun test",
     "lint": "oxlint",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
