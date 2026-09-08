@@ -43,22 +43,15 @@ const nearest = (lines: Set<number>, line: number): string =>
     .join(', ')
 
 // What the schema can't say is thrown here so the MODEL corrects it, instead of the runner demoting the finding
-// after the fact: the FIRST call is refused with the hand-written second pass (the ownership challenge lands
-// the moment the model tries to finish, inside the same turn, and can't be skipped), an anchor must be a
-// right-side line this diff touches (the only lines GitHub threads on), and a convergence verdict carries no
-// findings (parseReview).
+// after the fact: an anchor must be a right-side line this diff touches (the only lines GitHub threads on), and
+// a convergence verdict carries no findings (parseReview). The last accepted call wins.
 const verdictTool = (diff: string, submit: (verdict: ReviewVerdict) => void) => {
   const valid = diffRightLines(diff)
-  let challenged = false
   return tool(
     'review_verdict',
-    'Finish the review with your verdict. The first call answers with a second pass to do before it accepts.',
+    'Submit your verdict. You may call it again to revise; the last call wins.',
     ReviewOutput,
     (data) => {
-      if (!challenged) {
-        challenged = true
-        throw new Error(`not yet. ${SECOND_PASS_PROMPT} Then call review_verdict again.`)
-      }
       for (const f of data.findings) {
         const lines = valid.get(f.path)
         if (lines === undefined) {
@@ -125,15 +118,21 @@ export async function runReview(
     },
   )
   try {
-    // A turn is codex's own tool loop until its final message; one that ends without a verdict gets a
-    // continuation on the same thread, up to MAX_TURNS.
+    // Turn 1 reviews, turn 2 is always the hand-written second pass, and a turn that still ends without a
+    // verdict gets a continuation on the same thread, up to MAX_TURNS.
+    let secondPass = false
     await session.runTurns(
       untilDone({
         prompt: reviewPrompt(cfg, pr, priorThread, diff),
-        done: () => got.verdict !== null,
+        done: () => secondPass && got.verdict !== null,
         maxTurns: cfg.maxTurns,
-        continuation: (turn, max) =>
-          `Continuation, turn ${turn} of ${max}, same thread. Resume from where you left off; finish by calling review_verdict.`,
+        continuation: (turn, max) => {
+          if (turn === 2) {
+            secondPass = true
+            return SECOND_PASS_PROMPT
+          }
+          return `Continuation, turn ${turn} of ${max}, same thread. Resume from where you left off; finish by calling review_verdict.`
+        },
       }),
     )
   } catch (error) {
