@@ -42,15 +42,19 @@ const nearest = (lines: Set<number>, line: number): string =>
     .join(', ')
 
 // What the schema can't say is thrown here so the MODEL corrects it, instead of the runner demoting the finding
-// after the fact: an anchor must be a right-side line this diff touches (the only lines GitHub threads on), and
-// a convergence verdict carries no findings (parseReview).
-const verdictTool = (diff: string, submit: (verdict: ReviewVerdict) => void) => {
+// after the fact: the verdict is only accepted once the second pass is running (a first-turn call would skip
+// the ownership challenge), an anchor must be a right-side line this diff touches (the only lines GitHub
+// threads on), and a convergence verdict carries no findings (parseReview).
+const verdictTool = (diff: string, secondPass: () => boolean, submit: (verdict: ReviewVerdict) => void) => {
   const valid = diffRightLines(diff)
   return tool(
     'review_verdict',
     'Submit the review verdict. Call once, after the second pass.',
     ReviewOutput,
     (data) => {
+      if (!secondPass()) {
+        throw new Error('not yet: finish the review, do the second pass when asked, then call review_verdict')
+      }
       for (const f of data.findings) {
         const lines = valid.get(f.path)
         if (lines === undefined) {
@@ -77,6 +81,7 @@ export async function runReview(
   workDir?: string,
 ): Promise<ReviewOutcome> {
   const got: { verdict: ReviewVerdict | null } = { verdict: null }
+  const turns = [reviewPrompt(cfg, pr, priorThread, diff), SECOND_PASS_PROMPT]
   const session = new AppServerSession(
     {
       cwd: workDir ?? cfg.repoDir,
@@ -87,9 +92,13 @@ export async function runReview(
       turnTimeoutMs: TURN_TIMEOUT_MS,
     },
     [
-      verdictTool(diff, (verdict) => {
-        got.verdict = verdict
-      }),
+      verdictTool(
+        diff,
+        () => turns.length === 0, // both prompts handed out → the second pass is the running turn
+        (verdict) => {
+          got.verdict = verdict
+        },
+      ),
     ],
     (event) => {
       if (event.log) {
@@ -113,7 +122,6 @@ export async function runReview(
       },
     },
   )
-  const turns = [reviewPrompt(cfg, pr, priorThread, diff), SECOND_PASS_PROMPT]
   try {
     await session.runTurns(() => turns.shift() ?? null)
   } catch (error) {
