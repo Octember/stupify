@@ -1,6 +1,6 @@
-// Sweep configuration: every knob lives in config.env next to the deployed engine (read fresh each run), and a
-// one-shot env override wins over the persisted file. Also owns the sweep log, set up before knob parsing so
-// config warnings reach sweep.log, not just cron.log.
+// Sweep configuration: every knob lives in config.env next to the engine bundle (read fresh each run), and a
+// one-shot env override wins over the file. Also owns the sweep log, set up before knob parsing so config
+// warnings reach sweep.log, not just cron.log.
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -30,13 +30,8 @@ export const Config = z.object({
   failRetryMs: z.number(),
   stateDir: z.string(),
   codexEffort: z.string(),
-  codexProvider: z.string(), // optional `-c model_provider=...`; empty = codex's default
   codexModel: z.string(), // optional `-c model=...`; empty = codex's default
-  githubStatus: z.boolean(),
-  statusAppId: z.string(),
-  statusAppKeyPath: z.string(),
-  githubStatusContext: z.string(),
-  gatewayPool: z.string(),
+  gatewayPool: z.array(z.string()), // ordered exe-llm gateway hosts to rotate through on a quota wall; empty = off
   rotateCooldownMs: z.number(),
   codexJobs: z.number(),
 })
@@ -93,16 +88,15 @@ export function loadConfig(): Config {
     return onInvalid
   }
 
-  // Home is where the CLI deployed us (~/.stupify) — config.env, state, and the dedicated checkout all live here.
+  // Home is where deploy/push.sh put us (~/.stupify) — config.env, state, and the dedicated checkout all live here.
   const stupifyHome = pick('STUPIFY_HOME', KIT_DIR)
   const stateDir = join(stupifyHome, 'state')
   mkdirSync(stateDir, { recursive: true })
   LOG.path = join(stateDir, 'sweep.log') // set before parsing knobs so config warnings reach sweep.log, not just cron.log
 
   const slug = pick('REPO_SLUG', '').trim()
-  if (!slug && !process.env.REVIEW_PR) {
-    // `stupify review <pr>` carries the repo in the PR ref, so it doesn't need a configured REPO_SLUG; the sweep does.
-    log('config: REPO_SLUG is required (owner/repo) — aborting. Run `stupify setup` to install locally.')
+  if (!slug) {
+    log('config: REPO_SLUG is required (owner/repo) — aborting. See DEPLOY.md.')
     process.exit(1)
   }
   const scopeRaw = pick('SCOPE', 'auto').trim().toLowerCase()
@@ -125,13 +119,11 @@ export function loadConfig(): Config {
     failRetryMs: int('FAIL_RETRY_MIN', 60, 1) * 60_000, // after a failed review, don't re-attempt that head for this long
     stateDir,
     codexEffort: pick('CODEX_EFFORT', 'high'),
-    codexProvider: pick('CODEX_PROVIDER', ''),
     codexModel: pick('CODEX_MODEL', ''),
-    githubStatus: bool('GITHUB_STATUS', true, false), // default visible in GitHub; typo disables instead of surprise-posting
-    githubStatusContext: pick('GITHUB_STATUS_CONTEXT', 'stupify/review').trim() || 'stupify/review',
-    statusAppId: pick('GITHUB_STATUS_APP_ID', '').trim(),
-    statusAppKeyPath: pick('GITHUB_STATUS_APP_KEY', '').trim(),
-    gatewayPool: pick('CODEX_GATEWAY_POOL', ''),
+    gatewayPool: pick('CODEX_GATEWAY_POOL', '')
+      .split(',')
+      .map((h) => h.trim())
+      .filter(Boolean),
     rotateCooldownMs: int('CODEX_ROTATE_COOLDOWN_MIN', 10, 0) * 60_000,
     codexJobs: int('CODEX_JOBS', 3, 1), // a review session takes minutes; a small pool keeps a busy sweep from serializing them
   })

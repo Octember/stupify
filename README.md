@@ -7,7 +7,6 @@
 
 **AI agents are rats in a maze. They reach for what they know.** And unless you show them better, what they know is slop: [most software is garbage](https://github.com/openai/codex/issues/28224), and they'll [happily](https://github.com/thesysdev/openui/issues/517) [imitate](https://github.com/RsyncProject/rsync/issues/929) [it](https://github.com/anthropics/claudes-c-compiler/issues/1).
 
-[![npm](https://img.shields.io/npm/v/@stupify/cli?color=cb3837&label=%40stupify%2Fcli)](https://www.npmjs.com/package/@stupify/cli)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ![A real stupify review with four kinds of finding in one pass: a high-confidence bug, a fail-open footgun, a reinvented SDK primitive, and a dead config seam.](docs/proof/00-slop.png)
@@ -20,52 +19,26 @@ _actual issues, tells the coding agent exactly how + what to fix_ **[more catche
 - **On your personal Codex plan.** stupify reviews with [Codex](https://github.com/openai/codex), running on the $20-$200/month plan. API usage is roughly 50x more expensive, enjoy the subsidized tokens while they last
 - **Slop, named.** Code review is cheap. Taste is expensive. Codify the goodies, let the LLM pattern match
 
-## Add the reviewer
+## Run it
+
+stupify is one Bun file on a cron, next to a `config.env`. It rides [exe.dev](https://exe.dev): a GitHub
+integration proxies `gh` and the `llm` integration fronts your ChatGPT plan for codex, so the box holds no tokens.
 
 ```bash
-npx @stupify/cli
+git clone https://github.com/Octember/stupify && cd stupify && bun install
+ssh exe.dev integrations add github --name stupify-acme-widgets --repository acme/widgets
+ssh exe.dev new --name stupify-acme-widgets --integration stupify-acme-widgets --setup-script /dev/stdin < deploy/vm-setup.sh
+ssh exe.dev integrations attach llm vm:stupify-acme-widgets
+deploy/push.sh stupify-acme-widgets acme/widgets stupify-acme-widgets.int.exe.xyz
 ```
 
-```
-┌  stupify
-◇  using integration acme-widgets
-◇  VM stupify-acme-widgets created
-└  stupify is provisioned for acme/widgets 👀
-```
-
-stupify rides on [exe.dev](https://exe.dev) with no keys or servers to run. Setup takes about two minutes and doesn't require payment.
-
-```bash
-npx @stupify/cli <owner/repo>          # provision for a specific repo
-npx @stupify/cli setup                 # run the reviewer on this machine instead of a VM
-npx @stupify/cli status                # show the latest sweep as a workflow
-ssh exe.dev rm stupify-<owner>-<repo>  # tear it down
-```
-
-Every live sweep also posts a GitHub commit status named `stupify/review` on the PR head commit: pending while
-queued/running, success when reviewed or policy-skipped, failure when stupify posts findings, and error when the
-reviewer itself failed. Set `GITHUB_STATUS=0` in `~/.stupify/config.env` to turn that off, or
-`GITHUB_STATUS_CONTEXT=your/context` to rename it.
-
-If the `gh` identity the sweep runs under can't write commit statuses (e.g. a proxy integration whose token is
-statuses:read-only), give stupify its own GitHub App: create an App with **Commit statuses: Read & write**,
-install it on the repo, then set `GITHUB_STATUS_APP_ID=<app id>` and `GITHUB_STATUS_APP_KEY=<path to the App's
-.pem>` in `config.env`. Statuses then post via the App (short-lived installation tokens, minted and cached by the
-sweep); everything else still goes through `gh`.
-
-### Connect your accounts
-
-The reviews run on Codex. On exe.dev that's a keyless **LLM integration**: it fronts your ChatGPT/Codex plan, so
-the VM holds no API key and your plan is billed instead. Link one once at [exe.dev/integrations](https://exe.dev/integrations)
-and provisioning attaches it for you
+Open a PR and it's reviewed within a minute. Runbook, every knob, and how to read the log: [DEPLOY.md](DEPLOY.md).
 
 ## Your taste
 
-Point stupify at the files you _wish_ all your code looked like, and it scaffolds a `.review/` in your repo:
-
-```bash
-npx @stupify/cli init src/best.ts src/clean-service.ts   # inlines them; you add one line of "why" each
-```
+A `.review/` in the repo it reviews: `REVIEW-PROMPT.md` (the spec), `RUBRIC.md` (what counts as slop), and
+`CORPUS.md` (the code yours should look like). Start from this repo's own, then point `CORPUS.md` at the files you
+_wish_ all your code looked like, with one line each on why.
 
 ## License
 

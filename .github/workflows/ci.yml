@@ -40,38 +40,13 @@ jobs:
       - name: Format
         run: bun run fmt:check
 
-      - name: Smoke the CLI
-        run: bun src/cli.ts --help
-
-      - name: Bundle the sweep engine
+      - name: Build the engine
         run: |
-          bun build src/review-sweep.ts --target=bun --format=esm --outfile=/tmp/stupify-review-sweep.ts
-          if grep -E "from ['\"]@(stupify|bevyl-ai)/" /tmp/stupify-review-sweep.ts; then
+          bun run build
+          if grep -E "from ['\"]@(stupify|bevyl-ai)/" dist/review-sweep.ts; then
             echo "::error::review-sweep bundle still imports an external package"
             exit 1
           fi
-
-      - name: Check package contents
-        run: |
-          set -euo pipefail
-          pack_tgz() {
-            dir="$1"
-            pattern="$2"
-            output="$(cd "$dir" && bun pm pack)"
-            printf '%s\n' "$output" >&2
-            tgz="$(printf '%s\n' "$output" | grep -E "$pattern" | tail -n 1)"
-            if [ -z "$tgz" ]; then
-              echo "::error::could not find packed tarball for $dir"
-              exit 1
-            fi
-            printf '%s/%s\n' "$dir" "$tgz"
-          }
-
-          ROOT_TGZ="$(pack_tgz . '^stupify-cli-[0-9].*\.tgz$')"
-          TMP="$(mktemp -d)"
-          npm install --prefix "$TMP" "$ROOT_TGZ"
-          npm exec --prefix "$TMP" -- stupify --help
-          rm -rf "$TMP" "$ROOT_TGZ"
 
       - name: Install site
         working-directory: site

@@ -1,5 +1,5 @@
-// The review VERDICT contract: Codex returns ONE JSON object matching ReviewOutput (SDK `outputSchema` on the
-// second turn), and parseReview is the boundary guard behind that enforcement. Also the marker /
+// The review VERDICT contract: Codex submits ONE ReviewOutput through the `review_verdict` tool (codex.ts), the
+// kit validates the shape mid-turn, and parseReview is the guard for what the shape can't say. Also the marker /
 // convergence-note vocabulary every posted review carries.
 import { z } from 'zod'
 
@@ -24,8 +24,6 @@ export const ReviewOutput = z.strictObject({
   ),
 })
 export type ReviewOutput = z.infer<typeof ReviewOutput>
-const { $schema: _schema, ...reviewSchema } = z.toJSONSchema(ReviewOutput)
-export const REVIEW_SCHEMA = reviewSchema
 
 export interface ParsedFinding {
   path: string
@@ -74,10 +72,6 @@ export function parseReview(data: ReviewOutput): ReviewVerdict {
     throw new Error('review parsed but had no usable findings')
   }
   return { kind: 'findings', opener: data.opener, findings }
-}
-
-export function parseReviewJson(raw: string): ReviewVerdict {
-  return parseReview(ReviewOutput.parse(JSON.parse(raw)))
 }
 
 // The hidden marker stupify ends every posted review with, keyed to the head SHA — how a later sweep recognizes a

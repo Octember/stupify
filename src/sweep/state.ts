@@ -1,6 +1,4 @@
-// --- Per-VM sweep state: tiny best-effort JSON files (a parse error or fresh VM just re-attempts once). ---
-// These lived in @stupify/exe-host, but they are review-sweep domain vocabulary (heads, reviews/day) with
-// exactly one consumer, so they live here rather than in the shared kit.
+// Per-box sweep state: tiny best-effort JSON files (a parse error or a fresh box just re-attempts once).
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
@@ -88,5 +86,3 @@ export function bumpDailyCounter(path: string, daily: DailyCounter): void {
 export const failuresPath = (cfg: Config): string => join(cfg.stateDir, 'failures.json')
 export const reviewedPath = (cfg: Config): string => join(cfg.stateDir, 'reviewed.json')
 export const dailyPath = (cfg: Config): string => join(cfg.stateDir, 'daily.json')
-export const statusPath = (cfg: Config): string => join(cfg.stateDir, 'status.json')
-export const commitStatusPath = (cfg: Config): string => join(cfg.stateDir, 'commit-statuses.json')
