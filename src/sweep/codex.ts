@@ -113,6 +113,7 @@ export async function runReview(
         continuation: (turn, max) => {
           if (turn === 2) {
             secondPass = true
+            got.verdict = null
             return SECOND_PASS_PROMPT
           }
           return `Continuation, turn ${turn} of ${max}, same thread. Resume from where you left off; finish by calling review_verdict.`
