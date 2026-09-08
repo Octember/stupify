@@ -37,6 +37,7 @@ export async function runReview(
         'review_verdict',
         {
           description: 'Submit your verdict. You may call it again to revise; the last call wins.',
+          annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
           inputSchema: ReviewOutput.shape,
         },
         (data) => {
