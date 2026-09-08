@@ -1,4 +1,3 @@
-// Prompt construction: point at taste files, then the per-PR tail (intent, prior thread, diff).
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -35,7 +34,7 @@ ${corpus}
 # This PR
 Review this pull request against the spec and rubric.
 - Catch bugs, type-lies, dead code, footguns, and slop. Reuse corpus primitives; don't add LOC.
-- Submit the verdict by calling \`review_verdict\` once, after the second pass. Your text is not read.
+- Submit the verdict by calling \`review_verdict\`; a second pass follows, and you may call it again to revise. Your text is not read.
   - \`fixed\`: prior issues resolved, nothing new (runner posts \`${FIXED_NOTE}\`).
   - \`no_new_issues\`: clean, or prior issues still open (runner posts \`${STILL_NOTE}\` if clean).
   - \`findings\`: exact path/line for each inline comment, on a line this diff touches.${intent}${memory}
@@ -44,7 +43,5 @@ Review this pull request against the spec and rubric.
 ${diff}`
 }
 
-// Resolve a `.review/` that has the full taste set (spec + rubric + corpus). A partial dir (e.g. CORPUS without
-// the spec) reads as absent so the sweep falls back cleanly.
 export const hasMachinery = (dir: string): boolean =>
   existsSync(join(dir, 'CORPUS.md')) && existsSync(join(dir, 'REVIEW-PROMPT.md')) && existsSync(join(dir, 'RUBRIC.md'))

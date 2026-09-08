@@ -1,5 +1,3 @@
-// Posting to GitHub and reading back what stupify has already said. Findings land as ONE COMMENT review with
-// inline threads; the reviews/threads connection drives dedup, thread-resolution, and the reviewer's memory.
 import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
 
@@ -7,16 +5,10 @@ import { type Config, logRaw } from './config'
 import { type Comment, type Pr, priorReviewThread } from './prs'
 import { markFor, type ParsedFinding } from './verdict'
 
-// A hidden tag stamped in every inline finding comment, so a later sweep can find stupify's OWN review threads
-// (to resolve them) without knowing the bot login — `gh api user` 403s for GitHub-App integrations, so we identify
-// our content by marker, not author (same trick as the head marker).
 const STUPIFY_TAG = '<!-- stupify -->'
 
-// Non-blocking findings carry a tag that does NOT contain STUPIFY_TAG as a substring, so they never
-// land in openThreadIds and don't hold the ✅.
 const STUPIFY_NOTE_TAG = '<!-- stupify:note -->'
 
-// One non-blocking COMMENT review: `comments` are inline, each anchored to a diff line (a resolvable thread).
 function submitReview(
   cfg: Config,
   pr: Pr,
@@ -29,9 +21,6 @@ function submitReview(
   })
 }
 
-// Post findings as ONE COMMENT review: each finding becomes an inline comment anchored to its diff line (a
-// resolvable thread); the body carries the opener + the head marker (dedup). Anchors were checked against the
-// diff when the verdict was submitted (codex.ts), so every finding goes inline.
 export function postReview(cfg: Config, pr: Pr, opener: string, findings: ParsedFinding[]): boolean {
   const inline = findings.map((f) => ({
     path: f.path,
@@ -44,22 +33,16 @@ export function postReview(cfg: Config, pr: Pr, opener: string, findings: Parsed
   if (r.ok) {
     return true
   }
-  // GitHub rejects the WHOLE review if any single inline anchor is a line it won't accept (a diff edge
-  // diffRightLines didn't catch). Don't lose the findings to one bad line: retry body-only so they still land
-  // (visible, just not inline) instead of failing — and re-failing — every sweep.
+
   logRaw(`  postReview #${pr.number} inline rejected, body-only fallback: ${r.combined.slice(0, 200)}\n`)
   return submitReview(cfg, pr, [head, ...findings.map((f) => f.body), markFor(pr)].filter(Boolean).join('\n\n'), []).ok
 }
 
-// A bodied-only COMMENT review (no inline comments) — for the one-time `LGTM ✅` on a clean first pass, or to carry
-// a review codex wrote without parseable per-line findings. Body still ends with the head marker for dedup.
 export function postNote(cfg: Config, pr: Pr, note: string): boolean {
   return submitReview(cfg, pr, `${note}\n\n${markFor(pr)}`, []).ok
 }
 
-// Resolve stupify's open threads when its findings are fixed — the native "this is handled" signal.
 export function resolveThreads(threadIds: string[]): boolean {
-  // Resolve every thread even if one fails — a partial resolve still leaves work for the next sweep.
   return threadIds
     .map(
       (id) =>
@@ -73,14 +56,11 @@ export function resolveThreads(threadIds: string[]): boolean {
     .every(Boolean)
 }
 
-// What stupify has already said on a PR — read from the REVIEWS/THREADS connection (findings are inline threads now,
-// not issue comments). Drives dedup (a review body carries the head marker), firstReview, thread-resolution, and the
-// memory fed back to codex. gh's GraphQL shape is trusted; navigate leniently and default on anything missing.
 export interface PriorState {
-  memory: string // prior findings + the author's replies, fenced for codex (priorReviewThread output)
-  reviewedHead: boolean // a stupify review for THIS head exists — durable dedup, survives VM recreation
-  everReviewed: boolean // stupify has reviewed this PR at all → firstReview = !everReviewed
-  openThreadIds: string[] // stupify's UNRESOLVED threads — resolve these when the findings are fixed
+  memory: string
+  reviewedHead: boolean
+  everReviewed: boolean
+  openThreadIds: string[]
 }
 const GqlAuthor = z.object({ login: z.string().optional() }).nullable()
 const GqlComment = z.object({
