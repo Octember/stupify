@@ -5,7 +5,7 @@
     "": {
       "name": "stupify",
       "dependencies": {
-        "@bevyl-ai/agent-tools": "0.14.1",
+        "@bevyl-ai/agent-tools": "0.14.2",
         "zod": "^4.4.3",
       },
       "devDependencies": {
@@ -18,7 +18,7 @@
     },
   },
   "packages": {
-    "@bevyl-ai/agent-tools": ["@bevyl-ai/agent-tools@0.14.1", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.30.0", "@openai/codex-sdk": "^0.153.4", "zod": "^4.4.3" } }, "sha512-UvOr8uZNlwPGKpLEdB81xMt9zf1KQdSQwoiVNLVAcbwyci6IEtqwFbL/jneXjX9ev8ojpiD/fa6pR7h0TElB/w=="],
+    "@bevyl-ai/agent-tools": ["@bevyl-ai/agent-tools@0.14.2", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.30.0", "@openai/codex-sdk": "^0.153.4", "zod": "^4.4.3" } }, "sha512-lE/8XyL9LiCz2k2yBQs/zVcJYfYihFu3n7J2YnfqEi/edJgdKk5Lr4pLm1Bipm+PRlbdmV0Zd0P0wwdUXFQO2Q=="],
 
     "@hono/node-server": ["@hono/node-server@2.1.1", "", { "peerDependencies": { "hono": "^4" } }, "sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg=="],
 
