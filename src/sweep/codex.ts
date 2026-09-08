@@ -74,6 +74,9 @@ export async function runReview(
       for (const item of items) {
         if (item.type === 'mcp_tool_call') {
           logRaw(`  codex: ⚙ ${item.tool}${item.error ? ` — ${item.error.message}` : ''}\n`)
+          if (item.tool === 'review_verdict' && item.error) {
+            got.verdict = null
+          }
         }
       }
       if (usage) {
