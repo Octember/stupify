@@ -25,7 +25,7 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
     process.exit(1)
   }
   cfg.slug = slug
-  // Taste: this repo's own .review/ if you're standing in it, else the home taste the CLI assembled from packs.
+  // Taste: this repo's own .review/ if you're standing in it, else the global one under ~/.stupify/.review.
   const cwdReview = join(process.cwd(), '.review')
   cfg.reviewDir = hasMachinery(cwdReview) ? cwdReview : cfg.homeReviewDir
   if (!hasMachinery(cfg.reviewDir)) {

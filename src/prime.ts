@@ -16,7 +16,7 @@ import { join } from 'node:path'
 const HOME = process.env.STUPIFY_HOME ?? join(homedir(), '.stupify')
 const BUDGET = 9000 // max bytes of injected additionalContext — measured: SessionStart silently truncates above ~10KB
 
-/** Resolve taste like the reviewer does (the repo you're coding in wins, else the pack taste setup assembled)
+/** Resolve taste like the reviewer does (the repo you're coding in wins, else the global one under ~/.stupify/.review)
  *  and build the SessionStart payload. Returns null when no taste is set up — caller emits nothing. */
 export function primePayload(cwd: string = process.cwd(), home: string = HOME): string | null {
   // A repo's .review/ lives at its git ROOT — so a session opened in a subdir still finds it (cwd → root → home).
@@ -44,15 +44,15 @@ ${rubric}
 ## The code yours should look like — match it (CORPUS)
 `
   // A SessionStart hook's additionalContext is silently truncated above the cap, and the corpus lands LAST. A
-  // multi-pack corpus easily exceeds the room — and a naive trim would keep only the FIRST pack and silently
-  // drop the rest. Instead, give every pack a FAIR SHARE of the room so each picked taste is represented (the
-  // reviewer reads the full CORPUS.md from disk and is unaffected). CORPUS.md is `intro --- pack1 --- pack2 …`;
+  // multi-section corpus easily exceeds the room — and a naive trim would keep only the FIRST section and silently
+  // drop the rest. Instead, give every section a FAIR SHARE of the room so each is represented (the
+  // reviewer reads the full CORPUS.md from disk and is unaffected). CORPUS.md is `intro --- section1 --- section2 …`;
   // a single-section corpus (e.g. from `stupify init`) degrades to a plain trim of that one section.
   const room = BUDGET - head.length
   if (corpus.length > room) {
-    const [intro = '', ...packs] = corpus.split('\n\n---\n\n')
-    const trimNote = '\n\n_(trimmed per pack to fit the session-start budget — full corpus in .review/CORPUS.md)_'
-    const per = Math.max(400, (room - intro.length - trimNote.length) / Math.max(1, packs.length))
+    const [intro = '', ...sections] = corpus.split('\n\n---\n\n')
+    const trimNote = '\n\n_(trimmed per section to fit the session-start budget — full corpus in .review/CORPUS.md)_'
+    const per = Math.max(400, (room - intro.length - trimNote.length) / Math.max(1, sections.length))
     const trimSection = (p: string) => {
       if (p.length <= per) {
         return p
@@ -60,7 +60,7 @@ ${rubric}
       const cut = Math.max(p.lastIndexOf('\n### ', per), p.lastIndexOf('\n```\n', per)) // whole exemplars only
       return cut > 0 ? p.slice(0, cut) : p.slice(0, per)
     }
-    corpus = `${[intro, ...packs.map((p) => trimSection(p))].join('\n\n---\n\n')}${trimNote}`
+    corpus = `${[intro, ...sections.map((p) => trimSection(p))].join('\n\n---\n\n')}${trimNote}`
   }
   return JSON.stringify({ hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: head + corpus } })
 }

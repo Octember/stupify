@@ -16,7 +16,7 @@ _actual issues, tells the coding agent exactly how + what to fix_ **[more catche
 
 ### What you get
 
-- **Your taste, not the model's.** Code is judged against a `CORPUS.md`: a [taste pack](#taste-packs) ("code like dtolnay / DHH / antirez …") or your own best files
+- **Your taste, not the model's.** Code is judged against a `CORPUS.md` of your own best files
 - **On your personal Codex plan.** stupify reviews with [Codex](https://github.com/openai/codex), running on the $20-$200/month plan. API usage is roughly 50x more expensive, enjoy the subsidized tokens while they last
 - **Slop, named.** Code review is cheap. Taste is expensive. Codify the goodies, let the LLM pattern match
 
@@ -59,18 +59,9 @@ The reviews run on Codex. On exe.dev that's a keyless **LLM integration**: it fr
 the VM holds no API key and your plan is billed instead. Link one once at [exe.dev/integrations](https://exe.dev/integrations)
 and provisioning attaches it for you
 
-## Taste packs
+## Your taste
 
-Don't have a corpus yet? Borrow one. Pick a programmer whose code you'd point a new hire at and review and write like them, or compose several:
-
-[dtolnay](packs/dtolnay.md) · [DHH](packs/dhh.md) · [antirez](packs/antirez.md) ·
-[Sindre Sorhus](packs/sindre-sorhus.md) · [Rich Harris](packs/rich-harris.md) ·
-[zod](packs/zod.md) · [Mitchell Hashimoto](packs/mitchell-hashimoto.md) ·
-[Tanner Linsley](packs/tanner-linsley.md) · [Simon Willison](packs/simon-willison.md) ·
-[devshorts](packs/devshorts.md) · [Jarred Sumner](packs/jarred-sumner.md) · [browse all →](packs)
-
-Each pack is concrete principles plus commit-pinned exemplar files. Or **bring your own**: point stupify at the
-files you _wish_ all your code looked like, and it scaffolds a `.review/` in your repo:
+Point stupify at the files you _wish_ all your code looked like, and it scaffolds a `.review/` in your repo:
 
 ```bash
 npx @stupify/cli init src/best.ts src/clean-service.ts   # inlines them; you add one line of "why" each

@@ -27,14 +27,14 @@ import {
   vmNameFor as packageVmNameFor,
   writeCodexGatewayConfig,
 } from '@bevyl-ai/agent-tools'
-import { cancel, confirm, intro, isCancel, log, multiselect, note, outro, spinner, text } from '@clack/prompts'
+import { cancel, confirm, intro, isCancel, log, note, outro, spinner, text } from '@clack/prompts'
 import pc from 'picocolors'
 import { z } from 'zod'
 
 import { SweepStatus } from './sweep/status'
 
 const PKG_DIR = dirname(fileURLToPath(import.meta.url))
-const PKG_ROOT = join(PKG_DIR, '..') // the published package root: holds .review/ and packs/
+const PKG_ROOT = join(PKG_DIR, '..') // the published package root: holds .review/
 const VERSION = z
   .object({ version: z.string() })
   .parse(JSON.parse(readFileSync(join(PKG_ROOT, 'package.json'), 'utf8'))).version
@@ -42,25 +42,6 @@ const HOME = process.env.STUPIFY_HOME ?? join(homedir(), '.stupify')
 const STATE = join(HOME, 'state')
 const REQUIRED = ['bun', 'gh', 'codex', 'git'] as const
 const vmNameFor = (repo: string): string => packageVmNameFor('stupify', repo)
-
-// Taste packs: "code like X". Picking one (or several) seeds the corpus, so you don't start from a blank file.
-interface Pack {
-  id: string
-  label: string
-}
-const PACKS: Pack[] = [
-  { id: 'sindre-sorhus', label: 'Sindre Sorhus · one file, one job' },
-  { id: 'zod', label: 'Colin McDonnell / Zod · parse, don’t validate' },
-  { id: 'rich-harris', label: 'Rich Harris / Svelte · compiler-grade precision' },
-  { id: 'tanner-linsley', label: 'Tanner Linsley / TanStack · types forbid bad states' },
-  { id: 'simon-willison', label: 'Simon Willison · one concept per file' },
-  { id: 'dtolnay', label: 'David Tolnay · the API that disappears (Rust)' },
-  { id: 'antirez', label: 'antirez / Redis · comments that earn their keep (C)' },
-  { id: 'dhh', label: 'DHH / Rails · controllers that tell the story (Ruby)' },
-  { id: 'mitchell-hashimoto', label: 'Mitchell Hashimoto / Ghostty · documented tradeoffs' },
-  { id: 'devshorts', label: 'devshorts · DI + branded types' },
-  { id: 'jarred-sumner', label: 'Jarred Sumner / Bun · perf as correctness' },
-]
 
 function bail<T>(value: T | symbol): asserts value is T {
   if (isCancel(value)) {
@@ -121,93 +102,6 @@ function progress(start: string): { stop: (msg: string) => void } {
   return { stop: (msg: string) => s.stop(msg) }
 }
 
-// The short human label for a set of picked packs, e.g. "Sindre Sorhus + devshorts" — for plan/success notes.
-const tasteLabel = (packs: string[]): string =>
-  PACKS.filter((p) => packs.includes(p.id))
-    .map((p) => p.label.split(' · ')[0])
-    .join(' + ')
-
-// Returns the chosen pack ids. `--pack a,b` (or 'own'/'' = your own codebase) skips the prompt; with --yes and
-// no flag it defaults to sindre-sorhus (the broadly-applicable TS/JS taste) so a fresh repo reviews immediately.
-async function pickPacks(opts: { yes: boolean; packArg?: string | undefined }): Promise<string[]> {
-  if (opts.packArg !== undefined) {
-    const requested = opts.packArg
-      .split(',')
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean)
-    const known = (id: string) => PACKS.some((p) => p.id === id)
-    const unknown = requested.filter((id) => id !== 'own' && !known(id))
-    if (unknown.length > 0) {
-      log.warn(`unknown pack(s): ${pc.bold(unknown.join(', '))}, valid: ${PACKS.map((p) => p.id).join(', ')}`)
-    }
-    return requested.filter((id) => id !== 'own' && known(id))
-  }
-  if (opts.yes) {
-    return ['sindre-sorhus']
-  }
-  if (!process.stdin.isTTY) {
-    return []
-  } // non-interactive (CI, scripts, the install hook): never block on a picker
-  const choice = await multiselect({
-    message: 'Whose code should yours look like? (pick any, or your own)',
-    options: [
-      ...PACKS.map((p) => ({ value: p.id, label: p.label })),
-      { value: 'own', label: '🧠 my own codebase', hint: 'point CORPUS.md at your files yourself' },
-    ],
-    required: false,
-  })
-  bail(choice)
-  return choice.filter((v) => v !== 'own')
-}
-
-// Build ~/.stupify/.review from the bundled rubric/prompt + the chosen packs' corpus. The engine uses this when
-// the target repo has no .review/ of its own — so taste packs work with zero files in your repo.
-function assembleReview(packs: string[]): void {
-  const out = join(HOME, '.review')
-  mkdirSync(out, { recursive: true })
-  copyFileSync(join(PKG_ROOT, '.review', 'RUBRIC.md'), join(out, 'RUBRIC.md'))
-  copyFileSync(join(PKG_ROOT, '.review', 'REVIEW-PROMPT.md'), join(out, 'REVIEW-PROMPT.md'))
-  if (packs.length === 0) {
-    return
-  } // no packs → no global corpus; reviewer/prime honestly no-op until you add taste
-  // (the bring-your-own template is scaffolded into a repo by `stupify init`, never written as a usable global corpus)
-  const header = `# Good-code reference — taste packs\n\nJudge every diff against the standards below. When you flag slop, name the principle (or the linked file) the change should have followed. Each entry inlines real code from the named programmer, with a commit-pinned source link.\n\n---\n\n`
-  const body = packs.map((id) => readFileSync(join(PKG_ROOT, 'packs', `${id}.md`), 'utf8').trim()).join('\n\n---\n\n')
-  writeFileSync(join(out, 'CORPUS.md'), `${header}${body}\n`)
-}
-
-// `stupify taste [--pack a,b]` — assemble your GLOBAL taste at ~/.stupify/.review from packs, and nothing else.
-// This is the shared core both the reviewer and `stupify prime` read when a repo has no .review/ of its own —
-// so you can set taste once without installing the cron reviewer.
-async function taste(argv: { pack?: string | undefined; yes: boolean }): Promise<void> {
-  console.clear()
-  intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · pick the code yours should look like'))
-  const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
-  if (packs.length === 0) {
-    note(
-      [
-        `no packs picked. taste packs seed a global corpus at ${pc.cyan(join(HOME, '.review'))}.`,
-        `want YOUR OWN code as the standard? ${pc.cyan('stupify init <your-best-files>')} scaffolds a ${pc.cyan('.review/')} in your repo ${pc.dim('(it always wins over a pack)')}.`,
-      ].join('\n'),
-      'nothing to assemble',
-    )
-    outro(pc.dim('pass --pack <id> for a pack, or `stupify init` for your own taste.'))
-    return
-  }
-  assembleReview(packs)
-  const tasteLine = tasteLabel(packs)
-  note(
-    [
-      `assembled ${pc.cyan(join(HOME, '.review'))} against ${pc.bold(tasteLine)}.`,
-      `your global taste, read by the reviewer AND ${pc.cyan('stupify prime')} in any repo without its own .review/.`,
-      ``,
-      `${pc.bold('next:')} ${pc.cyan('stupify prime --install')} ${pc.dim('· prime Claude Code with it every session')}`,
-    ].join('\n'),
-    'taste ready',
-  )
-  outro(pc.green('your taste is set 🎯'))
-}
-
 // Fence language tag from a file extension — best-effort, blank when unknown (still renders fine).
 const LANG: Record<string, string> = {
   ts: 'ts',
@@ -247,8 +141,8 @@ function repoRoot(): { root: string; inGit: boolean } {
 
 const CORPUS_CAP = 150 // lines: a single exemplar past this gets truncated (a corpus is shapes, not whole files)
 
-// `stupify init [files…]` — scaffold a BYO `.review/` in THIS repo from your own best files (no famous-coder
-// pack). Writes the rubric + review spec (defaults, kept if already present) and builds CORPUS.md by inlining
+// `stupify init [files…]` — scaffold a `.review/` in THIS repo from your own best files.
+// Writes the rubric + review spec (defaults, kept if already present) and builds CORPUS.md by inlining
 // each file you name with a one-line "why" for you to fill — the only hand-work, and the irreducible taste part.
 const WHY_PLACEHOLDER = '⟨why is this good? one line, e.g. "fail-fast at the boundary"⟩'
 
@@ -358,7 +252,6 @@ async function setup(argv: {
   host?: string | undefined
   codexHost?: string | undefined
   yes: boolean
-  pack?: string | undefined
 }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · sounds dumb, reviews sharp'))
@@ -428,15 +321,10 @@ async function setup(argv: {
     die(`'${argv.codexHost}' is not a valid Codex gateway host, hostname characters only`)
   }
 
-  // 3.5 taste — pick a pack (or your own code)
-  const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
-  const tasteLine = packs.length > 0 ? tasteLabel(packs) : 'your own codebase'
-
   // 4. plan + confirm
   note(
     [
       `${pc.dim('repo  ')} ${pc.bold(repo)}`,
-      `${pc.dim('taste ')} ${pc.bold(tasteLine)}`,
       host
         ? `${pc.dim('auth  ')} exe.dev integration ${pc.bold(host)} ${pc.dim('· exe-llm gateway, no keys')}`
         : `${pc.dim('auth  ')} your own gh + codex ${pc.dim('(run `gh auth login` first)')}`,
@@ -458,7 +346,6 @@ async function setup(argv: {
   const s2 = progress('installing')
   mkdirSync(STATE, { recursive: true })
   await installSweepEngine()
-  assembleReview(packs)
   const cfg = [`REPO_SLUG=${repo}`, host ? `GH_HOST=${host}` : '', '# tune anything else here, see the README']
     .filter(Boolean)
     .join('\n')
@@ -489,32 +376,17 @@ async function setup(argv: {
   const preview = `${pc.dim('preview anytime:')} ${pc.cyan(`DRY_RUN=1 bun ${join(HOME, 'review-sweep.ts')}`)}`
   const statusLine = `${pc.dim('status anytime: ')} ${pc.cyan('stupify status')}`
   const githubLine = `${pc.dim('github status: ')} ${pc.cyan('stupify/review')} ${pc.dim('on each PR head commit')}`
-  if (packs.length > 0) {
-    note(
-      [
-        `reviewing ${pc.bold(repo)} against ${pc.bold(tasteLine)}.`,
-        `open a PR (or push to one) → stupify reviews it in ~60s. ${pc.dim('no labels, no setup.')}`,
-        ``,
-        `want your OWN taste instead? add a ${pc.cyan('.review/')} to ${pc.bold(repo)}, it overrides the pack.`,
-        githubLine,
-        preview,
-        statusLine,
-      ].join('\n'),
-      "you're set",
-    )
-  } else {
-    note(
-      [
-        `${pc.bold('1.')} add a ${pc.cyan('.review/')} to ${pc.bold(repo)} and point ${pc.cyan('CORPUS.md')} at YOUR best files`,
-        `${pc.bold('2.')} open a PR → stupify reviews it in ~60s ${pc.dim('(no labels needed)')}`,
-        ``,
-        githubLine,
-        preview,
-        statusLine,
-      ].join('\n'),
-      'two steps to your first review',
-    )
-  }
+  note(
+    [
+      `${pc.bold('1.')} ${pc.cyan('stupify init <your-best-files>')} in ${pc.bold(repo)} scaffolds a ${pc.cyan('.review/')}; point ${pc.cyan('CORPUS.md')} at YOUR best files`,
+      `${pc.bold('2.')} open a PR → stupify reviews it in ~60s ${pc.dim('(no labels needed)')}`,
+      ``,
+      githubLine,
+      preview,
+      statusLine,
+    ].join('\n'),
+    'two steps to your first review',
+  )
   outro(pc.green('stupify is watching ') + pc.bold(repo) + pc.green(' 👀'))
 }
 
@@ -660,31 +532,20 @@ function removeHook(file: string): { removed: boolean } {
 
 const hasTaste = (d: string): boolean => existsSync(join(d, 'RUBRIC.md')) && existsSync(join(d, 'CORPUS.md'))
 
-async function installPrimeHook(argv: { pack?: string | undefined; agent?: string | undefined }): Promise<void> {
+function installPrimeHook(argv: { agent?: string | undefined }): void {
   console.clear()
   const targets = selectTargets(argv.agent)
   intro(
     pc.bgMagenta(pc.black(' stupify ')) + pc.dim(` · prime ${targets.map((t) => t.label).join(' + ')} with your taste`),
   )
 
-  // 0. ensure GLOBAL taste exists for the hook to inject. The hook runs in EVERY repo; a repo's own .review/
-  //    wins, but ~/.stupify/.review is the fallback, so without it the hook would no-op everywhere. Assemble it
-  //    here (explicit --pack always (re)assembles; otherwise pick only when none exists) so install just works.
-  const haveHomeTaste = hasTaste(join(HOME, '.review'))
-  const haveRepoTaste = hasTaste(join(repoRoot().root, '.review')) // a BYO .review/ in the repo you're standing in
-  let primed = haveHomeTaste || haveRepoTaste
-  if (argv.pack !== undefined || !primed) {
-    const packs = await pickPacks({ yes: false, packArg: argv.pack })
-    if (packs.length > 0) {
-      assembleReview(packs)
-      primed = true
-      const tasteLine = tasteLabel(packs)
-      log.success(`global taste assembled → ${pc.cyan(join(HOME, '.review'))} ${pc.dim(`(${tasteLine})`)}`)
-    } else if (!primed) {
-      log.warn(
-        `no taste yet. the hook will no-op until this repo has a ${pc.cyan('.review/')} (${pc.cyan('stupify init')}) or you run ${pc.cyan('stupify taste')}`,
-      )
-    }
+  // 0. the hook runs in EVERY repo: the repo's own .review/ wins, ~/.stupify/.review is the fallback. Without
+  //    either it no-ops, so say so up front.
+  const primed = hasTaste(join(HOME, '.review')) || hasTaste(join(repoRoot().root, '.review'))
+  if (!primed) {
+    log.warn(
+      `no taste yet. the hook will no-op until this repo has a ${pc.cyan('.review/')} (${pc.cyan('stupify init')})`,
+    )
   }
 
   // 1. drop the dep-free emitter where the hook can run it fast, no global install needed
@@ -705,7 +566,7 @@ async function installPrimeHook(argv: { pack?: string | undefined; agent?: strin
       ``,
       primed
         ? `every new session now opens primed with your taste ${pc.dim('(~30ms, pure file read)')}.`
-        : `wired but ${pc.bold('dormant')}. it activates in any repo with a ${pc.cyan('.review/')}, or run ${pc.cyan('stupify taste --pack <id>')} to set a global one.`,
+        : `wired but ${pc.bold('dormant')}. it activates in any repo with a ${pc.cyan('.review/')} (${pc.cyan('stupify init')}).`,
       ``,
       `${pc.dim('undo:')} ${pc.cyan('stupify prime --uninstall')}`,
     ].join('\n'),
@@ -846,7 +707,7 @@ function cmdReview(ref: string | undefined, post: boolean): void {
 
 // --- provision: spin up an exe.dev VM that runs stupify, from your laptop ---
 
-async function provision(argv: { repo?: string | undefined; yes: boolean; pack?: string | undefined }): Promise<void> {
+async function provision(argv: { repo?: string | undefined; yes: boolean }): Promise<void> {
   console.clear()
   intro(pc.bgMagenta(pc.black(' stupify ')) + pc.dim(' · provision a reviewer on exe.dev'))
 
@@ -896,9 +757,6 @@ async function provision(argv: { repo?: string | undefined; yes: boolean; pack?:
     die(`'${repo}' is not a valid owner/repo, expected owner/repo (e.g. acme/widgets)`)
   }
 
-  // 2.5 taste — pick a pack (or your own code); the VM installs it on first boot
-  const packs = await pickPacks({ yes: argv.yes, packArg: argv.pack })
-
   // 3. GitHub integration — reuse an existing one, else create it (needs your GitHub linked once, on the web)
   const s2 = progress('finding your GitHub integration')
   let integration = githubIntegrationFor(repo)
@@ -933,13 +791,10 @@ async function provision(argv: { repo?: string | undefined; yes: boolean; pack?:
   if (llm && !validHost(llm)) {
     die(`exe.dev returned an unexpected exe-llm integration name (${llm}). refusing to use it`)
   }
-  const tasteLine = packs.length > 0 ? tasteLabel(packs) : 'your own codebase'
-
   // 4. plan + confirm
   note(
     [
       `${pc.dim('repo ')}  ${pc.bold(repo)}`,
-      `${pc.dim('taste')}  ${pc.bold(tasteLine)}`,
       `${pc.dim('vm   ')}  a small always-on exe.dev VM on your account`,
       `${pc.dim('auth ')}  integration ${pc.bold(integration)} ${pc.dim('· no keys, no tokens')}`,
     ].join('\n'),
@@ -957,7 +812,7 @@ async function provision(argv: { repo?: string | undefined; yes: boolean; pack?:
   // 5. create the VM with a first-boot setup-script that installs stupify
   const s3 = progress('provisioning VM + installing stupify')
   const vm = vmNameFor(repo)
-  const setupCommand = `exec bunx @stupify/cli@${VERSION} setup ${repo} --host ${host} --pack ${packs.join(',') || 'own'} --yes`
+  const setupCommand = `exec bunx @stupify/cli@${VERSION} setup ${repo} --host ${host} --yes`
   const script = exeSetupScript(setupCommand, llm ? `${llm}.int.exe.xyz` : undefined)
   const created = exe(
     ['new', '--name', vm, '--integration', integration, '--json', '--setup-script', '/dev/stdin'],
@@ -986,19 +841,10 @@ async function provision(argv: { repo?: string | undefined; yes: boolean; pack?:
   }
 
   // 6. success
-  const firstReview =
-    packs.length > 0
-      ? [
-          `reviewing ${pc.bold(repo)} against ${pc.bold(tasteLine)}.`,
-          `open a PR (or push to one) → stupify reviews it in ~60s. ${pc.dim('no labels, no setup.')}`,
-          ``,
-          `want your OWN taste? add a ${pc.cyan('.review/')} to ${pc.bold(repo)}, it overrides the pack.`,
-        ]
-      : [
-          `${pc.yellow('⚠ dormant')}. you chose your own taste, so the reviewer no-ops every sweep until ${pc.bold(repo)} has a ${pc.cyan('.review/')}.`,
-          `${pc.bold('1.')} add a ${pc.cyan('.review/')} to ${pc.bold(repo)}, copy this repo's, point CORPUS.md at YOUR best files`,
-          `${pc.bold('2.')} push it → stupify reviews every PR in ~60s ${pc.dim('(no labels needed)')}`,
-        ]
+  const firstReview = [
+    `reviewing ${pc.bold(repo)} against its own ${pc.cyan('.review/')}. ${pc.dim('no labels, no setup.')}`,
+    `no ${pc.cyan('.review/')} there yet? ${pc.cyan('stupify init <your-best-files>')} scaffolds one; the reviewer no-ops every sweep until it lands.`,
+  ]
   note(
     [
       `${pc.bold(vm)} is booting and installing stupify ${pc.dim('(~15s)')}.`,
@@ -1026,7 +872,6 @@ ${pc.dim('Usage')} ${pc.dim('(run from your laptop)')}
   stupify status          show the latest sweep as a workflow
   stupify upgrade [repo]  move a running reviewer to the latest engine, in place ${pc.dim('(a VM if repo given, else this box)')}
   stupify review <pr> [--post]  review ONE pull request on demand (a URL or owner/repo#123); prints it, --post comments it
-  stupify taste [--pack a,b]  borrow a taste pack (assembles ~/.stupify/.review); packs below
   stupify init [files…]       encode YOUR OWN taste: scaffold .review/ from your best files in this repo
   stupify prime --install     prime Claude Code + Codex with your taste every session (SessionStart hook)
   stupify prime --uninstall   remove those hooks
@@ -1036,7 +881,6 @@ ${pc.dim('Flags')}
   --host <h.int.exe.xyz>  GitHub integration host (for 'setup')
   --codex-host <h>        exe-llm gateway host (for 'setup'; default llm.int.exe.xyz)
   --agent <a,b>           ('prime') which agents to wire: ${PRIME_TARGETS.map((t) => t.id).join(', ')} (default: detected)
-  --pack <a,b,...>        taste packs: ${PACKS.map((p) => p.id).join(', ')}
   --force                 ('init') rebuild CORPUS.md even if it exists (your filled-in "why" lines are kept)
   --yes, -y               accept detected defaults, no prompts (for CI / scripts)
 
@@ -1095,27 +939,20 @@ const valueFlag = (name: string) => {
 }
 const host = valueFlag('--host')
 const codexHost = valueFlag('--codex-host')
-const pack = valueFlag('--pack')
 const agent = valueFlag('--agent')
 const positional = args.filter(
   (a, i) =>
-    !a.startsWith('-') &&
-    args[i - 1] !== '--host' &&
-    args[i - 1] !== '--codex-host' &&
-    args[i - 1] !== '--pack' &&
-    args[i - 1] !== '--agent',
+    !a.startsWith('-') && args[i - 1] !== '--host' && args[i - 1] !== '--codex-host' && args[i - 1] !== '--agent',
 )
 const [cmd] = positional
 
 if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
   help()
-} else if (cmd === 'taste') {
-  await taste({ pack, yes })
 } else if (cmd === 'init') {
   await init({ files: positional.slice(1), force: args.includes('--force') })
 } else if (cmd === 'prime') {
   if (args.includes('--install')) {
-    await installPrimeHook({ pack, agent })
+    installPrimeHook({ agent })
   } else if (args.includes('--uninstall')) {
     uninstallPrimeHook()
   } else {
@@ -1130,10 +967,10 @@ if (args.includes('-h') || args.includes('--help') || cmd === 'help') {
 } else if (cmd === 'review') {
   cmdReview(positional[1], args.includes('--post'))
 } else if (cmd === 'setup') {
-  await setup({ repo: positional[1], host, codexHost, yes, pack })
+  await setup({ repo: positional[1], host, codexHost, yes })
 } else if (cmd === 'upgrade') {
   await upgrade(positional[1])
 } else {
   // default (and explicit `provision`): provision an exe.dev VM
-  await provision({ repo: cmd === 'provision' ? positional[1] : cmd, yes, pack })
+  await provision({ repo: cmd === 'provision' ? positional[1] : cmd, yes })
 }

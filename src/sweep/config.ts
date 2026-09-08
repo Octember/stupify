@@ -20,7 +20,7 @@ export const Config = z.object({
   slug: z.string(),
   defaultBranch: z.string(),
   reviewDir: z.string(), // resolved later to an absolute path (repo .review/ or homeReviewDir)
-  homeReviewDir: z.string(), // fallback taste the CLI assembled under STUPIFY_HOME/.review
+  homeReviewDir: z.string(), // fallback global taste under STUPIFY_HOME/.review
   scope: Scope,
   reviewLabel: z.string(),
   diffLineCap: z.number(),
