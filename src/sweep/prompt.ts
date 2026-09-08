@@ -44,7 +44,7 @@ Review this pull request against the spec and rubric.
 ${diff}`
 }
 
-// Resolve a `.review/` that has the full taste set (spec + rubric + corpus). Both the sweep and `stupify review`
-// gate on it; a partial dir (e.g. CORPUS without the spec) reads as absent so the caller falls back cleanly.
+// Resolve a `.review/` that has the full taste set (spec + rubric + corpus). A partial dir (e.g. CORPUS without
+// the spec) reads as absent so the sweep falls back cleanly.
 export const hasMachinery = (dir: string): boolean =>
   existsSync(join(dir, 'CORPUS.md')) && existsSync(join(dir, 'REVIEW-PROMPT.md')) && existsSync(join(dir, 'RUBRIC.md'))

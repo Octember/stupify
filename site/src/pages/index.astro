@@ -3,8 +3,7 @@
 import '../styles/global.css';
 
 const GH = 'https://github.com/Octember/stupify';
-const NPM = 'https://www.npmjs.com/package/@stupify/cli';
-const INSTALL = 'npx @stupify/cli';
+const INSTALL = 'git clone https://github.com/Octember/stupify';
 
 const gallery = [
   {
@@ -68,7 +67,6 @@ const gallery = [
         <a class="brand" href="/"><span class="mark">🧙</span> stupify</a>
         <div class="nav-links">
           <a class="hide-sm" href="#gallery">Examples</a>
-          <a href={NPM} target="_blank" rel="noopener">npm</a>
           <a href={GH} target="_blank" rel="noopener">GitHub ↗</a>
         </div>
       </div>
@@ -156,7 +154,7 @@ const gallery = [
     <section class="closing">
       <div class="wrap reveal">
         <h2>Stop shipping slop</h2>
-        <p>One command. Open Claude Code primed, or open a PR and let it review.</p>
+        <p>Clone it, hand it a repo, open a PR.</p>
         <div class="install">
           <div class="cmd">
             <span class="prompt">$</span><code>{INSTALL}</code>
@@ -176,7 +174,7 @@ const gallery = [
         </p>
         <div class="links">
           <a href={GH} target="_blank" rel="noopener">GitHub</a>
-          <a href={NPM} target="_blank" rel="noopener">npm</a>
+          <a href={`${GH}/blob/main/DEPLOY.md`} target="_blank" rel="noopener">Deploy</a>
           <a href={`${GH}/blob/main/docs/ARCHITECTURE.md`} target="_blank" rel="noopener">Architecture</a>
         </div>
       </div>

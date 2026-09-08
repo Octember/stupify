@@ -1,22 +1,11 @@
-# stupify — agent guide
+# stupify
 
-**stupify** is a code reviewer that runs on Codex and judges PRs against a curated "good code" corpus + an
-anti-slop rubric. Read `README.md` and `docs/ARCHITECTURE.md` first.
+The code is the spec; `src/review-sweep.ts` reads top to bottom as what one sweep does.
 
-## Layout
+- Codex through `@bevyl-ai/agent-tools` on the exe.dev gateway, never the Claude API. The verdict is a tool call, never parsed prose.
+- One Bun file on a cron, `config.env` beside it, state in three JSON files. No server, no database, no CLI.
+- Only real reviews reach a PR. Failures are logged and throttled locally, never posted.
+- Every `gh --json` boundary is `Schema.parse`d; a malformed row throws, it does not skip.
+- Smallest change that solves it. Before keeping anything, name its second reader or writer; otherwise delete it.
 
-- `src/cli.ts` — the `stupify` command: a `@clack/prompts` setup wizard + `run`. The only interactive surface.
-- `src/review-sweep.ts` — the engine. Bun; shells out to `git`/`gh`/`codex`. The CLI deploys
-  a copy to `~/.stupify/` and a cron runs it. Runs `main()` only when invoked directly (`if (import.meta.main)`),
-  so it stays importable for tests — but keep it standalone and spawn it from the CLI, never `import` it.
-- `.review/` — the **taste templates** (`REVIEW-PROMPT.md`, `RUBRIC.md`, `CORPUS.md`). These get copied into
-  the _target_ repo and edited there; in this repo they're the starting point.
-
-## Rules
-
-- Smallest change that solves it; deleting/simplifying beats adding layers. Treat new code as a cost.
-- `bun run typecheck` must pass (strict, `noUncheckedIndexedAccess`). No `as` assertions on external JSON —
-  `Schema.parse(JSON.parse(...))` at the boundary. Malformed `gh --json` throws; don't skip the row.
-- The engine validates every `gh --json` boundary and fails LOUD (posts an error comment) rather than silently.
-  Keep that property.
-- Never publish to npm or push public changes without the operator asking.
+`bun run check` gates every commit: typecheck, lint, fmt, build. Deploy is `deploy/push.sh <vm>` (DEPLOY.md).

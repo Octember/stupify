@@ -1,54 +1,25 @@
 {
-  "name": "@stupify/cli",
-  "version": "0.4.7",
+  "name": "stupify",
+  "version": "0.5.0",
+  "private": true,
   "description": "A code reviewer that talks like an idiot and catches real bugs — corpus-grounded, anti-slop, runs on Codex.",
-  "keywords": [
-    "ai",
-    "anti-slop",
-    "code-review",
-    "codex",
-    "developer-tools",
-    "pull-request"
-  ],
   "homepage": "https://stupif.ai",
-  "bugs": {
-    "url": "https://github.com/Octember/stupify/issues"
-  },
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Octember/stupify.git"
   },
-  "bin": {
-    "stupify": "bin/stupify.js"
-  },
-  "files": [
-    "bin/stupify.js",
-    "src/cli.ts",
-    "src/prime.ts",
-    "src/review-sweep.ts",
-    "src/hand-written-prompts.ts",
-    "src/sweep",
-    ".review",
-    "README.md",
-    "LICENSE"
-  ],
   "type": "module",
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "lint": "oxlint",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "cli": "bun src/cli.ts"
+    "build": "bun build src/review-sweep.ts --target=bun --format=esm --outfile=dist/review-sweep.ts",
+    "check": "bun run typecheck && bun run lint && bun run fmt:check && bun run build"
   },
   "dependencies": {
     "@bevyl-ai/agent-tools": "0.13.0",
-    "@clack/prompts": "^1.2.0",
-    "picocolors": "^1.1.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -59,7 +30,6 @@
     "typescript": "^7.0.2"
   },
   "engines": {
-    "bun": ">=1.3",
-    "node": ">=18"
+    "bun": ">=1.3"
   }
 }

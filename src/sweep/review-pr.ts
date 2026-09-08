@@ -1,9 +1,6 @@
 // Acting on one sweep review: post findings as an inline-threaded COMMENT review, resolve stupify's open
 // threads when its findings are fixed, post the convergence notes, or stay silent while findings stand.
-import { maybeRotateGateway } from '@bevyl-ai/agent-tools'
-
 import { runReview } from './codex'
-import { type CommitStatusState } from './commit-status'
 import { type Config, log } from './config'
 import { postNote, postReview, resolveThreads } from './github'
 import { type Pr } from './prs'
@@ -12,25 +9,6 @@ import { prepareHeadWorktree, removeHeadWorktree } from './worktree'
 
 // A posted review carries its blocking-finding count — zero blocking reads as a green status.
 export type SweepReviewResult = { blocking: number } | 'limit' | 'clean' | 'fixed' | 'open' | null
-
-export function commitStatusForSweepResult(result: number | 'clean' | 'fixed' | 'open'): {
-  state: CommitStatusState
-  description: string
-} {
-  if (typeof result === 'number') {
-    if (result > 0) {
-      return { state: 'failure', description: 'stupify found issues; see review' }
-    }
-    return { state: 'success', description: 'no blocking issues; stupify left notes' }
-  }
-  if (result === 'open') {
-    return { state: 'failure', description: 'prior stupify findings are still open' }
-  }
-  if (result === 'fixed') {
-    return { state: 'success', description: 'prior stupify findings resolved' }
-  }
-  return { state: 'success', description: 'stupify review complete; no new issues' }
-}
 
 /** Run one SWEEP review and act on it: post findings as an inline-threaded COMMENT review, RESOLVE stupify's open
  *  threads when its findings are fixed, post a one-time `LGTM ✅` review on a genuine first-pass clean, post a
@@ -61,25 +39,7 @@ export async function reviewPr(
   }
   if (r.kind === 'limit' || r.kind === 'fail') {
     log(`  review FAILED for #${pr.number} — ${r.reason}`)
-    if (r.kind === 'limit') {
-      // Self-heal: advance ~/.codex/config.toml to the next CODEX_GATEWAY_POOL account (the shared ring —
-      // same kit + env contract bunion/earshot rotate on). Codex re-reads the file each sweep, so the next
-      // sweep lands on the fresh account. The kit's signature match is tighter than isRateLimited by design:
-      // a transient 429 ends this sweep but doesn't walk the ring.
-      const rot = maybeRotateGateway({
-        reason: r.raw,
-        pool: cfg.gatewayPool
-          .split(',')
-          .map((h) => h.trim())
-          .filter(Boolean),
-        cooldownMs: cfg.rotateCooldownMs,
-      })
-      if (rot.rotated) {
-        log(`  codex gateway rotated: ${rot.from} → ${rot.to}`)
-      }
-      return 'limit'
-    }
-    return null
+    return r.kind === 'limit' ? 'limit' : null
   }
   if (r.kind === 'no_new_issues') {
     // Clean. A one-time LGTM on a PR stupify has never flagged (so "reviewed + good" is visible). On a PR it HAS

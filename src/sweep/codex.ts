@@ -1,19 +1,25 @@
 // Running Codex over one PR's diff through the kit's app-server session, and classifying the result. The verdict
 // is a `review_verdict` TOOL CALL the kit validates against ReviewOutput mid-turn (a bad shape goes back to the
 // model as the tool error); the model's text is never read.
-import { AppServerSession, isQuotaWall, isRateLimited, scrubSecrets, tool } from '@bevyl-ai/agent-tools'
+import {
+  AppServerSession,
+  isQuotaWall,
+  isRateLimited,
+  maybeRotateGateway,
+  scrubSecrets,
+  tool,
+} from '@bevyl-ai/agent-tools'
 
 import { SECOND_PASS_PROMPT } from '../hand-written-prompts'
-import { type Config, logRaw } from './config'
+import { type Config, log, logRaw } from './config'
 import { diffRightLines } from './diff'
 import { reviewPrompt } from './prompt'
 import { type Pr } from './prs'
 import { parseReview, ReviewOutput, type ReviewVerdict } from './verdict'
 
-/** The outcome of running Codex over one PR — classified but NOT acted on. The sweep posts/converges from this;
- *  the ad-hoc `stupify review` prints it or `--post`s it. */
+/** The outcome of running Codex over one PR — classified but NOT acted on; review-pr.ts posts/converges from it. */
 export type ReviewOutcome =
-  | { kind: 'limit'; reason: string; raw: string } // plan/credit exhaustion — caller STOPS; raw = full error for the rotation matcher
+  | { kind: 'limit'; reason: string } // plan/credit exhaustion — the caller launches no more reviews this sweep
   | { kind: 'fail'; reason: string } // Codex couldn't produce a review (down, timeout, stalled, never submitted)
   | ReviewVerdict
 
@@ -23,7 +29,7 @@ function callFailed(raw: string): ReviewOutcome {
   const reason = raw.replaceAll('`', ' ').replaceAll(/\s+/g, ' ').trim().slice(0, 220) || 'codex turn failed'
   // isQuotaWall covers a 502 'ChatGPT account unavailable' (dead login) — the pool must walk past it too.
   if (isRateLimited(raw) || isQuotaWall(raw)) {
-    return { kind: 'limit', reason, raw }
+    return { kind: 'limit', reason }
   }
   return { kind: 'fail', reason }
 }
@@ -90,7 +96,22 @@ export async function runReview(
         logRaw(`  codex: ${event.log}\n`)
       }
     },
-    { scrubEnv: scrubSecrets },
+    {
+      scrubEnv: scrubSecrets,
+      // Self-heal a quota wall: advance ~/.codex/config.toml to the next CODEX_GATEWAY_POOL account (the ring
+      // bunion and earshot rotate on too). Codex re-reads the file per session, so the next review lands on it.
+      // The kit walks the ring only on a real wall, never a transient 429.
+      onTurnError: (error) => {
+        const rot = maybeRotateGateway({
+          reason: String(error),
+          pool: cfg.gatewayPool,
+          cooldownMs: cfg.rotateCooldownMs,
+        })
+        if (rot.rotated) {
+          log(`  codex gateway rotated: ${rot.from} → ${rot.to}`)
+        }
+      },
+    },
   )
   const turns = [reviewPrompt(cfg, pr, priorThread, diff), SECOND_PASS_PROMPT]
   try {
