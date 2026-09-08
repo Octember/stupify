@@ -135,7 +135,7 @@ export async function reviewPr(
     return 'fixed'
   }
   // A real review: post the validated findings as inline, resolvable threads. (parseReview guarantees ≥1 finding.)
-  if (!postReview(cfg, pr, r.opener, r.findings, diff)) {
+  if (!postReview(cfg, pr, r.opener, r.findings)) {
     log(`  couldn't post #${pr.number} review (gh down?) — next sweep retries`)
     return null
   }

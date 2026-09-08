@@ -107,7 +107,7 @@ export async function reviewOne(cfg: Config, ref: string, post: boolean): Promis
     console.log([r.opener, ...r.findings.map((f) => f.body)].filter(Boolean).join('\n\n')) // default: print to stdout
     return
   }
-  if (!postReview(cfg, pr, r.opener, r.findings, diff)) {
+  if (!postReview(cfg, pr, r.opener, r.findings)) {
     console.error('stupify review: the review ran but posting it failed (gh).')
     process.exit(1)
   }

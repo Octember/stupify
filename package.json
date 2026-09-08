@@ -46,9 +46,8 @@
     "cli": "bun src/cli.ts"
   },
   "dependencies": {
-    "@bevyl-ai/agent-tools": "^0.3.0",
+    "@bevyl-ai/agent-tools": "0.13.0",
     "@clack/prompts": "^1.2.0",
-    "@openai/codex-sdk": "^0.151.0",
     "picocolors": "^1.1.1",
     "zod": "^4.4.3"
   },

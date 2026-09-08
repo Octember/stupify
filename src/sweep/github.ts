@@ -4,7 +4,6 @@ import { exec } from '@bevyl-ai/agent-tools'
 import { z } from 'zod'
 
 import { type Config, logRaw } from './config'
-import { diffRightLines } from './diff'
 import { type Comment, type Pr, priorReviewThread } from './prs'
 import { markFor, type ParsedFinding } from './verdict'
 
@@ -31,33 +30,17 @@ function submitReview(
 }
 
 // Post findings as ONE COMMENT review: each finding becomes an inline comment anchored to its diff line (a
-// resolvable thread); the body carries the opener + the head marker (dedup). Findings on a line the diff doesn't
-// touch can't be anchored, so they're demoted into the body rather than 422-ing the whole review.
-export function postReview(cfg: Config, pr: Pr, opener: string, findings: ParsedFinding[], diff: string): boolean {
-  const valid = diffRightLines(diff)
-  const inline: { path: string; line: number; side: 'RIGHT'; body: string }[] = []
-  const demoted: string[] = []
-  for (const f of findings) {
-    if (valid.get(f.path)?.has(f.line)) {
-      inline.push({
-        path: f.path,
-        line: f.line,
-        side: 'RIGHT',
-        body: `${f.body}\n${f.blocking ? STUPIFY_TAG : STUPIFY_NOTE_TAG}`,
-      })
-    } else {
-      demoted.push(f.body)
-    }
-  }
+// resolvable thread); the body carries the opener + the head marker (dedup). Anchors were checked against the
+// diff when the verdict was submitted (codex.ts), so every finding goes inline.
+export function postReview(cfg: Config, pr: Pr, opener: string, findings: ParsedFinding[]): boolean {
+  const inline = findings.map((f) => ({
+    path: f.path,
+    line: f.line,
+    side: 'RIGHT' as const,
+    body: `${f.body}\n${f.blocking ? STUPIFY_TAG : STUPIFY_NOTE_TAG}`,
+  }))
   const head = opener.trim()
-  if (inline.length === 0) {
-    return submitReview(cfg, pr, [head, ...demoted, markFor(pr)].filter(Boolean).join('\n\n'), []).ok
-  }
-  const body =
-    demoted.length > 0
-      ? [head, `couldn't anchor these to a changed line:\n\n${demoted.join('\n\n')}`, markFor(pr)].filter(Boolean)
-      : [head, markFor(pr)].filter(Boolean)
-  const r = submitReview(cfg, pr, body.join('\n\n'), inline)
+  const r = submitReview(cfg, pr, [head, markFor(pr)].filter(Boolean).join('\n\n'), inline)
   if (r.ok) {
     return true
   }

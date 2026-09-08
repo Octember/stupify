@@ -35,10 +35,10 @@ ${corpus}
 # This PR
 Review this pull request against the spec and rubric.
 - Catch bugs, type-lies, dead code, footguns, and slop. Reuse corpus primitives; don't add LOC.
-- JSON matching the schema.
+- Submit the verdict by calling \`review_verdict\` once, after the second pass. Your text is not read.
   - \`fixed\`: prior issues resolved, nothing new (runner posts \`${FIXED_NOTE}\`).
   - \`no_new_issues\`: clean, or prior issues still open (runner posts \`${STILL_NOTE}\` if clean).
-  - \`findings\`: exact path/line for each inline comment.${intent}${memory}
+  - \`findings\`: exact path/line for each inline comment, on a line this diff touches.${intent}${memory}
 
 # Diff
 ${diff}`
