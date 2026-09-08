@@ -38,7 +38,7 @@ export async function runReview(
         server.registerTool(
           'review_verdict',
           {
-            description: 'Submit your verdict. You may call it again to revise; the last call wins.',
+            description: 'Submit your verdict once, when your review is complete.',
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
             inputSchema: ReviewOutput.shape,
           },
@@ -56,7 +56,7 @@ export async function runReview(
               }
             }
             got.verdict = parseReview(data)
-            return Promise.resolve(text('noted'))
+            return Promise.resolve(text('recorded. Do not call again unless your verdict changes.'))
           },
         ),
     })
