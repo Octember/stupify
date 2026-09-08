@@ -8,6 +8,7 @@ import {
   maybeRotateGateway,
   scrubSecrets,
   tool,
+  untilDone,
 } from '@bevyl-ai/agent-tools'
 
 import { SECOND_PASS_PROMPT } from '../hand-written-prompts'
@@ -42,18 +43,21 @@ const nearest = (lines: Set<number>, line: number): string =>
     .join(', ')
 
 // What the schema can't say is thrown here so the MODEL corrects it, instead of the runner demoting the finding
-// after the fact: the verdict is only accepted once the second pass is running (a first-turn call would skip
-// the ownership challenge), an anchor must be a right-side line this diff touches (the only lines GitHub
-// threads on), and a convergence verdict carries no findings (parseReview).
-const verdictTool = (diff: string, secondPass: () => boolean, submit: (verdict: ReviewVerdict) => void) => {
+// after the fact: the FIRST call is refused with the hand-written second pass (the ownership challenge lands
+// the moment the model tries to finish, inside the same turn, and can't be skipped), an anchor must be a
+// right-side line this diff touches (the only lines GitHub threads on), and a convergence verdict carries no
+// findings (parseReview).
+const verdictTool = (diff: string, submit: (verdict: ReviewVerdict) => void) => {
   const valid = diffRightLines(diff)
+  let challenged = false
   return tool(
     'review_verdict',
-    'Submit the review verdict. Call once, after the second pass.',
+    'Finish the review with your verdict. The first call answers with a second pass to do before it accepts.',
     ReviewOutput,
     (data) => {
-      if (!secondPass()) {
-        throw new Error('not yet: finish the review, do the second pass when asked, then call review_verdict')
+      if (!challenged) {
+        challenged = true
+        throw new Error(`not yet. ${SECOND_PASS_PROMPT} Then call review_verdict again.`)
       }
       for (const f of data.findings) {
         const lines = valid.get(f.path)
@@ -81,7 +85,6 @@ export async function runReview(
   workDir?: string,
 ): Promise<ReviewOutcome> {
   const got: { verdict: ReviewVerdict | null } = { verdict: null }
-  const turns = [reviewPrompt(cfg, pr, priorThread, diff), SECOND_PASS_PROMPT]
   const session = new AppServerSession(
     {
       cwd: workDir ?? cfg.repoDir,
@@ -95,13 +98,9 @@ export async function runReview(
       turnTimeoutMs: TURN_TIMEOUT_MS,
     },
     [
-      verdictTool(
-        diff,
-        () => turns.length === 0, // both prompts handed out → the second pass is the running turn
-        (verdict) => {
-          got.verdict = verdict
-        },
-      ),
+      verdictTool(diff, (verdict) => {
+        got.verdict = verdict
+      }),
     ],
     (event) => {
       if (event.log) {
@@ -126,7 +125,17 @@ export async function runReview(
     },
   )
   try {
-    await session.runTurns(() => turns.shift() ?? null)
+    // A turn is codex's own tool loop until its final message; one that ends without a verdict gets a
+    // continuation on the same thread, up to MAX_TURNS.
+    await session.runTurns(
+      untilDone({
+        prompt: reviewPrompt(cfg, pr, priorThread, diff),
+        done: () => got.verdict !== null,
+        maxTurns: cfg.maxTurns,
+        continuation: (turn, max) =>
+          `Continuation, turn ${turn} of ${max}, same thread. Resume from where you left off; finish by calling review_verdict.`,
+      }),
+    )
   } catch (error) {
     // The kit spawns codex in start() before runTurns' own try/finally, so a failed handshake would leave the
     // child alive under a minute cron. Delete this once the kit's start() stops the process it spawned on failure.
@@ -135,5 +144,5 @@ export async function runReview(
     logRaw(`${raw}\n`)
     return callFailed(raw)
   }
-  return got.verdict ?? { kind: 'fail', reason: 'codex finished without calling review_verdict' }
+  return got.verdict ?? { kind: 'fail', reason: `no verdict after ${cfg.maxTurns} turns` }
 }

@@ -26,6 +26,7 @@ export const Config = z.object({
   diffLineCap: z.number(),
   dryRun: z.boolean(),
   maxPrs: z.number(),
+  maxTurns: z.number(), // codex turns per review before it's a failed attempt
   maxReviewsPerDay: z.number(),
   failRetryMs: z.number(),
   stateDir: z.string(),
@@ -115,6 +116,7 @@ export function loadConfig(): Config {
     diffLineCap: int('DIFF_LINE_CAP', 20_000, 1), // generous by design — only skips genuinely huge PRs; override via config.env
     dryRun: bool('DRY_RUN', false, true), // unset = live (cron's normal mode); garbage = preview (never post on a typo)
     maxPrs: int('MAX_PRS', 15, 1),
+    maxTurns: int('MAX_TURNS', 6, 1),
     maxReviewsPerDay: int('MAX_REVIEWS_PER_DAY', 0, 0), // daily cap; 0 = OFF (default). Per-head dedup + MAX_PRS/sweep + the rate-limit early-exit already bound spend; set a number for a hard daily ceiling.
     failRetryMs: int('FAIL_RETRY_MIN', 60, 1) * 60_000, // after a failed review, don't re-attempt that head for this long
     stateDir,

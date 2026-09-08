@@ -41,6 +41,7 @@ Every knob is a line in `~/.stupify/config.env`, read fresh each sweep. A one-sh
 | `SCOPE`                     | `auto`            | `auto` reviews every non-draft, non-bot PR; `label` only labelled ones |
 | `REVIEW_LABEL`              | `codex-review`    | force-include label: oversized diffs and bot PRs opt in with it        |
 | `DIFF_LINE_CAP`             | `20000`           | skip bigger diffs unless labelled                                      |
+| `MAX_TURNS`                 | `6`               | codex turns per review; past it the attempt fails and retries later    |
 | `MAX_PRS`                   | `15`              | reviews per sweep, counted after dedup skips                           |
 | `MAX_REVIEWS_PER_DAY`       | `0` (off)         | hard daily ceiling                                                     |
 | `FAIL_RETRY_MIN`            | `60`              | wait before retrying a head whose review failed                        |
