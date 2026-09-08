@@ -57,12 +57,12 @@ export async function runReview(
         },
       ),
   })
-  const prompts = [reviewPrompt(cfg, pr, priorThread, diff), SECOND_PASS_PROMPT]
+  const prompts = [
+    reviewPrompt(cfg, pr, priorThread, diff),
+    `${SECOND_PASS_PROMPT}\n\nIf that changes your verdict, call review_verdict again. Otherwise you are done.`,
+  ]
   try {
     for (let turn = 1; turn <= cfg.maxTurns; turn++) {
-      if (turn === 2) {
-        got.verdict = null
-      }
       const prompt =
         prompts[turn - 1] ??
         `Continuation, turn ${turn} of ${cfg.maxTurns}, same thread. Resume from where you left off; finish by calling review_verdict.`
