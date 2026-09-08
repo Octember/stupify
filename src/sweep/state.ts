@@ -3,12 +3,20 @@ import { join } from 'node:path'
 
 import { z } from 'zod'
 
-import { type Config } from './config'
+import { type Config, log } from './config'
 import { type Pr } from './prs'
 
 const HeadAttempts = z.record(z.string(), z.strictObject({ head: z.string(), at: z.number() }))
 const ReviewedHeads = z.record(z.string(), z.string())
 const DailyCounter = z.strictObject({ date: z.string(), count: z.number() })
+
+function save(path: string, value: unknown): void {
+  try {
+    writeFileSync(path, JSON.stringify(value))
+  } catch (error) {
+    log(`couldn't write ${path} — ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
 
 function load<T>(path: string, schema: z.ZodType<T>, fallback: T): T {
   try {
@@ -46,13 +54,13 @@ export function sweepState(cfg: Config): SweepState {
     },
     failed: (pr) => {
       failures[String(pr.number)] = { head: pr.headRefOid, at: Date.now() }
-      writeFileSync(failuresPath, JSON.stringify(failures))
+      save(failuresPath, failures)
     },
     reviewedHead: (pr) => {
       reviewed[String(pr.number)] = pr.headRefOid
-      writeFileSync(reviewedPath, JSON.stringify(reviewed))
+      save(reviewedPath, reviewed)
       daily.count += 1
-      writeFileSync(dailyPath, JSON.stringify(daily))
+      save(dailyPath, daily)
     },
   }
 }

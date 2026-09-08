@@ -108,7 +108,7 @@ export function loadConfig(): Config {
     diffLineCap: int('DIFF_LINE_CAP', 20_000, 1),
     dryRun: bool('DRY_RUN', false, true),
     maxPrs: int('MAX_PRS', 15, 1),
-    maxTurns: int('MAX_TURNS', 6, 1),
+    maxTurns: int('MAX_TURNS', 6, 2),
     maxReviewsPerDay: int('MAX_REVIEWS_PER_DAY', 0, 0),
     failRetryMs: int('FAIL_RETRY_MIN', 60, 1) * 60_000,
     stateDir,
